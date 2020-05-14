@@ -1,0 +1,14 @@
+[package]
+name = "mijit"
+version = "0.1.0"
+authors = ["apt1002"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "mijit"
+crate_type = ["rlib", "cdylib"]
+
+[dependencies]
+memmap = "0.6.2"
