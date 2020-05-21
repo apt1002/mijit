@@ -1,4 +1,7 @@
+pub mod code;
 pub mod control_flow;
+pub mod x86_64;
+pub mod history;
 
 pub mod beetle;
 

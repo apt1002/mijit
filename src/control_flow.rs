@@ -3,44 +3,29 @@
 use std::fmt::{Debug};
 use std::hash::{Hash};
 
+use super::{code};
+
 /// Use as a memory address.
 pub trait Address: Debug + Clone + Hash + Eq {
     fn can_alias(&self, other: &Self) -> bool;
 }
 
-pub trait Register: Debug + Clone + Hash + Eq {}
-
-pub enum ArithmeticOp {
-    Add,
-    Sub,
-    Mul,
-    Lsl,
-    Lsr,
-    Asr,
-    
+pub enum Action<A: Address> {
+    Constant(u32),
+    Unary(code::UnaryOp),
+    Binary(code::BinaryOp),
+    Division(code::DivisionOp),
+    Push(A),
+    Pop(A),
 }
 
-pub enum Action<R: Register> {
-    Constant(R, u32),
-    Arithmetic(ArithmeticOp, R, R, R),
-    Load(R, R),
-    Store(R, R),
-}
-
-pub enum Test<R> {
-    Bit(R, u8),
-    Lt(R, R),
-    Ult(R, R),
-    Eq(R, R),
-}
-
-pub struct State<R: Register> {
-    pub actions: Vec<Action<R>>,
-    pub condition: Test<R>,
+pub struct State<A: Address> {
+    pub actions: Vec<Action<A>>,
+    pub condition: code::Test,
     pub if_true: usize,
     pub if_false: usize,
 }
 
-pub struct Machine<R: Register> {
-    pub states: Vec<State<R>>,
+pub struct Machine<A: Address> {
+    pub states: Vec<State<A>>,
 }
