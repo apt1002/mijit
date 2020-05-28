@@ -1,17 +1,20 @@
+use std::num::{Wrapping};
+
 use super::{control_flow};
-use super::x86_64::{Register as R};
+pub use super::x86_64::{Register as R};
 
 pub enum TestOp {
-    Bit(u32, u32),
-    Lt(u32),
-    Ult(u32),
-    Eq(u32),
+    Bit(Wrapping<u32>, Wrapping<u32>),
+    Lt(Wrapping<u32>),
+    Ult(Wrapping<u32>),
+    Eq(Wrapping<u32>),
 }
 
 // TODO: Support tests with more than one register operand.
 pub struct Test {
     pub register: R,
     pub test_op: TestOp,
+    pub not: bool,
 }
 
 pub enum UnaryOp {
@@ -42,13 +45,22 @@ pub enum DivisionOp {
     UnsignedDivMod,
 }
 
+pub enum Width {
+    One,
+    Two,
+    Four,
+}
+
 pub enum Action<A: control_flow::Address> {
-    Constant(R, u32),
+    Constant(R, Wrapping<u32>),
+    Move(R, R),
     Unary(UnaryOp, R, R),
     Binary(BinaryOp, R, R, R),
     Division(DivisionOp, R, R, R, R),
     Load(R, A),
     Store(R, A),
+    LoadNarrow(Width, R, A),
+    StoreNarrow(Width, R, A),
     Push(R),
     Pop(R),
 }

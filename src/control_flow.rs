@@ -10,20 +10,14 @@ pub trait Address: Debug + Clone + Hash + Eq {
     fn can_alias(&self, other: &Self) -> bool;
 }
 
-pub enum Action<A: Address> {
-    Constant(u32),
-    Unary(code::UnaryOp),
-    Binary(code::BinaryOp),
-    Division(code::DivisionOp),
-    Push(A),
-    Pop(A),
+pub struct Test {
+    pub condition: code::Test,
+    pub if_true: usize,
 }
 
 pub struct State<A: Address> {
-    pub actions: Vec<Action<A>>,
-    pub condition: code::Test,
-    pub if_true: usize,
-    pub if_false: usize,
+    pub actions: Vec<code::Action<A>>,
+    pub tests: Vec<Test>,
 }
 
 pub struct Machine<A: Address> {
