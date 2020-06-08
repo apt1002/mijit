@@ -11,12 +11,13 @@ pub trait Address: Debug + Clone + Hash + Eq {
 }
 
 pub struct Test {
-    pub condition: code::Test,
+    pub condition: code::TestOp,
     pub if_true: usize,
 }
 
 pub struct State<A: Address> {
     pub actions: Vec<code::Action<A>>,
+    pub regisrer: code::R,
     pub tests: Vec<Test>,
 }
 

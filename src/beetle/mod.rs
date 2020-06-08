@@ -31,14 +31,24 @@ impl Address for BeetleAddress {
     }
 }
 
+mod decision_tree;
+use decision_tree::{};
+
 pub fn machine() -> Machine<BeetleAddress> {
     use super::x86_64::{A as R0, D as R1, C as R2, B as R3, BP as R4};
     use BeetleAddress::{Ep, A, Sp, Rp, Memory};
     const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
     const CELL_BITS: Wrapping<u32> = cell_bytes(8);
+    // FIXME: Delete.
     struct DecisionTree {
         actions: Vec<Action<BeetleAddress>>,
-        tests: Vec<(code::Test, Box<DecisionTree>)>,
+        tests: Vec<(Test, Box<DecisionTree>)>,
+    }
+    // FIXME: Delete.
+    struct Test {
+        register: code::R,
+        test_op: TestOp,
+        must_be: bool,
     }
     let instructions = vec![
         DecisionTree {
@@ -161,7 +171,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: (0..4).map(|u| {
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(u)),
                         must_be: true,
@@ -189,7 +199,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: (0..4).map(|u| {
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(u)),
                         must_be: true,
@@ -226,7 +236,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -236,7 +246,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -628,7 +638,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: true,
@@ -641,7 +651,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: false,
@@ -674,7 +684,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -684,7 +694,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -710,7 +720,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -720,7 +730,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -793,7 +803,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: true,
@@ -806,7 +816,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: false,
@@ -832,7 +842,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: true,
@@ -845,7 +855,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: false,
@@ -1137,7 +1147,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -1159,7 +1169,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -1186,7 +1196,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -1210,7 +1220,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -1381,7 +1391,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -1402,7 +1412,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![],
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -1441,7 +1451,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
@@ -1457,7 +1467,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         tests: vec![]
                     }),
                 ), (
-                    code::Test {
+                    Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
@@ -1506,7 +1516,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: false,
@@ -1518,7 +1528,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         ],
                         tests: vec![
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
@@ -1540,7 +1550,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                                 }),
                             ),
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
@@ -1565,7 +1575,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     }),
                 ),
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: true,
@@ -1577,7 +1587,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         ],
                         tests: vec![
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
@@ -1599,7 +1609,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                                 }),
                             ),
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
@@ -1648,7 +1658,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             ],
             tests: vec![
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: false,
@@ -1660,7 +1670,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         ],
                         tests: vec![
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
@@ -1677,7 +1687,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                                 }),
                             ),
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
@@ -1705,7 +1715,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     }),
                 ),
                 (
-                    code::Test {
+                    Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: true,
@@ -1717,7 +1727,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                         ],
                         tests: vec![
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
@@ -1734,7 +1744,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                                 }),
                             ),
                             (
-                                code::Test {
+                                Test {
                                     register: R4,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,

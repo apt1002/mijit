@@ -3,20 +3,19 @@ use std::num::{Wrapping};
 use super::{control_flow};
 pub use super::x86_64::{Register as R};
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
     Bit(Wrapping<u32>, Wrapping<u32>),
     Lt(Wrapping<u32>),
+    Ge(Wrapping<u32>),
     Ult(Wrapping<u32>),
+    Uge(Wrapping<u32>),
     Eq(Wrapping<u32>),
+    Ne(Wrapping<u32>),
+    Always,
 }
 
-// TODO: Support tests with more than one register operand.
-pub struct Test {
-    pub register: R,
-    pub test_op: TestOp,
-    pub must_be: bool, // Desired outcome of `test_op`.
-}
-
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     Abs,
     Negate,
@@ -25,6 +24,7 @@ pub enum UnaryOp {
     Not,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -40,17 +40,20 @@ pub enum BinaryOp {
     Eq,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum DivisionOp {
     SignedDivMod,
     UnsignedDivMod,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Width {
     One,
     Two,
     Four,
 }
 
+#[derive(Debug, Clone)]
 pub enum Action<A: control_flow::Address> {
     Constant(R, Wrapping<u32>),
     Move(R, R),
@@ -63,10 +66,4 @@ pub enum Action<A: control_flow::Address> {
     StoreNarrow(Width, R, A),
     Push(R),
     Pop(R),
-}
-
-pub struct Code<A: control_flow::Address> {
-    pub native_address: *mut u8,
-    pub condition: Test,
-    pub actions: Vec<Action<A>>,
 }
