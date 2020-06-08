@@ -33,7 +33,7 @@ impl Address for BeetleAddress {
 
 pub fn machine() -> Machine<BeetleAddress> {
     use super::x86_64::{A as R0, D as R1, C as R2, B as R3, BP as R4};
-    use BeetleAddress::{Ep, Sp, Rp, Memory, A};
+    use BeetleAddress::{Ep, A, Sp, Rp, Memory};
     const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
     const CELL_BITS: Wrapping<u32> = cell_bytes(8);
     struct DecisionTree {
@@ -43,7 +43,7 @@ pub fn machine() -> Machine<BeetleAddress> {
     let instructions = vec![
         DecisionTree {
             actions: vec![ // 00 NEXT
-                Load(R0, Ep),
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -260,20 +260,20 @@ pub fn machine() -> Machine<BeetleAddress> {
                 Constant(R2, cell_bytes(1)),
                 Binary(Add, R0, R0, R2),
                 Store(R0, Sp),
-                Load(R0, BeetleAddress::Rp),
+                Load(R0, Rp),
                 Binary(Sub, R0, R0, R2),
                 Store(R1, Memory(R0)),
-                Store(R0, BeetleAddress::Rp),
+                Store(R0, Rp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 0d R>
-                Load(R0, BeetleAddress::Rp),
+                Load(R0, Rp),
                 Load(R1, Memory(R0)),
                 Constant(R2, cell_bytes(1)),
                 Binary(Add, R0, R0, R2),
-                Store(R0, BeetleAddress::Rp),
+                Store(R0, Rp),
                 Load(R0, Sp),
                 Binary(Sub, R0, R0, R2),
                 Store(R1, Memory(R0)),
@@ -283,7 +283,7 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 0e R@
-                Load(R0, BeetleAddress::Rp),
+                Load(R0, Rp),
                 Load(R1, Memory(R0)),
                 Load(R0, Sp),
                 Constant(R2, cell_bytes(1)),
@@ -965,7 +965,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                 Load(R0, Sp),
                 Constant(R2, cell_bytes(1)),
                 Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::Rp),
+                Load(R2, Rp),
                 Store(R2, Memory(R0)),
                 Store(R0, Sp),
             ],
@@ -975,7 +975,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             actions: vec![ // 41 RP!
                 Load(R0, Sp),
                 Load(R1, Memory(R0)),
-                Store(R1, BeetleAddress::Rp),
+                Store(R1, Rp),
                 Constant(R2, cell_bytes(1)),
                 Binary(Add, R0, R0, R2),
                 Store(R0, Sp),
@@ -1030,7 +1030,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             actions: vec![ // 46 R0!
                 Load(R0, Sp),
                 Load(R1, Memory(R0)),
-                Store(R1, BeetleAddress::S0),
+                Store(R1, BeetleAddress::R0),
                 Constant(R2, cell_bytes(1)),
                 Binary(Add, R0, R0, R2),
                 Store(R0, Sp),
@@ -1097,9 +1097,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                 // Load EP from the cell it points to.
                 Load(R0, Ep),
                 Load(R0, Memory(R0)),
-                Store(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep),
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -1116,9 +1116,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                 Constant(R2, cell_bytes(1)),
                 Binary(Mul, R1, R1, R2),
                 Binary(Add, R0, R0, R1),
-                Store(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep),
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -1147,9 +1147,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                             // BRANCH. FIXME: Deduplicate.
                             Load(R0, Ep),
                             Load(R0, Memory(R0)),
-                            Store(R0, Ep),
+                            Store(R0, Ep), // FIXME: Add check that EP is valid.
                             // NEXT. FIXME: Deduplicate
-                            Load(R0, Ep),
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Load(R1, Memory(R0)),
                             Store(R1, A),
                             Constant(R2, cell_bytes(1)),
@@ -1166,7 +1166,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Load(R0, Ep),
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Constant(R1, cell_bytes(1)),
                             Binary(Add, R0, R0, R1),
                             Store(R0, Ep),
@@ -1198,9 +1198,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                             Constant(R2, cell_bytes(1)),
                             Binary(Mul, R1, R1, R2),
                             Binary(Add, R0, R0, R1),
-                            Store(R0, Ep),
+                            Store(R0, Ep), // FIXME: Add check that EP is valid.
                             // NEXT. FIXME: Deduplicate
-                            Load(R0, Ep),
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Load(R1, Memory(R0)),
                             Store(R1, A),
                             Constant(R2, cell_bytes(1)),
@@ -1218,7 +1218,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     Box::new(DecisionTree {
                         actions: vec![
                             // NEXT. FIXME: Deduplicate
-                            Load(R0, Ep),
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Load(R1, Memory(R0)),
                             Store(R1, A),
                             Constant(R2, cell_bytes(1)),
@@ -1245,9 +1245,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                 Constant(R2, cell_bytes(1)),
                 Binary(Add, R1, R1, R2),
                 Store(R1, Sp),
-                Store(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep),
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -1272,9 +1272,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                 Binary(Add, R1, R1, R2),
                 Store(R1, Sp),
                 Load(R0, Memory(R0)),
-                Store(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep),
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -1296,8 +1296,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                 // BRANCH. FIXME: Deduplicate
                 Load(R0, Ep),
                 Load(R0, Memory(R0)),
-                Store(R0, Ep),
-                Load(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -1321,9 +1321,9 @@ pub fn machine() -> Machine<BeetleAddress> {
                 Constant(R2, cell_bytes(1)),
                 Binary(Mul, R1, R1, R2),
                 Binary(Add, R0, R0, R1),
-                Store(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep),
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
                 Load(R1, Memory(R0)),
                 Store(R1, A),
                 Constant(R2, cell_bytes(1)),
@@ -1337,7 +1337,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                 // Put a-addr into EP.
                 Load(R1, Rp),
                 Load(R0, Memory(R1)),
-                Store(R0, Ep),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
                 Constant(R2, cell_bytes(1)),
                 Binary(Add, R1, R1, R2),
                 Store(R1, Rp),
@@ -1394,7 +1394,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                             Binary(Add, R0, R0, R2),
                             Store(R0, Rp),
                             // Add 4 to EP.
-                            Load(R0, Ep),
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Constant(R1, cell_bytes(1)),
                             Binary(Add, R0, R0, R1),
                             Store(R0, Ep),
@@ -1412,8 +1412,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                             // BRANCH. FIXME: Deduplicate
                             Load(R0, Ep),
                             Load(R0, Memory(R0)),
-                            Store(R0, Ep),
-                            Load(R0, Ep),
+                            Store(R0, Ep), // FIXME: Add check that EP is valid.
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Load(R1, Memory(R0)),
                             Store(R1, A),
                             Constant(R2, cell_bytes(1)),
@@ -1470,8 +1470,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                             Constant(R2, cell_bytes(1)),
                             Binary(Mul, R1, R1, R2),
                             Binary(Add, R0, R0, R1),
-                            Store(R0, Ep),
-                            Load(R0, Ep),
+                            Store(R0, Ep), // FIXME: Add check that EP is valid.
+                            Load(R0, Ep), // FIXME: Add check that EP is valid.
                             Load(R1, Memory(R0)),
                             Store(R1, A),
                             Constant(R2, cell_bytes(1)),
@@ -1531,7 +1531,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                                         Binary(Add, R0, R0, R2),
                                         Store(R0, Rp),
                                         // Add 4 to EP.
-                                        Load(R0, Ep),
+                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
                                         Constant(R1, cell_bytes(1)),
                                         Binary(Add, R0, R0, R1),
                                         Store(R0, Ep),
@@ -1550,8 +1550,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                                         // BRANCH. FIXME: Deduplicate
                                         Load(R0, Ep),
                                         Load(R0, Memory(R0)),
-                                        Store(R0, Ep),
-                                        Load(R0, Ep),
+                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
+                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
                                         Load(R1, Memory(R0)),
                                         Store(R1, A),
                                         Constant(R2, cell_bytes(1)),
@@ -1590,7 +1590,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                                         Binary(Add, R0, R0, R2),
                                         Store(R0, Rp),
                                         // Add 4 to EP.
-                                        Load(R0, Ep),
+                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
                                         Constant(R1, cell_bytes(1)),
                                         Binary(Add, R0, R0, R1),
                                         Store(R0, Ep),
@@ -1609,8 +1609,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                                         // BRANCH. FIXME: Deduplicate
                                         Load(R0, Ep),
                                         Load(R0, Memory(R0)),
-                                        Store(R0, Ep),
-                                        Load(R0, Ep),
+                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
+                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
                                         Load(R1, Memory(R0)),
                                         Store(R1, A),
                                         Constant(R2, cell_bytes(1)),
@@ -1690,8 +1690,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                                         Constant(R2, cell_bytes(1)),
                                         Binary(Mul, R1, R1, R2),
                                         Binary(Add, R0, R0, R1),
-                                        Store(R0, Ep),
-                                        Load(R0, Ep),
+                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
+                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
                                         Load(R1, Memory(R0)),
                                         Store(R1, A),
                                         Constant(R2, cell_bytes(1)),
@@ -1747,8 +1747,8 @@ pub fn machine() -> Machine<BeetleAddress> {
                                         Constant(R2, cell_bytes(1)),
                                         Binary(Mul, R1, R1, R2),
                                         Binary(Add, R0, R0, R1),
-                                        Store(R0, Ep),
-                                        Load(R0, Ep),
+                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
+                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
                                         Load(R1, Memory(R0)),
                                         Store(R1, A),
                                         Constant(R2, cell_bytes(1)),
@@ -1789,27 +1789,57 @@ pub fn machine() -> Machine<BeetleAddress> {
             tests: vec![],
         },
         DecisionTree {
-            actions: vec![ //
+            actions: vec![ // 5c (LITERAL)
+                // Load R1 from cell pointed to by EP, and add 4 to EP.
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                // Push R1 to the stack.
+                Load(R0, Sp),
+                Constant(R2, cell_bytes(1)),
+                Binary(Sub, R0, R0, R2),
+                Store(R0, Sp),
+                Store(R1, Memory(R0)),
             ],
             tests: vec![],
         },
         DecisionTree {
-            actions: vec![ //
+            actions: vec![ // 5d (LITERAL)I
+                // Push A to the stack.
+                Load(R0, Sp),
+                Constant(R2, cell_bytes(1)),
+                Binary(Sub, R0, R0, R2),
+                Store(R0, Sp),
+                Load(R1, A),
+                Store(R1, Memory(R0)),
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
-            actions: vec![ //
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ //
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ //
+            actions: vec![ // 5e THROW
+                // Set 'BAD to EP
+                Load(R0, Ep),
+                Store(R0, BeetleAddress::Bad),
+                // Load EP from 'THROW
+                Load(R0, BeetleAddress::Throw),
+                Load(R0, Memory(R0)),
+                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
             ],
             tests: vec![],
         },
