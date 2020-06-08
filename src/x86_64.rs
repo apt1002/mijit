@@ -16,6 +16,7 @@ pub trait Buffer {
 }
 */
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Register(usize);
 
 pub const A: Register = Register(0);
