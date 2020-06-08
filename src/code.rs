@@ -14,7 +14,7 @@ pub enum TestOp {
 pub struct Test {
     pub register: R,
     pub test_op: TestOp,
-    pub not: bool,
+    pub must_be: bool, // Desired outcome of `test_op`.
 }
 
 pub enum UnaryOp {

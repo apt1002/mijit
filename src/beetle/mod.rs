@@ -33,7 +33,7 @@ impl Address for BeetleAddress {
 
 pub fn machine() -> Machine<BeetleAddress> {
     use super::x86_64::{A as R0, D as R1, C as R2, B as R3, BP as R4};
-    use BeetleAddress::{Ep, Sp, Memory, A};
+    use BeetleAddress::{Ep, Sp, Rp, Memory, A};
     const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
     const CELL_BITS: Wrapping<u32> = cell_bytes(8);
     struct DecisionTree {
@@ -164,7 +164,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(u)),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -175,7 +175,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                             Store(R1, Memory(R0)),
                         ],
                         tests: vec![],
-                    })
+                    }),
                 )
             }).collect(),
         },
@@ -192,7 +192,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(u)),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -229,7 +229,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![],
@@ -239,7 +239,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R1,
                         test_op: TestOp::Eq(Wrapping(0)),
-                        not: true,
+                        must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -631,7 +631,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -644,7 +644,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R1,
                         test_op: TestOp::Lt(Wrapping(0)),
-                        not: true,
+                        must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![],
@@ -677,7 +677,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![],
@@ -687,7 +687,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
-                        not: true,
+                        must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -713,7 +713,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![],
@@ -723,7 +723,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R3,
                         test_op: TestOp::Eq(Wrapping(0)),
-                        not: true,
+                        must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -796,7 +796,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -809,7 +809,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
-                        not: true,
+                        must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -835,7 +835,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
-                        not: false,
+                        must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -848,7 +848,7 @@ pub fn machine() -> Machine<BeetleAddress> {
                     code::Test {
                         register: R2,
                         test_op: TestOp::Ult(CELL_BITS),
-                        not: true,
+                        must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
@@ -1071,7 +1071,7 @@ pub fn machine() -> Machine<BeetleAddress> {
             tests: vec![],
         },
         DecisionTree {
-            actions: vec![ // 4A 'BAD@
+            actions: vec![ // 4a 'BAD@
                 Load(R0, Sp),
                 Constant(R2, cell_bytes(1)),
                 Binary(Sub, R0, R0, R2),
@@ -1082,13 +1082,724 @@ pub fn machine() -> Machine<BeetleAddress> {
             tests: vec![],
         },
         DecisionTree {
-            actions: vec![ // 4B -ADDRESS@
+            actions: vec![ // 4b -ADDRESS@
                 Load(R0, Sp),
                 Constant(R2, cell_bytes(1)),
                 Binary(Sub, R0, R0, R2),
                 Load(R2, BeetleAddress::NotAddress),
                 Store(R2, Memory(R0)),
                 Store(R0, Sp),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 4c BRANCH
+                // Load EP from the cell it points to.
+                Load(R0, Ep),
+                Load(R0, Memory(R0)),
+                Store(R0, Ep),
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 4d BRANCHI
+                // Add A*4 to EP.
+                Load(R0, Ep),
+                Load(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Mul, R1, R1, R2),
+                Binary(Add, R0, R0, R1),
+                Store(R0, Ep),
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 4e ?BRANCH
+                Load(R0, Sp),
+                Load(R1, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Sp),
+            ],
+            tests: vec![
+                (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: true,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            // BRANCH. FIXME: Deduplicate.
+                            Load(R0, Ep),
+                            Load(R0, Memory(R0)),
+                            Store(R0, Ep),
+                            // NEXT. FIXME: Deduplicate
+                            Load(R0, Ep),
+                            Load(R1, Memory(R0)),
+                            Store(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                ), (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: false,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            Load(R0, Ep),
+                            Constant(R1, cell_bytes(1)),
+                            Binary(Add, R0, R0, R1),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                ),
+            ],
+        },
+        DecisionTree {
+            actions: vec![ // 4f ?BRANCHI
+                Load(R0, Sp),
+                Load(R1, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Sp),
+            ],
+            tests: vec![
+                (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: true,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            Load(R0, Ep),
+                            Load(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Mul, R1, R1, R2),
+                            Binary(Add, R0, R0, R1),
+                            Store(R0, Ep),
+                            // NEXT. FIXME: Deduplicate
+                            Load(R0, Ep),
+                            Load(R1, Memory(R0)),
+                            Store(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                ), (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: false,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            // NEXT. FIXME: Deduplicate
+                            Load(R0, Ep),
+                            Load(R1, Memory(R0)),
+                            Store(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                ),
+            ],
+        },
+        DecisionTree {
+            actions: vec![ // 50 EXECUTE
+                // Push EP onto the return stack.
+                Load(R1, Rp),
+                Constant(R2, cell_bytes(1)),
+                Binary(Sub, R1, R1, R2),
+                Store(R1, Rp),
+                Load(R0, Ep),
+                Store(R0, Memory(R1)),
+                // Put a-addr1 into EP.
+                Load(R1, Sp),
+                Load(R0, Memory(R1)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R1, R1, R2),
+                Store(R1, Sp),
+                Store(R0, Ep),
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 51 @EXECUTE
+                // Push EP onto the return stack.
+                Load(R1, Rp),
+                Constant(R2, cell_bytes(1)),
+                Binary(Sub, R1, R1, R2),
+                Store(R1, Rp),
+                Load(R0, Ep),
+                Store(R0, Memory(R1)),
+                // Put the contents of a-addr1 into EP.
+                Load(R1, Sp),
+                Load(R0, Memory(R1)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R1, R1, R2),
+                Store(R1, Sp),
+                Load(R0, Memory(R0)),
+                Store(R0, Ep),
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 52 CALL
+                // Push EP+4 onto the return stack.
+                Load(R1, Rp),
+                Constant(R2, cell_bytes(1)),
+                Binary(Sub, R1, R1, R2),
+                Store(R1, Rp),
+                Load(R0, Ep),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Memory(R1)),
+                // BRANCH. FIXME: Deduplicate
+                Load(R0, Ep),
+                Load(R0, Memory(R0)),
+                Store(R0, Ep),
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 53 CALLI
+                // Push EP onto the return stack.
+                Load(R1, Rp),
+                Constant(R2, cell_bytes(1)),
+                Binary(Sub, R1, R1, R2),
+                Store(R1, Rp),
+                Load(R0, Ep),
+                Store(R0, Memory(R1)),
+                // Add A*4 to EP.
+                Load(R0, Ep),
+                Load(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Mul, R1, R1, R2),
+                Binary(Add, R0, R0, R1),
+                Store(R0, Ep),
+                // NEXT. FIXME: Deduplicate
+                Load(R0, Ep),
+                Load(R1, Memory(R0)),
+                Store(R1, A),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Ep),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 54 EXIT
+                // Put a-addr into EP.
+                Load(R1, Rp),
+                Load(R0, Memory(R1)),
+                Store(R0, Ep),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R1, R1, R2),
+                Store(R1, Rp),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 55 (DO)
+                // Pop two items from SP.
+                Load(R0, Sp),
+                Load(R2, Memory(R0)),
+                Constant(R1, cell_bytes(1)),
+                Binary(Add, R0, R0, R1),
+                Load(R3, Memory(R0)),
+                Binary(Add, R0, R0, R1),
+                Store(R0, Sp),
+                // Push two items to RP.
+                Load(R0, Rp),
+                Constant(R1, cell_bytes(1)),
+                Binary(Sub, R0, R0, R1),
+                Store(R3, Memory(R0)),
+                Binary(Sub, R0, R0, R1),
+                Store(R2, Memory(R0)),
+                Store(R0, Rp),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 56 (LOOP)
+                // Load the index and limit from RP.
+                Load(R0, Rp),
+                Load(R3, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R2, R0, R2),
+                Load(R2, Memory(R2)),
+                // Update the index.
+                Constant(R1, Wrapping(1)),
+                Binary(Add, R3, R3, R1),
+                Store(R3, Memory(R0)),
+                Binary(Sub, R3, R3, R2),
+            ],
+            tests: vec![
+                (
+                    code::Test {
+                        register: R3,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: true,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            // Discard the loop index and limit.
+                            Load(R0, Rp),
+                            Constant(R2, cell_bytes(2)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Rp),
+                            // Add 4 to EP.
+                            Load(R0, Ep),
+                            Constant(R1, cell_bytes(1)),
+                            Binary(Add, R0, R0, R1),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                ), (
+                    code::Test {
+                        register: R3,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: false,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            // BRANCH. FIXME: Deduplicate
+                            Load(R0, Ep),
+                            Load(R0, Memory(R0)),
+                            Store(R0, Ep),
+                            Load(R0, Ep),
+                            Load(R1, Memory(R0)),
+                            Store(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                )
+            ],
+        },
+        DecisionTree {
+            actions: vec![ // 57 (LOOP)I
+                // Load the index and limit from RP.
+                Load(R0, Rp),
+                Load(R3, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R2, R0, R2),
+                Load(R2, Memory(R2)),
+                // Update the index.
+                Constant(R1, Wrapping(1)),
+                Binary(Add, R3, R3, R1),
+                Store(R3, Memory(R0)),
+                Binary(Sub, R3, R3, R2),
+            ],
+            tests: vec![
+                (
+                    code::Test {
+                        register: R3,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: true,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            // Discard the loop index and limit.
+                            Load(R0, Rp),
+                            Constant(R2, cell_bytes(2)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Rp),
+                        ],
+                        tests: vec![]
+                    }),
+                ), (
+                    code::Test {
+                        register: R3,
+                        test_op: TestOp::Eq(Wrapping(0)),
+                        must_be: false,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            // BRANCHI. FIXME: Deduplicate
+                            Load(R0, Ep),
+                            Load(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Mul, R1, R1, R2),
+                            Binary(Add, R0, R0, R1),
+                            Store(R0, Ep),
+                            Load(R0, Ep),
+                            Load(R1, Memory(R0)),
+                            Store(R1, A),
+                            Constant(R2, cell_bytes(1)),
+                            Binary(Add, R0, R0, R2),
+                            Store(R0, Ep),
+                        ],
+                        tests: vec![],
+                    }),
+                )
+            ],
+        },
+        DecisionTree { // 58 (+LOOP)
+            actions: vec![ //
+                // Pop the step from SP.
+                Load(R0, Sp),
+                Load(R1, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Sp),
+                // Load the index and limit from RP.
+                Load(R0, Rp),
+                Load(R3, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R2, R0, R2),
+                Load(R2, Memory(R2)),
+                // Update the index.
+                Binary(Add, R4, R3, R1),
+                Store(R4, Memory(R0)),
+                // Compute the differences between old and new indexes and limit.
+                Binary(Sub, R3, R3, R2),
+                Binary(Sub, R4, R4, R2),
+            ],
+            tests: vec![
+                (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Lt(Wrapping(0)),
+                        must_be: false,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            Unary(Not, R4, R4),
+                            Binary(And, R4, R4, R3),
+                        ],
+                        tests: vec![
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: true,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // Discard the loop index and limit.
+                                        Load(R0, Rp),
+                                        Constant(R2, cell_bytes(2)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Rp),
+                                        // Add 4 to EP.
+                                        Load(R0, Ep),
+                                        Constant(R1, cell_bytes(1)),
+                                        Binary(Add, R0, R0, R1),
+                                        Store(R0, Ep),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            ),
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: false,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // BRANCH. FIXME: Deduplicate
+                                        Load(R0, Ep),
+                                        Load(R0, Memory(R0)),
+                                        Store(R0, Ep),
+                                        Load(R0, Ep),
+                                        Load(R1, Memory(R0)),
+                                        Store(R1, A),
+                                        Constant(R2, cell_bytes(1)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Ep),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            )
+                        ]
+                    }),
+                ),
+                (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Lt(Wrapping(0)),
+                        must_be: true,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            Unary(Not, R3, R3),
+                            Binary(And, R4, R4, R3),
+                        ],
+                        tests: vec![
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: true,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // Discard the loop index and limit.
+                                        Load(R0, Rp),
+                                        Constant(R2, cell_bytes(2)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Rp),
+                                        // Add 4 to EP.
+                                        Load(R0, Ep),
+                                        Constant(R1, cell_bytes(1)),
+                                        Binary(Add, R0, R0, R1),
+                                        Store(R0, Ep),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            ),
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: false,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // BRANCH. FIXME: Deduplicate
+                                        Load(R0, Ep),
+                                        Load(R0, Memory(R0)),
+                                        Store(R0, Ep),
+                                        Load(R0, Ep),
+                                        Load(R1, Memory(R0)),
+                                        Store(R1, A),
+                                        Constant(R2, cell_bytes(1)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Ep),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            )
+                        ]
+                    }),
+                )
+            ],
+        },
+        DecisionTree { // 59 (+LOOP)I
+            actions: vec![ //
+                // Pop the step from SP.
+                Load(R0, Sp),
+                Load(R1, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R0, R0, R2),
+                Store(R0, Sp),
+                // Load the index and limit from RP.
+                Load(R0, Rp),
+                Load(R3, Memory(R0)),
+                Constant(R2, cell_bytes(1)),
+                Binary(Add, R2, R0, R2),
+                Load(R2, Memory(R2)),
+                // Update the index.
+                Binary(Add, R4, R3, R1),
+                Store(R4, Memory(R0)),
+                // Compute the differences between old and new indexes and limit.
+                Binary(Sub, R3, R3, R2),
+                Binary(Sub, R4, R4, R2),
+            ],
+            tests: vec![
+                (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Lt(Wrapping(0)),
+                        must_be: false,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            Unary(Not, R4, R4),
+                            Binary(And, R4, R4, R3),
+                        ],
+                        tests: vec![
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: true,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // Discard the loop index and limit.
+                                        Load(R0, Rp),
+                                        Constant(R2, cell_bytes(2)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Rp),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            ),
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: false,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // BRANCHI. FIXME: Deduplicate
+                                        Load(R0, Ep),
+                                        Load(R1, A),
+                                        Constant(R2, cell_bytes(1)),
+                                        Binary(Mul, R1, R1, R2),
+                                        Binary(Add, R0, R0, R1),
+                                        Store(R0, Ep),
+                                        Load(R0, Ep),
+                                        Load(R1, Memory(R0)),
+                                        Store(R1, A),
+                                        Constant(R2, cell_bytes(1)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Ep),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            )
+                        ]
+                    }),
+                ),
+                (
+                    code::Test {
+                        register: R1,
+                        test_op: TestOp::Lt(Wrapping(0)),
+                        must_be: true,
+                    },
+                    Box::new(DecisionTree {
+                        actions: vec![
+                            Unary(Not, R3, R3),
+                            Binary(And, R4, R4, R3),
+                        ],
+                        tests: vec![
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: true,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // Discard the loop index and limit.
+                                        Load(R0, Rp),
+                                        Constant(R2, cell_bytes(2)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Rp),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            ),
+                            (
+                                code::Test {
+                                    register: R4,
+                                    test_op: TestOp::Lt(Wrapping(0)),
+                                    must_be: false,
+                                },
+                                Box::new(DecisionTree {
+                                    actions: vec![
+                                        // BRANCHI. FIXME: Deduplicate
+                                        Load(R0, Ep),
+                                        Load(R1, A),
+                                        Constant(R2, cell_bytes(1)),
+                                        Binary(Mul, R1, R1, R2),
+                                        Binary(Add, R0, R0, R1),
+                                        Store(R0, Ep),
+                                        Load(R0, Ep),
+                                        Load(R1, Memory(R0)),
+                                        Store(R1, A),
+                                        Constant(R2, cell_bytes(1)),
+                                        Binary(Add, R0, R0, R2),
+                                        Store(R0, Ep),
+                                    ],
+                                    tests: vec![],
+                                }),
+                            )
+                        ]
+                    }),
+                )
+            ],
+        },
+        DecisionTree {
+            actions: vec![ // 5a UNLOOP
+                // Discard two items from RP.
+                Load(R0, Rp),
+                Constant(R1, cell_bytes(2)),
+                Binary(Add, R0, R0, R1),
+                Store(R0, Rp),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ // 5b J
+                // Push the third item of RP to SP.
+                Load(R0, Rp),
+                Constant(R1, cell_bytes(2)),
+                Binary(Add, R0, R0, R1),
+                Load(R2, Memory(R0)),
+                Load(R0, Sp),
+                Constant(R1, cell_bytes(1)),
+                Binary(Sub, R0, R0, R1),
+                Store(R0, Sp),
+                Store(R2, Memory(R0)),
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ //
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ //
+            ],
+            tests: vec![],
+        },
+        DecisionTree {
+            actions: vec![ //
             ],
             tests: vec![],
         },
