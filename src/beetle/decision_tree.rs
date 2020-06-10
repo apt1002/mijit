@@ -1,21 +1,5 @@
-use std::num::{Wrapping};
-use std::iter::{IntoIterator, FromIterator};
-
-use super::BeetleAddress;
-use super::super::code::{
-    self, Width, TestOp,
-    Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*,
-};
-use super::super::x86_64::{A as R0, D as R1, C as R2, B as R3, BP as R4};
-use BeetleAddress::{Ep, A, Sp, Rp, Memory};
-
-/** Computes the number of bytes in `n` words. */
-const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
-
-/** The number of bits in a word. */
-const CELL_BITS: Wrapping<u32> = cell_bytes(8);
-
-type Action = code::Action<BeetleAddress>;
+use super::{BeetleAddress, Action, cell_bytes};
+use super::super::code::{self, Action::*, BinaryOp::*};
 
 /** A block of straight-line code. */
 #[derive(Debug, Clone)]
@@ -24,8 +8,8 @@ pub struct Block {
 }
 
 impl Block {
-    pub fn new() -> Self {
-        Block {actions: Vec::new()}
+    pub fn new<B: AsRef<[Action]>>(block: &B) -> Self {
+        Block {actions: Vec::new()}.extend(block)
     }
 
     pub fn append(mut self, a: Action) -> Self {
@@ -33,17 +17,27 @@ impl Block {
         self
     }
 
-    pub fn extend<B: AsRef<[Action]>>(mut self, block: B) -> Self {
-        self.actions.extend(b.iter().cloned());
+    pub fn extend<B: AsRef<[Action]>>(mut self, block: &B) -> Self {
+        self.actions.extend(block.as_ref().iter().cloned());
         self
     }
 
-    /** Load `r` from `sp` and increment `sp`. */
-    pub fn pop(self, sp: code::R, r: code::R) -> Self {
-        self
-            .append(Load(r, BeetleAddress::Memory(sp)))
-            .append(Constant(R2, cell_bytes(1)))
-            .append(Binary(Add, R0, R0, R2))
+    /** Load `r` from `sp` and increment `sp`. Corrupts `temp`. */
+    pub fn pop(self, sp: code::R, r: code::R, temp: code::R) -> Self {
+        self.extend(&[
+            Load(r, BeetleAddress::Memory(sp)),
+            Constant(temp, cell_bytes(1)),
+            Binary(Add, sp, sp, temp),
+        ])
+    }
+
+    /** Decrement `sp` and store `r` at `sp`. Corrupts `temp`. */
+    pub fn push(self, sp: code::R, r: code::R, temp: code::R) -> Self {
+        self.extend(&[
+            Constant(temp, cell_bytes(1)),
+            Binary(Sub, sp, sp, temp),
+            Store(r, BeetleAddress::Memory(sp)),
+        ])
     }
 }
 
@@ -68,11 +62,9 @@ pub struct State {
 impl State {
     /** Constructs a State, initially with no `cases`. */
     pub fn new(block: Block, register: code::R) -> Self {
-        State {
-            actions: Vec::from_iter(&block),
-            register: register,
-            cases: Vec::new(),
-        }
+        let actions = block.actions;
+        let cases = Vec::new();
+        State {actions, register, cases}
     }
 
     /** Append `case` to `self.cases`. */
@@ -96,10 +88,4 @@ pub struct Case {
     test: code::TestOp,
     actions: Vec<Action>,
     target: Option<State>,
-}
-
-impl Case {
-    pub fn new(
-    ) -> Self {
-    }
 }

@@ -1,9 +1,8 @@
 use std::num::{Wrapping};
 use super::control_flow::{Address, State, Machine};
-use super::code::{self, Width, Action, Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*, TestOp};
+use super::code::{self, Width, Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*, TestOp};
 
-/// Beetle's address space.
-/// V is the type of a non-compile-time-known variable.
+/** Beetle's address space. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum BeetleAddress {
     Ep,
@@ -31,17 +30,25 @@ impl Address for BeetleAddress {
     }
 }
 
-mod decision_tree;
-use decision_tree::{};
+/** Computes the number of bytes in `n` words. */
+pub const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
+
+/** The number of bits in a word. */
+pub const CELL_BITS: Wrapping<u32> = cell_bytes(8);
+
+pub type Action = code::Action<BeetleAddress>;
+
+// TODO: Make private.
+pub mod decision_tree;
 
 pub fn machine() -> Machine<BeetleAddress> {
-    use super::x86_64::{A as R0, D as R1, C as R2, B as R3, BP as R4};
+    use super::x86_64::{A as EAX, D as EDX, C as ECX, B as EBX, BP as EBP};
     use BeetleAddress::{Ep, A, Sp, Rp, Memory};
     const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
     const CELL_BITS: Wrapping<u32> = cell_bytes(8);
     // FIXME: Delete.
     struct DecisionTree {
-        actions: Vec<Action<BeetleAddress>>,
+        actions: Vec<Action>,
         tests: Vec<(Test, Box<DecisionTree>)>,
     }
     // FIXME: Delete.
@@ -53,136 +60,136 @@ pub fn machine() -> Machine<BeetleAddress> {
     let instructions = vec![
         DecisionTree {
             actions: vec![ // 00 NEXT
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 01 DUP
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 02 DROP
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 03 SWAP
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R1, R0, R2),
-                Load(R2, Memory(R0)),
-                Load(R3, Memory(R1)),
-                Store(R2, Memory(R1)),
-                Store(R3, Memory(R0)),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EDX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Load(EBX, Memory(EDX)),
+                Store(ECX, Memory(EDX)),
+                Store(EBX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 04 OVER
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R1, R0, R2),
-                Load(R3, Memory(R1)),
-                Binary(Sub, R0, R0, R2),
-                Store(R3, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EDX, EAX, ECX),
+                Load(EBX, Memory(EDX)),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EBX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 05 ROT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R4, R0, R2),
-                Load(R3, Memory(R4)),
-                Store(R1, Memory(R4)),
-                Constant(R2, cell_bytes(2)),
-                Binary(Add, R4, R0, R2),
-                Load(R1, Memory(R4)),
-                Store(R3, Memory(R4)),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EBP, EAX, ECX),
+                Load(EBX, Memory(EBP)),
+                Store(EDX, Memory(EBP)),
+                Constant(ECX, cell_bytes(2)),
+                Binary(Add, EBP, EAX, ECX),
+                Load(EDX, Memory(EBP)),
+                Store(EBX, Memory(EBP)),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 06 -ROT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(2)),
-                Binary(Add, R4, R0, R2),
-                Load(R3, Memory(R4)),
-                Store(R1, Memory(R4)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R4, R0, R2),
-                Load(R1, Memory(R4)),
-                Store(R3, Memory(R4)),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(2)),
+                Binary(Add, EBP, EAX, ECX),
+                Load(EBX, Memory(EBP)),
+                Store(EDX, Memory(EBP)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EBP, EAX, ECX),
+                Load(EDX, Memory(EBP)),
+                Store(EBX, Memory(EBP)),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 07 TUCK
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R4, R0, R2),
-                Load(R3, Memory(R4)),
-                Store(R1, Memory(R4)),
-                Store(R3, Memory(R0)),
-                Binary(Sub, R0, R0, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EBP, EAX, ECX),
+                Load(EBX, Memory(EBP)),
+                Store(EDX, Memory(EBP)),
+                Store(EBX, Memory(EAX)),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 08 NIP
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 09 PICK
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
             ],
             tests: (0..4).map(|u| {
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(u)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Load(R0, Sp),
-                            Constant(R2, cell_bytes(u + 1)),
-                            Binary(Add, R1, R0, R2),
-                            Load(R1, Memory(R1)),
-                            Store(R1, Memory(R0)),
+                            Load(EAX, Sp),
+                            Constant(ECX, cell_bytes(u + 1)),
+                            Binary(Add, EDX, EAX, ECX),
+                            Load(EDX, Memory(EDX)),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
@@ -191,37 +198,37 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 0a ROLL
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: (0..4).map(|u| {
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(u)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Constant(R2, cell_bytes(u)),
-                            Binary(Add, R4, R0, R2),
-                            Load(R3, Memory(R4)),
+                            Constant(ECX, cell_bytes(u)),
+                            Binary(Add, EBP, EAX, ECX),
+                            Load(EBX, Memory(EBP)),
                         ].into_iter().chain(
                             (0..u).flat_map(|v| {
                                 vec![
-                                    Constant(R2, cell_bytes(v)),
-                                    Binary(Add, R2, R0, R2),
-                                    Load(R1, Memory(R2)),
-                                    Store(R3, Memory(R2)),
-                                    Move(R3, R1),
+                                    Constant(ECX, cell_bytes(v)),
+                                    Binary(Add, ECX, EAX, ECX),
+                                    Load(EDX, Memory(ECX)),
+                                    Store(EBX, Memory(ECX)),
+                                    Move(EBX, EDX),
                                 ]
                             })
                         ).chain(
                             vec![
-                                Store(R3, Memory(R4)),
+                                Store(EBX, Memory(EBP)),
                             ]
                         ).collect(),
                         tests: vec![],
@@ -231,13 +238,13 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 0b ?DUP
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
@@ -247,16 +254,16 @@ pub fn machine() -> Machine<BeetleAddress> {
                     }),
                 ), (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Sub, R0, R0, R2),
-                            Store(R1, Memory(R0)),
-                            Store(R0, Sp),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Sub, EAX, EAX, ECX),
+                            Store(EDX, Memory(EAX)),
+                            Store(EAX, Sp),
                         ],
                         tests: vec![],
                     }),
@@ -265,308 +272,308 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 0c >R
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
-                Load(R0, Rp),
-                Binary(Sub, R0, R0, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Rp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
+                Load(EAX, Rp),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Rp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 0d R>
-                Load(R0, Rp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Rp),
-                Load(R0, Sp),
-                Binary(Sub, R0, R0, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Rp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Rp),
+                Load(EAX, Sp),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 0e R@
-                Load(R0, Rp),
-                Load(R1, Memory(R0)),
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Rp),
+                Load(EDX, Memory(EAX)),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 0f <
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Lt, R1, R2, R1),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Lt, EDX, ECX, EDX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 10 >
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Lt, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Lt, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 11 =
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Eq, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Eq, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 12 <>
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Eq, R1, R1, R2),
-                Unary(Not, R1, R1),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Eq, EDX, EDX, ECX),
+                Unary(Not, EDX, EDX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 13 0<
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(0)),
-                Binary(Lt, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(0)),
+                Binary(Lt, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 14 0>
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(0)),
-                Binary(Lt, R1, R2, R1),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(0)),
+                Binary(Lt, EDX, ECX, EDX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 15 0=
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(0)),
-                Binary(Eq, R1, R2, R1),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(0)),
+                Binary(Eq, EDX, ECX, EDX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 16 0<>
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(0)),
-                Binary(Eq, R1, R2, R1),
-                Unary(Not, R1, R1),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(0)),
+                Binary(Eq, EDX, ECX, EDX),
+                Unary(Not, EDX, EDX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 17 U<
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Ult, R1, R2, R1),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Ult, EDX, ECX, EDX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 18 U>
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Ult, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Ult, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 19 0
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Constant(R2, Wrapping(0)),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Constant(ECX, Wrapping(0)),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 1a 1
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Constant(R2, Wrapping(1)),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Constant(ECX, Wrapping(1)),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 1b -1
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Constant(R2, -Wrapping(1)),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Constant(ECX, -Wrapping(1)),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 1c CELL
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Constant(R2, cell_bytes(1)),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Constant(ECX, cell_bytes(1)),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 1d -CELL
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Constant(R2, -cell_bytes(1)),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Constant(ECX, -cell_bytes(1)),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 1e +
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Add, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Add, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 1f -
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 20 >-<
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Sub, R1, R2, R1),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Sub, EDX, ECX, EDX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 21 1+
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(1)),
-                Binary(Add, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(1)),
+                Binary(Add, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 22 1-
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(1)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(1)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 23 CELL+
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 24 CELL-
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 25 *
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Mul, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Mul, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
@@ -587,72 +594,72 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 29 U/MOD
-                Load(R3, Sp),
-                Load(R1, Memory(R3)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R3, R2),
-                Load(R0, Memory(R2)),
-                Division(UnsignedDivMod, R0, R1, R0, R1),
-                Store(R1, Memory(R2)),
-                Store(R0, Memory(R3)),
+                Load(EBX, Sp),
+                Load(EDX, Memory(EBX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EBX, ECX),
+                Load(EAX, Memory(ECX)),
+                Division(UnsignedDivMod, EAX, EDX, EAX, EDX),
+                Store(EDX, Memory(ECX)),
+                Store(EAX, Memory(EBX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 2a S/REM
-                Load(R3, Sp),
-                Load(R1, Memory(R3)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R3, R2),
-                Load(R0, Memory(R2)),
-                Division(SignedDivMod, R0, R1, R0, R1),
-                Store(R1, Memory(R2)),
-                Store(R0, Memory(R3)),
+                Load(EBX, Sp),
+                Load(EDX, Memory(EBX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EBX, ECX),
+                Load(EAX, Memory(ECX)),
+                Division(SignedDivMod, EAX, EDX, EAX, EDX),
+                Store(EDX, Memory(ECX)),
+                Store(EAX, Memory(EBX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 2b 2/
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(1)),
-                Binary(Asr, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(1)),
+                Binary(Asr, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 2c CELLS
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Mul, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Mul, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 2d ABS
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Unary(Negate, R1, R1),
-                            Store(R1, Memory(R0)),
+                            Unary(Negate, EDX, EDX),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
                 ), (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: false,
                     },
@@ -665,27 +672,27 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 2e NEGATE
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Unary(Negate, R1, R1),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Unary(Negate, EDX, EDX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 2f MAX
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
-                Load(R2, Memory(R0)),
-                Binary(Lt, R3, R2, R1),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
+                Load(ECX, Memory(EAX)),
+                Binary(Lt, EBX, ECX, EDX),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
@@ -695,13 +702,13 @@ pub fn machine() -> Machine<BeetleAddress> {
                     }),
                 ), (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Store(R1, Memory(R0)),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
@@ -710,18 +717,18 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 30 MIN
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
-                Load(R2, Memory(R0)),
-                Binary(Lt, R3, R1, R2),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
+                Load(ECX, Memory(EAX)),
+                Binary(Lt, EBX, EDX, ECX),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
@@ -731,13 +738,13 @@ pub fn machine() -> Machine<BeetleAddress> {
                     }),
                 ), (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Store(R1, Memory(R0)),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
@@ -746,85 +753,85 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 31 INVERT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Unary(Not, R1, R1),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Unary(Not, EDX, EDX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 32 AND
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(And, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(And, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 33 OR
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Or, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Or, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 34 XOR
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Binary(Xor, R1, R1, R2),
-                Store(R1, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Binary(Xor, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 35 LSHIFT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R2,
+                        register: ECX,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Binary(Lsl, R1, R1, R2),
-                            Store(R1, Memory(R0)),
+                            Binary(Lsl, EDX, EDX, ECX),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
                 ), (
                     Test {
-                        register: R2,
+                        register: ECX,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Constant(R1, Wrapping(0)),
-                            Store(R1, Memory(R0)),
+                            Constant(EDX, Wrapping(0)),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
@@ -833,37 +840,37 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 36 RSHIFT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Load(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Load(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R2,
+                        register: ECX,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Binary(Lsr, R1, R1, R2),
-                            Store(R1, Memory(R0)),
+                            Binary(Lsr, EDX, EDX, ECX),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
                 ), (
                     Test {
-                        register: R2,
+                        register: ECX,
                         test_op: TestOp::Ult(CELL_BITS),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Constant(R1, Wrapping(0)),
-                            Store(R1, Memory(R0)),
+                            Constant(EDX, Wrapping(0)),
+                            Store(EDX, Memory(EAX)),
                         ],
                         tests: vec![],
                     }),
@@ -872,314 +879,314 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 37 1LSHIFT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(1)),
-                Binary(Lsl, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(1)),
+                Binary(Lsl, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 38 1RSHIFT
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, Wrapping(1)),
-                Binary(Lsr, R1, R1, R2),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, Wrapping(1)),
+                Binary(Lsr, EDX, EDX, ECX),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 39 @
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Load(R1, Memory(R1)),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Load(EDX, Memory(EDX)),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 3a !
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R3, Memory(R2)),
-                Store(R3, Memory(R1)),
-                Constant(R2, cell_bytes(2)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(EBX, Memory(ECX)),
+                Store(EBX, Memory(EDX)),
+                Constant(ECX, cell_bytes(2)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 3b C@
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                LoadNarrow(Width::One, R1, Memory(R1)),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                LoadNarrow(Width::One, EDX, Memory(EDX)),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 3c C!
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R3, Memory(R2)),
-                StoreNarrow(Width::One, R3, Memory(R1)),
-                Constant(R2, cell_bytes(2)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(EBX, Memory(ECX)),
+                StoreNarrow(Width::One, EBX, Memory(EDX)),
+                Constant(ECX, cell_bytes(2)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 3d +!
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R3, Memory(R2)),
-                Load(R4, Memory(R1)),
-                Binary(Add, R3, R4, R3),
-                Store(R3, Memory(R1)),
-                Constant(R2, cell_bytes(2)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(EBX, Memory(ECX)),
+                Load(EBP, Memory(EDX)),
+                Binary(Add, EBX, EBP, EBX),
+                Store(EBX, Memory(EDX)),
+                Constant(ECX, cell_bytes(2)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 3e SP@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R2, R0, R2),
-                Store(R0, Memory(R2)),
-                Store(R2, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, ECX, EAX, ECX),
+                Store(EAX, Memory(ECX)),
+                Store(ECX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 3f SP!
-                Load(R0, Sp),
-                Load(R0, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EAX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 40 RP@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, Rp),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, Rp),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 41 RP!
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Store(R1, Rp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Store(EDX, Rp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 42 EP@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, Ep),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, Ep),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 43 S0@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::S0),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, BeetleAddress::S0),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 44 S0!
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Store(R1, BeetleAddress::S0),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Store(EDX, BeetleAddress::S0),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 45 R0@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::R0),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, BeetleAddress::R0),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 46 R0!
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Store(R1, BeetleAddress::R0),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Store(EDX, BeetleAddress::R0),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 47 'THROW@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::Throw),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, BeetleAddress::Throw),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 48 'THROW!
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Store(R1, BeetleAddress::Throw),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Store(EDX, BeetleAddress::Throw),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 49 MEMORY@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::Memory0),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, BeetleAddress::Memory0),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 4a 'BAD@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::Bad),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, BeetleAddress::Bad),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 4b -ADDRESS@
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Load(R2, BeetleAddress::NotAddress),
-                Store(R2, Memory(R0)),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Load(ECX, BeetleAddress::NotAddress),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Sp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 4c BRANCH
                 // Load EP from the cell it points to.
-                Load(R0, Ep),
-                Load(R0, Memory(R0)),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(EAX, Ep),
+                Load(EAX, Memory(EAX)),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 4d BRANCHI
                 // Add A*4 to EP.
-                Load(R0, Ep),
-                Load(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Mul, R1, R1, R2),
-                Binary(Add, R0, R0, R1),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(EAX, Ep),
+                Load(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Mul, EDX, EDX, ECX),
+                Binary(Add, EAX, EAX, EDX),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 4e ?BRANCH
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
                             // BRANCH. FIXME: Deduplicate.
-                            Load(R0, Ep),
-                            Load(R0, Memory(R0)),
-                            Store(R0, Ep), // FIXME: Add check that EP is valid.
+                            Load(EAX, Ep),
+                            Load(EAX, Memory(EAX)),
+                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
                             // NEXT. FIXME: Deduplicate
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R1, Memory(R0)),
-                            Store(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Ep),
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EDX, Memory(EAX)),
+                            Store(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
                 ), (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Constant(R1, cell_bytes(1)),
-                            Binary(Add, R0, R0, R1),
-                            Store(R0, Ep),
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Constant(EDX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, EDX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
@@ -1188,52 +1195,52 @@ pub fn machine() -> Machine<BeetleAddress> {
         },
         DecisionTree {
             actions: vec![ // 4f ?BRANCHI
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Load(R0, Ep),
-                            Load(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Mul, R1, R1, R2),
-                            Binary(Add, R0, R0, R1),
-                            Store(R0, Ep), // FIXME: Add check that EP is valid.
+                            Load(EAX, Ep),
+                            Load(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Mul, EDX, EDX, ECX),
+                            Binary(Add, EAX, EAX, EDX),
+                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
                             // NEXT. FIXME: Deduplicate
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R1, Memory(R0)),
-                            Store(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Ep),
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EDX, Memory(EAX)),
+                            Store(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
                 ), (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
                             // NEXT. FIXME: Deduplicate
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R1, Memory(R0)),
-                            Store(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Ep),
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EDX, Memory(EAX)),
+                            Store(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
@@ -1243,192 +1250,192 @@ pub fn machine() -> Machine<BeetleAddress> {
         DecisionTree {
             actions: vec![ // 50 EXECUTE
                 // Push EP onto the return stack.
-                Load(R1, Rp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Rp),
-                Load(R0, Ep),
-                Store(R0, Memory(R1)),
-                // Put a-addr1 into EP.
-                Load(R1, Sp),
-                Load(R0, Memory(R1)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R1, R1, R2),
-                Store(R1, Sp),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Rp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Rp),
+                Load(EAX, Ep),
+                Store(EAX, Memory(EDX)),
+                // Put a-addEDX into EP.
+                Load(EDX, Sp),
+                Load(EAX, Memory(EDX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EDX, EDX, ECX),
+                Store(EDX, Sp),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 51 @EXECUTE
                 // Push EP onto the return stack.
-                Load(R1, Rp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Rp),
-                Load(R0, Ep),
-                Store(R0, Memory(R1)),
-                // Put the contents of a-addr1 into EP.
-                Load(R1, Sp),
-                Load(R0, Memory(R1)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R1, R1, R2),
-                Store(R1, Sp),
-                Load(R0, Memory(R0)),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Rp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Rp),
+                Load(EAX, Ep),
+                Store(EAX, Memory(EDX)),
+                // Put the contents of a-addEDX into EP.
+                Load(EDX, Sp),
+                Load(EAX, Memory(EDX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EDX, EDX, ECX),
+                Store(EDX, Sp),
+                Load(EAX, Memory(EAX)),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 52 CALL
                 // Push EP+4 onto the return stack.
-                Load(R1, Rp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Rp),
-                Load(R0, Ep),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Memory(R1)),
+                Load(EDX, Rp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Rp),
+                Load(EAX, Ep),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Memory(EDX)),
                 // BRANCH. FIXME: Deduplicate
-                Load(R0, Ep),
-                Load(R0, Memory(R0)),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep),
+                Load(EAX, Memory(EAX)),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 53 CALLI
                 // Push EP onto the return stack.
-                Load(R1, Rp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R1, R1, R2),
-                Store(R1, Rp),
-                Load(R0, Ep),
-                Store(R0, Memory(R1)),
+                Load(EDX, Rp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EDX, EDX, ECX),
+                Store(EDX, Rp),
+                Load(EAX, Ep),
+                Store(EAX, Memory(EDX)),
                 // Add A*4 to EP.
-                Load(R0, Ep),
-                Load(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Mul, R1, R1, R2),
-                Binary(Add, R0, R0, R1),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(EAX, Ep),
+                Load(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Mul, EDX, EDX, ECX),
+                Binary(Add, EAX, EAX, EDX),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 54 EXIT
                 // Put a-addr into EP.
-                Load(R1, Rp),
-                Load(R0, Memory(R1)),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R1, R1, R2),
-                Store(R1, Rp),
+                Load(EDX, Rp),
+                Load(EAX, Memory(EDX)),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EDX, EDX, ECX),
+                Store(EDX, Rp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 55 (DO)
                 // Pop two items from SP.
-                Load(R0, Sp),
-                Load(R2, Memory(R0)),
-                Constant(R1, cell_bytes(1)),
-                Binary(Add, R0, R0, R1),
-                Load(R3, Memory(R0)),
-                Binary(Add, R0, R0, R1),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(ECX, Memory(EAX)),
+                Constant(EDX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, EDX),
+                Load(EBX, Memory(EAX)),
+                Binary(Add, EAX, EAX, EDX),
+                Store(EAX, Sp),
                 // Push two items to RP.
-                Load(R0, Rp),
-                Constant(R1, cell_bytes(1)),
-                Binary(Sub, R0, R0, R1),
-                Store(R3, Memory(R0)),
-                Binary(Sub, R0, R0, R1),
-                Store(R2, Memory(R0)),
-                Store(R0, Rp),
+                Load(EAX, Rp),
+                Constant(EDX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, EDX),
+                Store(EBX, Memory(EAX)),
+                Binary(Sub, EAX, EAX, EDX),
+                Store(ECX, Memory(EAX)),
+                Store(EAX, Rp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 56 (LOOP)
                 // Load the index and limit from RP.
-                Load(R0, Rp),
-                Load(R3, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R2, Memory(R2)),
+                Load(EAX, Rp),
+                Load(EBX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(ECX, Memory(ECX)),
                 // Update the index.
-                Constant(R1, Wrapping(1)),
-                Binary(Add, R3, R3, R1),
-                Store(R3, Memory(R0)),
-                Binary(Sub, R3, R3, R2),
+                Constant(EDX, Wrapping(1)),
+                Binary(Add, EBX, EBX, EDX),
+                Store(EBX, Memory(EAX)),
+                Binary(Sub, EBX, EBX, ECX),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
                             // Discard the loop index and limit.
-                            Load(R0, Rp),
-                            Constant(R2, cell_bytes(2)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Rp),
+                            Load(EAX, Rp),
+                            Constant(ECX, cell_bytes(2)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Rp),
                             // Add 4 to EP.
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Constant(R1, cell_bytes(1)),
-                            Binary(Add, R0, R0, R1),
-                            Store(R0, Ep),
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Constant(EDX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, EDX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
                 ), (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
                             // BRANCH. FIXME: Deduplicate
-                            Load(R0, Ep),
-                            Load(R0, Memory(R0)),
-                            Store(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R1, Memory(R0)),
-                            Store(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Ep),
+                            Load(EAX, Ep),
+                            Load(EAX, Memory(EAX)),
+                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EDX, Memory(EAX)),
+                            Store(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
@@ -1438,55 +1445,55 @@ pub fn machine() -> Machine<BeetleAddress> {
         DecisionTree {
             actions: vec![ // 57 (LOOP)I
                 // Load the index and limit from RP.
-                Load(R0, Rp),
-                Load(R3, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R2, Memory(R2)),
+                Load(EAX, Rp),
+                Load(EBX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(ECX, Memory(ECX)),
                 // Update the index.
-                Constant(R1, Wrapping(1)),
-                Binary(Add, R3, R3, R1),
-                Store(R3, Memory(R0)),
-                Binary(Sub, R3, R3, R2),
+                Constant(EDX, Wrapping(1)),
+                Binary(Add, EBX, EBX, EDX),
+                Store(EBX, Memory(EAX)),
+                Binary(Sub, EBX, EBX, ECX),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
                             // Discard the loop index and limit.
-                            Load(R0, Rp),
-                            Constant(R2, cell_bytes(2)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Rp),
+                            Load(EAX, Rp),
+                            Constant(ECX, cell_bytes(2)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Rp),
                         ],
                         tests: vec![]
                     }),
                 ), (
                     Test {
-                        register: R3,
+                        register: EBX,
                         test_op: TestOp::Eq(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
                             // BRANCHI. FIXME: Deduplicate
-                            Load(R0, Ep),
-                            Load(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Mul, R1, R1, R2),
-                            Binary(Add, R0, R0, R1),
-                            Store(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R0, Ep), // FIXME: Add check that EP is valid.
-                            Load(R1, Memory(R0)),
-                            Store(R1, A),
-                            Constant(R2, cell_bytes(1)),
-                            Binary(Add, R0, R0, R2),
-                            Store(R0, Ep),
+                            Load(EAX, Ep),
+                            Load(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Mul, EDX, EDX, ECX),
+                            Binary(Add, EAX, EAX, EDX),
+                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                            Load(EDX, Memory(EAX)),
+                            Store(EDX, A),
+                            Constant(ECX, cell_bytes(1)),
+                            Binary(Add, EAX, EAX, ECX),
+                            Store(EAX, Ep),
                         ],
                         tests: vec![],
                     }),
@@ -1496,77 +1503,77 @@ pub fn machine() -> Machine<BeetleAddress> {
         DecisionTree { // 58 (+LOOP)
             actions: vec![ //
                 // Pop the step from SP.
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
                 // Load the index and limit from RP.
-                Load(R0, Rp),
-                Load(R3, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R2, Memory(R2)),
+                Load(EAX, Rp),
+                Load(EBX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(ECX, Memory(ECX)),
                 // Update the index.
-                Binary(Add, R4, R3, R1),
-                Store(R4, Memory(R0)),
+                Binary(Add, EBP, EBX, EDX),
+                Store(EBP, Memory(EAX)),
                 // Compute the differences between old and new indexes and limit.
-                Binary(Sub, R3, R3, R2),
-                Binary(Sub, R4, R4, R2),
+                Binary(Sub, EBX, EBX, ECX),
+                Binary(Sub, EBP, EBP, ECX),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Unary(Not, R4, R4),
-                            Binary(And, R4, R4, R3),
+                            Unary(Not, EBP, EBP),
+                            Binary(And, EBP, EBP, EBX),
                         ],
                         tests: vec![
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // Discard the loop index and limit.
-                                        Load(R0, Rp),
-                                        Constant(R2, cell_bytes(2)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Rp),
+                                        Load(EAX, Rp),
+                                        Constant(ECX, cell_bytes(2)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Rp),
                                         // Add 4 to EP.
-                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Constant(R1, cell_bytes(1)),
-                                        Binary(Add, R0, R0, R1),
-                                        Store(R0, Ep),
+                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Constant(EDX, cell_bytes(1)),
+                                        Binary(Add, EAX, EAX, EDX),
+                                        Store(EAX, Ep),
                                     ],
                                     tests: vec![],
                                 }),
                             ),
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // BRANCH. FIXME: Deduplicate
-                                        Load(R0, Ep),
-                                        Load(R0, Memory(R0)),
-                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R1, Memory(R0)),
-                                        Store(R1, A),
-                                        Constant(R2, cell_bytes(1)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Ep),
+                                        Load(EAX, Ep),
+                                        Load(EAX, Memory(EAX)),
+                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EDX, Memory(EAX)),
+                                        Store(EDX, A),
+                                        Constant(ECX, cell_bytes(1)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Ep),
                                     ],
                                     tests: vec![],
                                 }),
@@ -1576,56 +1583,56 @@ pub fn machine() -> Machine<BeetleAddress> {
                 ),
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Unary(Not, R3, R3),
-                            Binary(And, R4, R4, R3),
+                            Unary(Not, EBX, EBX),
+                            Binary(And, EBP, EBP, EBX),
                         ],
                         tests: vec![
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // Discard the loop index and limit.
-                                        Load(R0, Rp),
-                                        Constant(R2, cell_bytes(2)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Rp),
+                                        Load(EAX, Rp),
+                                        Constant(ECX, cell_bytes(2)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Rp),
                                         // Add 4 to EP.
-                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Constant(R1, cell_bytes(1)),
-                                        Binary(Add, R0, R0, R1),
-                                        Store(R0, Ep),
+                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Constant(EDX, cell_bytes(1)),
+                                        Binary(Add, EAX, EAX, EDX),
+                                        Store(EAX, Ep),
                                     ],
                                     tests: vec![],
                                 }),
                             ),
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // BRANCH. FIXME: Deduplicate
-                                        Load(R0, Ep),
-                                        Load(R0, Memory(R0)),
-                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R1, Memory(R0)),
-                                        Store(R1, A),
-                                        Constant(R2, cell_bytes(1)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Ep),
+                                        Load(EAX, Ep),
+                                        Load(EAX, Memory(EAX)),
+                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EDX, Memory(EAX)),
+                                        Store(EDX, A),
+                                        Constant(ECX, cell_bytes(1)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Ep),
                                     ],
                                     tests: vec![],
                                 }),
@@ -1638,75 +1645,75 @@ pub fn machine() -> Machine<BeetleAddress> {
         DecisionTree { // 59 (+LOOP)I
             actions: vec![ //
                 // Pop the step from SP.
-                Load(R0, Sp),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Sp),
+                Load(EAX, Sp),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Sp),
                 // Load the index and limit from RP.
-                Load(R0, Rp),
-                Load(R3, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R2, R0, R2),
-                Load(R2, Memory(R2)),
+                Load(EAX, Rp),
+                Load(EBX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(ECX, Memory(ECX)),
                 // Update the index.
-                Binary(Add, R4, R3, R1),
-                Store(R4, Memory(R0)),
+                Binary(Add, EBP, EBX, EDX),
+                Store(EBP, Memory(EAX)),
                 // Compute the differences between old and new indexes and limit.
-                Binary(Sub, R3, R3, R2),
-                Binary(Sub, R4, R4, R2),
+                Binary(Sub, EBX, EBX, ECX),
+                Binary(Sub, EBP, EBP, ECX),
             ],
             tests: vec![
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: false,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Unary(Not, R4, R4),
-                            Binary(And, R4, R4, R3),
+                            Unary(Not, EBP, EBP),
+                            Binary(And, EBP, EBP, EBX),
                         ],
                         tests: vec![
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // Discard the loop index and limit.
-                                        Load(R0, Rp),
-                                        Constant(R2, cell_bytes(2)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Rp),
+                                        Load(EAX, Rp),
+                                        Constant(ECX, cell_bytes(2)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Rp),
                                     ],
                                     tests: vec![],
                                 }),
                             ),
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // BRANCHI. FIXME: Deduplicate
-                                        Load(R0, Ep),
-                                        Load(R1, A),
-                                        Constant(R2, cell_bytes(1)),
-                                        Binary(Mul, R1, R1, R2),
-                                        Binary(Add, R0, R0, R1),
-                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R1, Memory(R0)),
-                                        Store(R1, A),
-                                        Constant(R2, cell_bytes(1)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Ep),
+                                        Load(EAX, Ep),
+                                        Load(EDX, A),
+                                        Constant(ECX, cell_bytes(1)),
+                                        Binary(Mul, EDX, EDX, ECX),
+                                        Binary(Add, EAX, EAX, EDX),
+                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EDX, Memory(EAX)),
+                                        Store(EDX, A),
+                                        Constant(ECX, cell_bytes(1)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Ep),
                                     ],
                                     tests: vec![],
                                 }),
@@ -1716,54 +1723,54 @@ pub fn machine() -> Machine<BeetleAddress> {
                 ),
                 (
                     Test {
-                        register: R1,
+                        register: EDX,
                         test_op: TestOp::Lt(Wrapping(0)),
                         must_be: true,
                     },
                     Box::new(DecisionTree {
                         actions: vec![
-                            Unary(Not, R3, R3),
-                            Binary(And, R4, R4, R3),
+                            Unary(Not, EBX, EBX),
+                            Binary(And, EBP, EBP, EBX),
                         ],
                         tests: vec![
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: true,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // Discard the loop index and limit.
-                                        Load(R0, Rp),
-                                        Constant(R2, cell_bytes(2)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Rp),
+                                        Load(EAX, Rp),
+                                        Constant(ECX, cell_bytes(2)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Rp),
                                     ],
                                     tests: vec![],
                                 }),
                             ),
                             (
                                 Test {
-                                    register: R4,
+                                    register: EBP,
                                     test_op: TestOp::Lt(Wrapping(0)),
                                     must_be: false,
                                 },
                                 Box::new(DecisionTree {
                                     actions: vec![
                                         // BRANCHI. FIXME: Deduplicate
-                                        Load(R0, Ep),
-                                        Load(R1, A),
-                                        Constant(R2, cell_bytes(1)),
-                                        Binary(Mul, R1, R1, R2),
-                                        Binary(Add, R0, R0, R1),
-                                        Store(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R0, Ep), // FIXME: Add check that EP is valid.
-                                        Load(R1, Memory(R0)),
-                                        Store(R1, A),
-                                        Constant(R2, cell_bytes(1)),
-                                        Binary(Add, R0, R0, R2),
-                                        Store(R0, Ep),
+                                        Load(EAX, Ep),
+                                        Load(EDX, A),
+                                        Constant(ECX, cell_bytes(1)),
+                                        Binary(Mul, EDX, EDX, ECX),
+                                        Binary(Add, EAX, EAX, EDX),
+                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                                        Load(EDX, Memory(EAX)),
+                                        Store(EDX, A),
+                                        Constant(ECX, cell_bytes(1)),
+                                        Binary(Add, EAX, EAX, ECX),
+                                        Store(EAX, Ep),
                                     ],
                                     tests: vec![],
                                 }),
@@ -1776,80 +1783,80 @@ pub fn machine() -> Machine<BeetleAddress> {
         DecisionTree {
             actions: vec![ // 5a UNLOOP
                 // Discard two items from RP.
-                Load(R0, Rp),
-                Constant(R1, cell_bytes(2)),
-                Binary(Add, R0, R0, R1),
-                Store(R0, Rp),
+                Load(EAX, Rp),
+                Constant(EDX, cell_bytes(2)),
+                Binary(Add, EAX, EAX, EDX),
+                Store(EAX, Rp),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 5b J
                 // Push the third item of RP to SP.
-                Load(R0, Rp),
-                Constant(R1, cell_bytes(2)),
-                Binary(Add, R0, R0, R1),
-                Load(R2, Memory(R0)),
-                Load(R0, Sp),
-                Constant(R1, cell_bytes(1)),
-                Binary(Sub, R0, R0, R1),
-                Store(R0, Sp),
-                Store(R2, Memory(R0)),
+                Load(EAX, Rp),
+                Constant(EDX, cell_bytes(2)),
+                Binary(Add, EAX, EAX, EDX),
+                Load(ECX, Memory(EAX)),
+                Load(EAX, Sp),
+                Constant(EDX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, EDX),
+                Store(EAX, Sp),
+                Store(ECX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 5c (LITERAL)
-                // Load R1 from cell pointed to by EP, and add 4 to EP.
-                Load(R0, Ep),
-                Load(R1, Memory(R0)),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
-                // Push R1 to the stack.
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Store(R0, Sp),
-                Store(R1, Memory(R0)),
+                // Load EDX from cell pointed to by EP, and add 4 to EP.
+                Load(EAX, Ep),
+                Load(EDX, Memory(EAX)),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
+                // Push EDX to the stack.
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EAX, Sp),
+                Store(EDX, Memory(EAX)),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 5d (LITERAL)I
                 // Push A to the stack.
-                Load(R0, Sp),
-                Constant(R2, cell_bytes(1)),
-                Binary(Sub, R0, R0, R2),
-                Store(R0, Sp),
-                Load(R1, A),
-                Store(R1, Memory(R0)),
+                Load(EAX, Sp),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Sub, EAX, EAX, ECX),
+                Store(EAX, Sp),
+                Load(EDX, A),
+                Store(EDX, Memory(EAX)),
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
         DecisionTree {
             actions: vec![ // 5e THROW
                 // Set 'BAD to EP
-                Load(R0, Ep),
-                Store(R0, BeetleAddress::Bad),
+                Load(EAX, Ep),
+                Store(EAX, BeetleAddress::Bad),
                 // Load EP from 'THROW
-                Load(R0, BeetleAddress::Throw),
-                Load(R0, Memory(R0)),
-                Store(R0, Ep), // FIXME: Add check that EP is valid.
+                Load(EAX, BeetleAddress::Throw),
+                Load(EAX, Memory(EAX)),
+                Store(EAX, Ep), // FIXME: Add check that EP is valid.
                 // NEXT. FIXME: Deduplicate
-                Load(R0, Ep), // FIXME: Add check that EP is valid.
-                Load(R1, Memory(R0)),
-                Store(R1, A),
-                Constant(R2, cell_bytes(1)),
-                Binary(Add, R0, R0, R2),
-                Store(R0, Ep),
+                Load(EAX, Ep), // FIXME: Add check that EP is valid.
+                Load(EDX, Memory(EAX)),
+                Store(EDX, A),
+                Constant(ECX, cell_bytes(1)),
+                Binary(Add, EAX, EAX, ECX),
+                Store(EAX, Ep),
             ],
             tests: vec![],
         },
