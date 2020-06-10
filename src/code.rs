@@ -1,17 +1,15 @@
-use std::num::{Wrapping};
-
 use super::{control_flow};
 pub use super::x86_64::{Register as R};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
-    Bit(Wrapping<u32>, Wrapping<u32>),
-    Lt(Wrapping<u32>),
-    Ge(Wrapping<u32>),
-    Ult(Wrapping<u32>),
-    Uge(Wrapping<u32>),
-    Eq(Wrapping<u32>),
-    Ne(Wrapping<u32>),
+    Bits(u32, u32),
+    Lt(u32),
+    Ge(u32),
+    Ult(u32),
+    Uge(u32),
+    Eq(u32),
+    Ne(u32),
     Always,
 }
 
@@ -55,7 +53,7 @@ pub enum Width {
 
 #[derive(Debug, Clone)]
 pub enum Action<A: control_flow::Address> {
-    Constant(R, Wrapping<u32>),
+    Constant(R, u32),
     Move(R, R),
     Unary(UnaryOp, R, R),
     Binary(BinaryOp, R, R, R),

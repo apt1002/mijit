@@ -1,14 +1,19 @@
 use std::num::{Wrapping};
-use super::control_flow::{Address, State, Machine};
-use super::code::{self, Width, Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*, TestOp};
+use std::rc::{Rc};
+
+use super::{control_flow};
+use super::code::{
+    self, Width,
+    Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*, TestOp
+};
 
 /** Beetle's address space. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum BeetleAddress {
-    Ep,
+    EP,
     A,
-    Sp,
-    Rp,
+    SP,
+    RP,
     S0,
     R0,
     Throw,
@@ -18,7 +23,7 @@ pub enum BeetleAddress {
     Memory(code::R),
 }
 
-impl Address for BeetleAddress {
+impl control_flow::Address for BeetleAddress {
     fn can_alias(&self, other: &Self) -> bool {
         match self {
             &BeetleAddress::Memory(_) => match other {
@@ -31,1842 +36,1266 @@ impl Address for BeetleAddress {
 }
 
 /** Computes the number of bytes in `n` words. */
-pub const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
+pub const fn cell_bytes(n: u32) -> u32 { Wrapping(4 * n).0 }
 
 /** The number of bits in a word. */
-pub const CELL_BITS: Wrapping<u32> = cell_bytes(8);
+pub const CELL_BITS: u32 = cell_bytes(8);
 
 pub type Action = code::Action<BeetleAddress>;
 
 // TODO: Make private.
 pub mod decision_tree;
+use decision_tree::{Block, State};
 
-pub fn machine() -> Machine<BeetleAddress> {
+pub fn machine() -> control_flow::Machine<BeetleAddress> {
     use super::x86_64::{A as EAX, D as EDX, C as ECX, B as EBX, BP as EBP};
-    use BeetleAddress::{Ep, A, Sp, Rp, Memory};
-    const fn cell_bytes(n: u32) -> Wrapping<u32> { Wrapping(4 * n) }
-    const CELL_BITS: Wrapping<u32> = cell_bytes(8);
-    // FIXME: Delete.
-    struct DecisionTree {
-        actions: Vec<Action>,
-        tests: Vec<(Test, Box<DecisionTree>)>,
+    let dummy = EAX;
+    use BeetleAddress::{EP as B_EP, A as B_A, SP as B_SP, RP as B_RP, Memory};
+
+    // The root State. Cases with a `target` of `None` return here.
+    let mut root = State::new(Block::new(&[
+        Load(EAX, B_A),
+        Constant(ECX, 8),
+        Binary(Asr, EDX, EAX, ECX),
+        Store(EDX, B_A),
+    ]), EAX);
+
+    // NEXT
+    let mut next = State::new(Block::new(&[
+        Load(EAX, B_EP), // FIXME: Add check that EP is valid.
+        Load(EDX, Memory(EAX)),
+        Store(EDX, B_A),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_EP),
+    ]), dummy);
+    next.add_case(TestOp::Always, Block::new(&[]), None);
+    let next = Rc::new(next);
+    root.add_case(TestOp::Bits(0xff, 0x00), Block::new(&[]), Some(&next));
+
+    // DUP
+    root.add_case(TestOp::Bits(0xff, 0x01), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+    
+    // DROP
+    root.add_case(TestOp::Bits(0xff, 0x02), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // SWAP
+    root.add_case(TestOp::Bits(0xff, 0x03), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EDX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Load(EBX, Memory(EDX)),
+        Store(ECX, Memory(EDX)),
+        Store(EBX, Memory(EAX)),
+    ]), None);
+
+    // OVER
+    root.add_case(TestOp::Bits(0xff, 0x04), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EDX, EAX, ECX),
+        Load(EBX, Memory(EDX)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EBX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // ROT
+    root.add_case(TestOp::Bits(0xff, 0x05), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EBP, EAX, ECX),
+        Load(EBX, Memory(EBP)),
+        Store(EDX, Memory(EBP)),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EBP, EAX, ECX),
+        Load(EDX, Memory(EBP)),
+        Store(EBX, Memory(EBP)),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // -ROT
+    root.add_case(TestOp::Bits(0xff, 0x06), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EBP, EAX, ECX),
+        Load(EBX, Memory(EBP)),
+        Store(EDX, Memory(EBP)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EBP, EAX, ECX),
+        Load(EDX, Memory(EBP)),
+        Store(EBX, Memory(EBP)),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // TUCK
+    root.add_case(TestOp::Bits(0xff, 0x07), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EBP, EAX, ECX),
+        Load(EBX, Memory(EBP)),
+        Store(EDX, Memory(EBP)),
+        Store(EBX, Memory(EAX)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // NIP
+    root.add_case(TestOp::Bits(0xff, 0x08), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // PICK
+    let mut pick = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+    ]), EDX);
+    for u in 0..4 {
+        pick.add_case(TestOp::Eq(u), Block::new(&[
+            Load(EAX, B_SP),
+            Constant(ECX, cell_bytes(u + 1)),
+            Binary(Add, EDX, EAX, ECX),
+            Load(EDX, Memory(EDX)),
+            Store(EDX, Memory(EAX)),
+        ]), None);
     }
-    // FIXME: Delete.
-    struct Test {
-        register: code::R,
-        test_op: TestOp,
-        must_be: bool,
+    let pick = Rc::new(pick);
+    root.add_case(TestOp::Bits(0xff, 0x09), Block::new(&[]), Some(&pick));
+
+    // ROLL
+    let mut roll = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), EDX);
+    for u in 0..4 {
+        let mut block = Block::new(&[
+            Constant(ECX, cell_bytes(u)),
+            Binary(Add, EBP, EAX, ECX),
+            Load(EBX, Memory(EBP)),
+        ]);
+        for v in 0..u {
+            block = block.extend(&[
+                Constant(ECX, cell_bytes(v)),
+                Binary(Add, ECX, EAX, ECX),
+                Load(EDX, Memory(ECX)),
+                Store(EBX, Memory(ECX)),
+                Move(EBX, EDX),
+            ])
+        }
+        block = block.extend(&[
+            Store(EBX, Memory(EBP)),
+        ]);
+        roll.add_case(TestOp::Eq(u), block, None)
     }
-    let instructions = vec![
-        DecisionTree {
-            actions: vec![ // 00 NEXT
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 01 DUP
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 02 DROP
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 03 SWAP
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EDX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Load(EBX, Memory(EDX)),
-                Store(ECX, Memory(EDX)),
-                Store(EBX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 04 OVER
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EDX, EAX, ECX),
-                Load(EBX, Memory(EDX)),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EBX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 05 ROT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EBP, EAX, ECX),
-                Load(EBX, Memory(EBP)),
-                Store(EDX, Memory(EBP)),
-                Constant(ECX, cell_bytes(2)),
-                Binary(Add, EBP, EAX, ECX),
-                Load(EDX, Memory(EBP)),
-                Store(EBX, Memory(EBP)),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 06 -ROT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(2)),
-                Binary(Add, EBP, EAX, ECX),
-                Load(EBX, Memory(EBP)),
-                Store(EDX, Memory(EBP)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EBP, EAX, ECX),
-                Load(EDX, Memory(EBP)),
-                Store(EBX, Memory(EBP)),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 07 TUCK
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EBP, EAX, ECX),
-                Load(EBX, Memory(EBP)),
-                Store(EDX, Memory(EBP)),
-                Store(EBX, Memory(EAX)),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 08 NIP
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 09 PICK
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-            ],
-            tests: (0..4).map(|u| {
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(u)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Load(EAX, Sp),
-                            Constant(ECX, cell_bytes(u + 1)),
-                            Binary(Add, EDX, EAX, ECX),
-                            Load(EDX, Memory(EDX)),
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                )
-            }).collect(),
-        },
-        DecisionTree {
-            actions: vec![ // 0a ROLL
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: (0..4).map(|u| {
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(u)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Constant(ECX, cell_bytes(u)),
-                            Binary(Add, EBP, EAX, ECX),
-                            Load(EBX, Memory(EBP)),
-                        ].into_iter().chain(
-                            (0..u).flat_map(|v| {
-                                vec![
-                                    Constant(ECX, cell_bytes(v)),
-                                    Binary(Add, ECX, EAX, ECX),
-                                    Load(EDX, Memory(ECX)),
-                                    Store(EBX, Memory(ECX)),
-                                    Move(EBX, EDX),
-                                ]
-                            })
-                        ).chain(
-                            vec![
-                                Store(EBX, Memory(EBP)),
-                            ]
-                        ).collect(),
-                        tests: vec![],
-                    }),
-                )
-            }).collect(),
-        },
-        DecisionTree {
-            actions: vec![ // 0b ?DUP
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Sub, EAX, EAX, ECX),
-                            Store(EDX, Memory(EAX)),
-                            Store(EAX, Sp),
-                        ],
-                        tests: vec![],
-                    }),
-                ),
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 0c >R
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                Load(EAX, Rp),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Rp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 0d R>
-                Load(EAX, Rp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Rp),
-                Load(EAX, Sp),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 0e R@
-                Load(EAX, Rp),
-                Load(EDX, Memory(EAX)),
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 0f <
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Lt, EDX, ECX, EDX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 10 >
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Lt, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 11 =
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Eq, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 12 <>
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Eq, EDX, EDX, ECX),
-                Unary(Not, EDX, EDX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 13 0<
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(0)),
-                Binary(Lt, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 14 0>
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(0)),
-                Binary(Lt, EDX, ECX, EDX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 15 0=
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(0)),
-                Binary(Eq, EDX, ECX, EDX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 16 0<>
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(0)),
-                Binary(Eq, EDX, ECX, EDX),
-                Unary(Not, EDX, EDX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 17 U<
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Ult, EDX, ECX, EDX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 18 U>
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Ult, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 19 0
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Constant(ECX, Wrapping(0)),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 1a 1
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Constant(ECX, Wrapping(1)),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 1b -1
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Constant(ECX, -Wrapping(1)),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 1c CELL
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Constant(ECX, cell_bytes(1)),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 1d -CELL
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Constant(ECX, -cell_bytes(1)),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 1e +
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Add, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 1f -
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 20 >-<
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Sub, EDX, ECX, EDX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 21 1+
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(1)),
-                Binary(Add, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 22 1-
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(1)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 23 CELL+
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 24 CELL-
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 25 *
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Mul, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 26 /
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 27 MOD
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 28 /MOD
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 29 U/MOD
-                Load(EBX, Sp),
-                Load(EDX, Memory(EBX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EBX, ECX),
-                Load(EAX, Memory(ECX)),
-                Division(UnsignedDivMod, EAX, EDX, EAX, EDX),
-                Store(EDX, Memory(ECX)),
-                Store(EAX, Memory(EBX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 2a S/REM
-                Load(EBX, Sp),
-                Load(EDX, Memory(EBX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EBX, ECX),
-                Load(EAX, Memory(ECX)),
-                Division(SignedDivMod, EAX, EDX, EAX, EDX),
-                Store(EDX, Memory(ECX)),
-                Store(EAX, Memory(EBX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 2b 2/
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(1)),
-                Binary(Asr, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 2c CELLS
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Mul, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 2d ABS
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Lt(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Unary(Negate, EDX, EDX),
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Lt(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![],
-                        tests: vec![],
-                    }),
-                ),
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 2e NEGATE
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Unary(Negate, EDX, EDX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 2f MAX
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                Load(ECX, Memory(EAX)),
-                Binary(Lt, EBX, ECX, EDX),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                )
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 30 MIN
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                Load(ECX, Memory(EAX)),
-                Binary(Lt, EBX, EDX, ECX),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                )
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 31 INVERT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Unary(Not, EDX, EDX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 32 AND
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(And, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 33 OR
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Or, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 34 XOR
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Binary(Xor, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 35 LSHIFT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: ECX,
-                        test_op: TestOp::Ult(CELL_BITS),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Binary(Lsl, EDX, EDX, ECX),
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: ECX,
-                        test_op: TestOp::Ult(CELL_BITS),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Constant(EDX, Wrapping(0)),
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                ),
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 36 RSHIFT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Load(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: ECX,
-                        test_op: TestOp::Ult(CELL_BITS),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Binary(Lsr, EDX, EDX, ECX),
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: ECX,
-                        test_op: TestOp::Ult(CELL_BITS),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Constant(EDX, Wrapping(0)),
-                            Store(EDX, Memory(EAX)),
-                        ],
-                        tests: vec![],
-                    }),
-                ),
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 37 1LSHIFT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(1)),
-                Binary(Lsl, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 38 1RSHIFT
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, Wrapping(1)),
-                Binary(Lsr, EDX, EDX, ECX),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 39 @
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Load(EDX, Memory(EDX)),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 3a !
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(EBX, Memory(ECX)),
-                Store(EBX, Memory(EDX)),
-                Constant(ECX, cell_bytes(2)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 3b C@
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                LoadNarrow(Width::One, EDX, Memory(EDX)),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 3c C!
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(EBX, Memory(ECX)),
-                StoreNarrow(Width::One, EBX, Memory(EDX)),
-                Constant(ECX, cell_bytes(2)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 3d +!
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(EBX, Memory(ECX)),
-                Load(EBP, Memory(EDX)),
-                Binary(Add, EBX, EBP, EBX),
-                Store(EBX, Memory(EDX)),
-                Constant(ECX, cell_bytes(2)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 3e SP@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, ECX, EAX, ECX),
-                Store(EAX, Memory(ECX)),
-                Store(ECX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 3f SP!
-                Load(EAX, Sp),
-                Load(EAX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 40 RP@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, Rp),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 41 RP!
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Store(EDX, Rp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 42 EP@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, Ep),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 43 S0@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, BeetleAddress::S0),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 44 S0!
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Store(EDX, BeetleAddress::S0),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 45 R0@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, BeetleAddress::R0),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 46 R0!
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Store(EDX, BeetleAddress::R0),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 47 'THROW@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, BeetleAddress::Throw),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 48 'THROW!
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Store(EDX, BeetleAddress::Throw),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 49 MEMORY@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, BeetleAddress::Memory0),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 4a 'BAD@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, BeetleAddress::Bad),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 4b -ADDRESS@
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Load(ECX, BeetleAddress::NotAddress),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Sp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 4c BRANCH
-                // Load EP from the cell it points to.
-                Load(EAX, Ep),
-                Load(EAX, Memory(EAX)),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 4d BRANCHI
-                // Add A*4 to EP.
-                Load(EAX, Ep),
-                Load(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Mul, EDX, EDX, ECX),
-                Binary(Add, EAX, EAX, EDX),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 4e ?BRANCH
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            // BRANCH. FIXME: Deduplicate.
-                            Load(EAX, Ep),
-                            Load(EAX, Memory(EAX)),
-                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                            // NEXT. FIXME: Deduplicate
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EDX, Memory(EAX)),
-                            Store(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Constant(EDX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, EDX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                ),
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 4f ?BRANCHI
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Load(EAX, Ep),
-                            Load(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Mul, EDX, EDX, ECX),
-                            Binary(Add, EAX, EAX, EDX),
-                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                            // NEXT. FIXME: Deduplicate
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EDX, Memory(EAX)),
-                            Store(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            // NEXT. FIXME: Deduplicate
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EDX, Memory(EAX)),
-                            Store(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                ),
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 50 EXECUTE
-                // Push EP onto the return stack.
-                Load(EDX, Rp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Rp),
-                Load(EAX, Ep),
-                Store(EAX, Memory(EDX)),
-                // Put a-addEDX into EP.
-                Load(EDX, Sp),
-                Load(EAX, Memory(EDX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EDX, EDX, ECX),
-                Store(EDX, Sp),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 51 @EXECUTE
-                // Push EP onto the return stack.
-                Load(EDX, Rp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Rp),
-                Load(EAX, Ep),
-                Store(EAX, Memory(EDX)),
-                // Put the contents of a-addEDX into EP.
-                Load(EDX, Sp),
-                Load(EAX, Memory(EDX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EDX, EDX, ECX),
-                Store(EDX, Sp),
-                Load(EAX, Memory(EAX)),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 52 CALL
-                // Push EP+4 onto the return stack.
-                Load(EDX, Rp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Rp),
-                Load(EAX, Ep),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Memory(EDX)),
-                // BRANCH. FIXME: Deduplicate
-                Load(EAX, Ep),
-                Load(EAX, Memory(EAX)),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 53 CALLI
-                // Push EP onto the return stack.
-                Load(EDX, Rp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EDX, EDX, ECX),
-                Store(EDX, Rp),
-                Load(EAX, Ep),
-                Store(EAX, Memory(EDX)),
-                // Add A*4 to EP.
-                Load(EAX, Ep),
-                Load(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Mul, EDX, EDX, ECX),
-                Binary(Add, EAX, EAX, EDX),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 54 EXIT
-                // Put a-addr into EP.
-                Load(EDX, Rp),
-                Load(EAX, Memory(EDX)),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EDX, EDX, ECX),
-                Store(EDX, Rp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 55 (DO)
-                // Pop two items from SP.
-                Load(EAX, Sp),
-                Load(ECX, Memory(EAX)),
-                Constant(EDX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, EDX),
-                Load(EBX, Memory(EAX)),
-                Binary(Add, EAX, EAX, EDX),
-                Store(EAX, Sp),
-                // Push two items to RP.
-                Load(EAX, Rp),
-                Constant(EDX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, EDX),
-                Store(EBX, Memory(EAX)),
-                Binary(Sub, EAX, EAX, EDX),
-                Store(ECX, Memory(EAX)),
-                Store(EAX, Rp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 56 (LOOP)
-                // Load the index and limit from RP.
-                Load(EAX, Rp),
-                Load(EBX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(ECX, Memory(ECX)),
-                // Update the index.
-                Constant(EDX, Wrapping(1)),
-                Binary(Add, EBX, EBX, EDX),
-                Store(EBX, Memory(EAX)),
-                Binary(Sub, EBX, EBX, ECX),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            // Discard the loop index and limit.
-                            Load(EAX, Rp),
-                            Constant(ECX, cell_bytes(2)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Rp),
-                            // Add 4 to EP.
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Constant(EDX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, EDX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                ), (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            // BRANCH. FIXME: Deduplicate
-                            Load(EAX, Ep),
-                            Load(EAX, Memory(EAX)),
-                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EDX, Memory(EAX)),
-                            Store(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                )
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 57 (LOOP)I
-                // Load the index and limit from RP.
-                Load(EAX, Rp),
-                Load(EBX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(ECX, Memory(ECX)),
-                // Update the index.
-                Constant(EDX, Wrapping(1)),
-                Binary(Add, EBX, EBX, EDX),
-                Store(EBX, Memory(EAX)),
-                Binary(Sub, EBX, EBX, ECX),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            // Discard the loop index and limit.
-                            Load(EAX, Rp),
-                            Constant(ECX, cell_bytes(2)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Rp),
-                        ],
-                        tests: vec![]
-                    }),
-                ), (
-                    Test {
-                        register: EBX,
-                        test_op: TestOp::Eq(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            // BRANCHI. FIXME: Deduplicate
-                            Load(EAX, Ep),
-                            Load(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Mul, EDX, EDX, ECX),
-                            Binary(Add, EAX, EAX, EDX),
-                            Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                            Load(EDX, Memory(EAX)),
-                            Store(EDX, A),
-                            Constant(ECX, cell_bytes(1)),
-                            Binary(Add, EAX, EAX, ECX),
-                            Store(EAX, Ep),
-                        ],
-                        tests: vec![],
-                    }),
-                )
-            ],
-        },
-        DecisionTree { // 58 (+LOOP)
-            actions: vec![ //
-                // Pop the step from SP.
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                // Load the index and limit from RP.
-                Load(EAX, Rp),
-                Load(EBX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(ECX, Memory(ECX)),
-                // Update the index.
-                Binary(Add, EBP, EBX, EDX),
-                Store(EBP, Memory(EAX)),
-                // Compute the differences between old and new indexes and limit.
-                Binary(Sub, EBX, EBX, ECX),
-                Binary(Sub, EBP, EBP, ECX),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Lt(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Unary(Not, EBP, EBP),
-                            Binary(And, EBP, EBP, EBX),
-                        ],
-                        tests: vec![
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: true,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // Discard the loop index and limit.
-                                        Load(EAX, Rp),
-                                        Constant(ECX, cell_bytes(2)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Rp),
-                                        // Add 4 to EP.
-                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Constant(EDX, cell_bytes(1)),
-                                        Binary(Add, EAX, EAX, EDX),
-                                        Store(EAX, Ep),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            ),
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: false,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // BRANCH. FIXME: Deduplicate
-                                        Load(EAX, Ep),
-                                        Load(EAX, Memory(EAX)),
-                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EDX, Memory(EAX)),
-                                        Store(EDX, A),
-                                        Constant(ECX, cell_bytes(1)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Ep),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            )
-                        ]
-                    }),
-                ),
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Lt(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Unary(Not, EBX, EBX),
-                            Binary(And, EBP, EBP, EBX),
-                        ],
-                        tests: vec![
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: true,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // Discard the loop index and limit.
-                                        Load(EAX, Rp),
-                                        Constant(ECX, cell_bytes(2)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Rp),
-                                        // Add 4 to EP.
-                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Constant(EDX, cell_bytes(1)),
-                                        Binary(Add, EAX, EAX, EDX),
-                                        Store(EAX, Ep),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            ),
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: false,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // BRANCH. FIXME: Deduplicate
-                                        Load(EAX, Ep),
-                                        Load(EAX, Memory(EAX)),
-                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EDX, Memory(EAX)),
-                                        Store(EDX, A),
-                                        Constant(ECX, cell_bytes(1)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Ep),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            )
-                        ]
-                    }),
-                )
-            ],
-        },
-        DecisionTree { // 59 (+LOOP)I
-            actions: vec![ //
-                // Pop the step from SP.
-                Load(EAX, Sp),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                // Load the index and limit from RP.
-                Load(EAX, Rp),
-                Load(EBX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, ECX, EAX, ECX),
-                Load(ECX, Memory(ECX)),
-                // Update the index.
-                Binary(Add, EBP, EBX, EDX),
-                Store(EBP, Memory(EAX)),
-                // Compute the differences between old and new indexes and limit.
-                Binary(Sub, EBX, EBX, ECX),
-                Binary(Sub, EBP, EBP, ECX),
-            ],
-            tests: vec![
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Lt(Wrapping(0)),
-                        must_be: false,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Unary(Not, EBP, EBP),
-                            Binary(And, EBP, EBP, EBX),
-                        ],
-                        tests: vec![
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: true,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // Discard the loop index and limit.
-                                        Load(EAX, Rp),
-                                        Constant(ECX, cell_bytes(2)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Rp),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            ),
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: false,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // BRANCHI. FIXME: Deduplicate
-                                        Load(EAX, Ep),
-                                        Load(EDX, A),
-                                        Constant(ECX, cell_bytes(1)),
-                                        Binary(Mul, EDX, EDX, ECX),
-                                        Binary(Add, EAX, EAX, EDX),
-                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EDX, Memory(EAX)),
-                                        Store(EDX, A),
-                                        Constant(ECX, cell_bytes(1)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Ep),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            )
-                        ]
-                    }),
-                ),
-                (
-                    Test {
-                        register: EDX,
-                        test_op: TestOp::Lt(Wrapping(0)),
-                        must_be: true,
-                    },
-                    Box::new(DecisionTree {
-                        actions: vec![
-                            Unary(Not, EBX, EBX),
-                            Binary(And, EBP, EBP, EBX),
-                        ],
-                        tests: vec![
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: true,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // Discard the loop index and limit.
-                                        Load(EAX, Rp),
-                                        Constant(ECX, cell_bytes(2)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Rp),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            ),
-                            (
-                                Test {
-                                    register: EBP,
-                                    test_op: TestOp::Lt(Wrapping(0)),
-                                    must_be: false,
-                                },
-                                Box::new(DecisionTree {
-                                    actions: vec![
-                                        // BRANCHI. FIXME: Deduplicate
-                                        Load(EAX, Ep),
-                                        Load(EDX, A),
-                                        Constant(ECX, cell_bytes(1)),
-                                        Binary(Mul, EDX, EDX, ECX),
-                                        Binary(Add, EAX, EAX, EDX),
-                                        Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                                        Load(EDX, Memory(EAX)),
-                                        Store(EDX, A),
-                                        Constant(ECX, cell_bytes(1)),
-                                        Binary(Add, EAX, EAX, ECX),
-                                        Store(EAX, Ep),
-                                    ],
-                                    tests: vec![],
-                                }),
-                            )
-                        ]
-                    }),
-                )
-            ],
-        },
-        DecisionTree {
-            actions: vec![ // 5a UNLOOP
-                // Discard two items from RP.
-                Load(EAX, Rp),
-                Constant(EDX, cell_bytes(2)),
-                Binary(Add, EAX, EAX, EDX),
-                Store(EAX, Rp),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 5b J
-                // Push the third item of RP to SP.
-                Load(EAX, Rp),
-                Constant(EDX, cell_bytes(2)),
-                Binary(Add, EAX, EAX, EDX),
-                Load(ECX, Memory(EAX)),
-                Load(EAX, Sp),
-                Constant(EDX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, EDX),
-                Store(EAX, Sp),
-                Store(ECX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 5c (LITERAL)
-                // Load EDX from cell pointed to by EP, and add 4 to EP.
-                Load(EAX, Ep),
-                Load(EDX, Memory(EAX)),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // Push EDX to the stack.
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                Store(EDX, Memory(EAX)),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 5d (LITERAL)I
-                // Push A to the stack.
-                Load(EAX, Sp),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Sub, EAX, EAX, ECX),
-                Store(EAX, Sp),
-                Load(EDX, A),
-                Store(EDX, Memory(EAX)),
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-        DecisionTree {
-            actions: vec![ // 5e THROW
-                // Set 'BAD to EP
-                Load(EAX, Ep),
-                Store(EAX, BeetleAddress::Bad),
-                // Load EP from 'THROW
-                Load(EAX, BeetleAddress::Throw),
-                Load(EAX, Memory(EAX)),
-                Store(EAX, Ep), // FIXME: Add check that EP is valid.
-                // NEXT. FIXME: Deduplicate
-                Load(EAX, Ep), // FIXME: Add check that EP is valid.
-                Load(EDX, Memory(EAX)),
-                Store(EDX, A),
-                Constant(ECX, cell_bytes(1)),
-                Binary(Add, EAX, EAX, ECX),
-                Store(EAX, Ep),
-            ],
-            tests: vec![],
-        },
-    ];
+    let roll = Rc::new(roll);
+    root.add_case(TestOp::Bits(0xff, 0x0a), Block::new(&[]), Some(&roll));
+
+    // ?DUP
+    let mut qdup = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+    ]), EDX);
+    qdup.add_case(TestOp::Eq(0), Block::new(&[
+    ]), None);
+    qdup.add_case(TestOp::Ne(0), Block::new(&[
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+    let qdup = Rc::new(qdup);
+    root.add_case(TestOp::Bits(0xff, 0x0b), Block::new(&[]), Some(&qdup));
+
+    // >R
+    root.add_case(TestOp::Bits(0xff, 0x0c), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        Load(EAX, B_RP),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_RP),
+    ]), None);
+
+    // R>
+    root.add_case(TestOp::Bits(0xff, 0x0d), Block::new(&[
+        Load(EAX, B_RP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+        Load(EAX, B_SP),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // R@
+    root.add_case(TestOp::Bits(0xff, 0x0e), Block::new(&[
+        Load(EAX, B_RP),
+        Load(EDX, Memory(EAX)),
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // <
+    root.add_case(TestOp::Bits(0xff, 0x0f), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Lt, EDX, ECX, EDX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // >
+    root.add_case(TestOp::Bits(0xff, 0x10), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Lt, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // =
+    root.add_case(TestOp::Bits(0xff, 0x11), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Eq, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // <>
+    root.add_case(TestOp::Bits(0xff, 0x12), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Eq, EDX, EDX, ECX),
+        Unary(Not, EDX, EDX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // 0<
+    root.add_case(TestOp::Bits(0xff, 0x13), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 0),
+        Binary(Lt, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // 0>
+    root.add_case(TestOp::Bits(0xff, 0x14), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 0),
+        Binary(Lt, EDX, ECX, EDX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // 0=
+    root.add_case(TestOp::Bits(0xff, 0x15), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 0),
+        Binary(Eq, EDX, ECX, EDX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // 0<>
+    root.add_case(TestOp::Bits(0xff, 0x16), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 0),
+        Binary(Eq, EDX, ECX, EDX),
+        Unary(Not, EDX, EDX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // U<
+    root.add_case(TestOp::Bits(0xff, 0x17), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Ult, EDX, ECX, EDX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // U>
+    root.add_case(TestOp::Bits(0xff, 0x18), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Ult, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // 0
+    root.add_case(TestOp::Bits(0xff, 0x19), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Constant(ECX, 0),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // 1
+    root.add_case(TestOp::Bits(0xff, 0x1a), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Constant(ECX, 1),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // -1
+    root.add_case(TestOp::Bits(0xff, 0x1b), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Constant(ECX, (-Wrapping(1u32)).0),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // CELL
+    root.add_case(TestOp::Bits(0xff, 0x1c), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Constant(ECX, cell_bytes(1)),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // -CELL
+    root.add_case(TestOp::Bits(0xff, 0x1d), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Constant(ECX, (-Wrapping(cell_bytes(1))).0),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // +
+    root.add_case(TestOp::Bits(0xff, 0x1e), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Add, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // -
+    root.add_case(TestOp::Bits(0xff, 0x1f), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // >-<
+    root.add_case(TestOp::Bits(0xff, 0x20), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Sub, EDX, ECX, EDX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // 1+
+    root.add_case(TestOp::Bits(0xff, 0x21), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 1),
+        Binary(Add, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // 1-
+    root.add_case(TestOp::Bits(0xff, 0x22), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 1),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // CELL+
+    root.add_case(TestOp::Bits(0xff, 0x23), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // CELL-
+    root.add_case(TestOp::Bits(0xff, 0x24), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // *
+    root.add_case(TestOp::Bits(0xff, 0x25), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Mul, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // /
+    // root.add_case(TestOp::Bits(0xff, 0x26), TODO);
+    // MOD
+    // root.add_case(TestOp::Bits(0xff, 0x27), TODO);
+    // /MOD
+    // root.add_case(TestOp::Bits(0xff, 0x28), TODO);
+
+    // U/MOD
+    root.add_case(TestOp::Bits(0xff, 0x29), Block::new(&[
+        Load(EBX, B_SP),
+        Load(EDX, Memory(EBX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EBX, ECX),
+        Load(EAX, Memory(ECX)),
+        Division(UnsignedDivMod, EAX, EDX, EAX, EDX),
+        Store(EDX, Memory(ECX)),
+        Store(EAX, Memory(EBX)),
+    ]), None);
+
+    // S/REM
+    root.add_case(TestOp::Bits(0xff, 0x2a), Block::new(&[
+        Load(EBX, B_SP),
+        Load(EDX, Memory(EBX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EBX, ECX),
+        Load(EAX, Memory(ECX)),
+        Division(SignedDivMod, EAX, EDX, EAX, EDX),
+        Store(EDX, Memory(ECX)),
+        Store(EAX, Memory(EBX)),
+    ]), None);
+
+    // 2/
+    root.add_case(TestOp::Bits(0xff, 0x2b), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 1),
+        Binary(Asr, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // CELLS
+    root.add_case(TestOp::Bits(0xff, 0x2c), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Mul, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // ABS
+    let mut abs = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+    ]), EDX);
+    abs.add_case(TestOp::Lt(0), Block::new(&[
+        Unary(Negate, EDX, EDX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    abs.add_case(TestOp::Ge(0), Block::new(&[
+    ]), None);
+    let abs = Rc::new(abs);
+    root.add_case(TestOp::Bits(0xff, 0x2d), Block::new(&[]), Some(&abs));
+
+    // NEGATE
+    root.add_case(TestOp::Bits(0xff, 0x2e), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Unary(Negate, EDX, EDX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // Max
+    let mut max = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        Load(ECX, Memory(EAX)),
+        Binary(Lt, EBX, ECX, EDX),
+    ]), EBX);
+    max.add_case(TestOp::Eq(0), Block::new(&[
+    ]), None);
+    max.add_case(TestOp::Ne(0), Block::new(&[
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    let max = Rc::new(max);
+    root.add_case(TestOp::Bits(0xff, 0x2f), Block::new(&[]), Some(&max));
+
+    // MIN
+    let mut min = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        Load(ECX, Memory(EAX)),
+        Binary(Lt, EBX, EDX, ECX),
+    ]), EBX);
+    min.add_case(TestOp::Eq(0), Block::new(&[
+    ]), None);
+    min.add_case(TestOp::Ne(0), Block::new(&[
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    root.add_case(TestOp::Bits(0xff, 0x30), Block::new(&[]), None);
+
+    // INVERT
+    root.add_case(TestOp::Bits(0xff, 0x31), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Unary(Not, EDX, EDX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // AND
+    root.add_case(TestOp::Bits(0xff, 0x32), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(And, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // OR
+    root.add_case(TestOp::Bits(0xff, 0x33), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Or, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // XOR
+    root.add_case(TestOp::Bits(0xff, 0x34), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Binary(Xor, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // LSHIFT
+    let mut lshift = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), ECX);
+    lshift.add_case(TestOp::Ult(CELL_BITS), Block::new(&[
+        Binary(Lsl, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    lshift.add_case(TestOp::Uge(CELL_BITS), Block::new(&[
+        Constant(EDX, 0),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    let lshift = Rc::new(lshift);
+    root.add_case(TestOp::Bits(0xff, 0x35), Block::new(&[]), Some(&lshift));
+
+    // RSHIFT
+    let mut rshift = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), ECX);
+    rshift.add_case(TestOp::Ult(CELL_BITS), Block::new(&[
+        Binary(Lsr, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    rshift.add_case(TestOp::Uge(CELL_BITS), Block::new(&[
+        Constant(EDX, 0),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    let rshift = Rc::new(rshift);
+    root.add_case(TestOp::Bits(0xff, 0x36), Block::new(&[]), Some(&rshift));
+
+    // 1LSHIFT
+    root.add_case(TestOp::Bits(0xff, 0x37), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 1),
+        Binary(Lsl, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // 1RSHIFT
+    root.add_case(TestOp::Bits(0xff, 0x38), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, 1),
+        Binary(Lsr, EDX, EDX, ECX),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // @
+    root.add_case(TestOp::Bits(0xff, 0x39), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Load(EDX, Memory(EDX)),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // !
+    root.add_case(TestOp::Bits(0xff, 0x3a), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(EBX, Memory(ECX)),
+        Store(EBX, Memory(EDX)),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // C@
+    root.add_case(TestOp::Bits(0xff, 0x3b), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        LoadNarrow(Width::One, EDX, Memory(EDX)),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // C!
+    root.add_case(TestOp::Bits(0xff, 0x3c), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(EBX, Memory(ECX)),
+        StoreNarrow(Width::One, EBX, Memory(EDX)),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // +!
+    root.add_case(TestOp::Bits(0xff, 0x3d), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(EBX, Memory(ECX)),
+        Load(EBP, Memory(EDX)),
+        Binary(Add, EBX, EBP, EBX),
+        Store(EBX, Memory(EDX)),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // SP@
+    root.add_case(TestOp::Bits(0xff, 0x3e), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, ECX, EAX, ECX),
+        Store(EAX, Memory(ECX)),
+        Store(ECX, B_SP),
+    ]), None);
+
+    // SP!
+    root.add_case(TestOp::Bits(0xff, 0x3f), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EAX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // RP@
+    root.add_case(TestOp::Bits(0xff, 0x40), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, B_RP),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // RP!
+    root.add_case(TestOp::Bits(0xff, 0x41), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Store(EDX, B_RP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // EP@
+    root.add_case(TestOp::Bits(0xff, 0x42), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, B_EP),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // S0@
+    root.add_case(TestOp::Bits(0xff, 0x43), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, BeetleAddress::S0),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // S0!
+    root.add_case(TestOp::Bits(0xff, 0x44), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Store(EDX, BeetleAddress::S0),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // R0@
+    root.add_case(TestOp::Bits(0xff, 0x45), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, BeetleAddress::R0),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // R0!
+    root.add_case(TestOp::Bits(0xff, 0x46), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Store(EDX, BeetleAddress::R0),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // #THROW@
+    root.add_case(TestOp::Bits(0xff, 0x47), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, BeetleAddress::Throw),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // 'THROW!
+    root.add_case(TestOp::Bits(0xff, 0x48), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Store(EDX, BeetleAddress::Throw),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // MEMORY@
+    root.add_case(TestOp::Bits(0xff, 0x49), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, BeetleAddress::Memory0),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // 'BAD@
+    root.add_case(TestOp::Bits(0xff, 0x4a), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, BeetleAddress::Bad),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // -ADDRESS@
+    root.add_case(TestOp::Bits(0xff, 0x4b), Block::new(&[
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Load(ECX, BeetleAddress::NotAddress),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), None);
+
+    // BRANCH
+    let mut branch = State::new(Block::new(&[
+        // Load EP from the cell it points to.
+        Load(EAX, B_EP),
+        Load(EAX, Memory(EAX)),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+    ]), dummy);
+    branch.add_case(TestOp::Always, Block::new(&[]), Some(&next));
+    let branch = Rc::new(branch);
+    root.add_case(TestOp::Bits(0xff, 0x4c), Block::new(&[]), Some(&branch));
+
+    // BRANCHI
+    let mut branchi = State::new(Block::new(&[
+        Load(EAX, B_EP),
+        Load(EDX, B_A),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Mul, EDX, EDX, ECX),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+    ]), dummy);
+    branchi.add_case(TestOp::Always, Block::new(&[]), Some(&next));
+    let branchi = Rc::new(branchi);
+    root.add_case(TestOp::Bits(0xff, 0x4d), Block::new(&[]), Some(&branchi));
+
+    // ?BRANCH
+    let mut qbranch = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), EDX);
+    qbranch.add_case(TestOp::Eq(0), Block::new(&[]), Some(&branch));
+    qbranch.add_case(TestOp::Ne(0), Block::new(&[
+        Load(EAX, B_EP),
+        Constant(EDX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_EP),
+    ]), None);
+    let qbranch = Rc::new(qbranch);
+    root.add_case(TestOp::Bits(0xff, 0x4e), Block::new(&[]), Some(&qbranch));
+
+    // ?BRANCHI
+    let mut qbranchi = State::new(Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), EDX);
+    qbranchi.add_case(TestOp::Eq(0), Block::new(&[]), Some(&branchi));
+    qbranchi.add_case(TestOp::Ne(0), Block::new(&[]), None);
+    let qbranchi = Rc::new(qbranchi);
+    root.add_case(TestOp::Bits(0xff, 0x4f), Block::new(&[]), Some(&qbranchi));
+
+    // EXECUTE
+    root.add_case(TestOp::Bits(0xff, 0x50), Block::new(&[
+        // Push EP onto the return stack.
+        Load(EDX, B_RP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, B_RP),
+        Load(EAX, B_EP),
+        Store(EAX, Memory(EDX)),
+        // Put a-addr1 into EP.
+        Load(EDX, B_SP),
+        Load(EAX, Memory(EDX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EDX, EDX, ECX),
+        Store(EDX, B_SP),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+    ]), Some(&next));
+
+    // @EXECUTE
+    root.add_case(TestOp::Bits(0xff, 0x51), Block::new(&[
+        // Push EP onto the return stack.
+        Load(EDX, B_RP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, B_RP),
+        Load(EAX, B_EP),
+        Store(EAX, Memory(EDX)),
+        // Put the contents of a-addr1 into EP.
+        Load(EDX, B_SP),
+        Load(EAX, Memory(EDX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EDX, EDX, ECX),
+        Store(EDX, B_SP),
+        Load(EAX, Memory(EAX)),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+    ]), Some(&next));
+
+    // CALL
+    root.add_case(TestOp::Bits(0xff, 0x52), Block::new(&[
+        // Push EP+4 onto the return stack.
+        Load(EDX, B_RP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, B_RP),
+        Load(EAX, B_EP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, Memory(EDX)),
+    ]), Some(&branch));
+
+    // CALLI
+    root.add_case(TestOp::Bits(0xff, 0x53), Block::new(&[
+        // Push EP onto the return stack.
+        Load(EDX, B_RP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EDX, EDX, ECX),
+        Store(EDX, B_RP),
+        Load(EAX, B_EP),
+        Store(EAX, Memory(EDX)),
+    ]), Some(&branchi));
+
+    // EXIT
+    root.add_case(TestOp::Bits(0xff, 0x54), Block::new(&[
+        // Put a-addr into EP.
+        Load(EDX, B_RP),
+        Load(EAX, Memory(EDX)),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EDX, EDX, ECX),
+        Store(EDX, B_RP),
+    ]), Some(&next));
+
+    // (DO)
+    root.add_case(TestOp::Bits(0xff, 0x55), Block::new(&[
+        // Pop two items from SP.
+        Load(EAX, B_SP),
+        Load(ECX, Memory(EAX)),
+        Constant(EDX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, EDX),
+        Load(EBX, Memory(EAX)),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_SP),
+        // Push two items to RP.
+        Load(EAX, B_RP),
+        Constant(EDX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, EDX),
+        Store(EBX, Memory(EAX)),
+        Binary(Sub, EAX, EAX, EDX),
+        Store(ECX, Memory(EAX)),
+        Store(EAX, B_RP),
+    ]), None);
+
+    // (LOOP)
+    let mut loop_ = State::new(Block::new(&[
+        // Load the index and limit from RP.
+        Load(EAX, B_RP),
+        Load(EBX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(ECX, Memory(ECX)),
+        // Update the index.
+        Constant(EDX, 1),
+        Binary(Add, EBX, EBX, EDX),
+        Store(EBX, Memory(EAX)),
+        Binary(Sub, EBX, EBX, ECX),
+    ]), EBX);
+    loop_.add_case(TestOp::Eq(0), Block::new(&[
+        // Discard the loop index and limit.
+        Load(EAX, B_RP),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+        // Add 4 to EP.
+        Load(EAX, B_EP), // FIXME: Add check that EP is valid.
+        Constant(EDX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_EP),
+    ]), None);
+    loop_.add_case(TestOp::Ne(0), Block::new(&[]), Some(&branch));
+    let loop_ = Rc::new(loop_);
+    root.add_case(TestOp::Bits(0xff, 0x56), Block::new(&[]), Some(&loop_));
+
+    // (LOOP)I
+    let mut loopi = State::new(Block::new(&[
+        // Load the index and limit from RP.
+        Load(EAX, B_RP),
+        Load(EBX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(ECX, Memory(ECX)),
+        // Update the index.
+        Constant(EDX, 1),
+        Binary(Add, EBX, EBX, EDX),
+        Store(EBX, Memory(EAX)),
+        Binary(Sub, EBX, EBX, ECX),
+    ]), EBX);
+    loopi.add_case(TestOp::Eq(0), Block::new(&[
+        // Discard the loop index and limit.
+        Load(EAX, B_RP),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+    ]), None);
+    loopi.add_case(TestOp::Ne(0), Block::new(&[]), Some(&branchi));
+    let loopi = Rc::new(loopi);
+    root.add_case(TestOp::Bits(0xff, 0x57), Block::new(&[]), Some(&loopi));
+
+    // (+LOOP)
+    let mut ploopp = State::new(Block::new(&[
+        Unary(Not, EBP, EBP),
+        Binary(And, EBP, EBP, EBX),
+    ]), EBP);
+    ploopp.add_case(TestOp::Lt(0), Block::new(&[
+        // Discard the loop index and limit.
+        Load(EAX, B_RP),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+        // Add 4 to EP.
+        Load(EAX, B_EP), // FIXME: Add check that EP is valid.
+        Constant(EDX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_EP),
+    ]), None);
+    ploopp.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branch));
+    let ploopp = Rc::new(ploopp);
+    let mut ploopm = State::new(Block::new(&[
+        Unary(Not, EBX, EBX),
+        Binary(And, EBP, EBP, EBX),
+    ]), EBP);
+    ploopm.add_case(TestOp::Lt(0), Block::new(&[
+        // Discard the loop index and limit.
+        Load(EAX, B_RP),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+        // Add 4 to EP.
+        Load(EAX, B_EP), // FIXME: Add check that EP is valid.
+        Constant(EDX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_EP),
+    ]), None);
+    ploopm.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branch));
+    let ploopm = Rc::new(ploopm);
+    let mut ploop = State::new(Block::new(&[
+        // Pop the step from SP.
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        // Load the index and limit from RP.
+        Load(EAX, B_RP),
+        Load(EBX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(ECX, Memory(ECX)),
+        // Update the index.
+        Binary(Add, EBP, EBX, EDX),
+        Store(EBP, Memory(EAX)),
+        // Compute the differences between old and new indexes and limit.
+        Binary(Sub, EBX, EBX, ECX),
+        Binary(Sub, EBP, EBP, ECX),
+    ]), EDX);
+    ploop.add_case(TestOp::Ge(0), Block::new(&[]), Some(&ploopp));
+    ploop.add_case(TestOp::Lt(0), Block::new(&[]), Some(&ploopm));
+    let ploop = Rc::new(ploop);
+    root.add_case(TestOp::Bits(0xff, 0x58), Block::new(&[]), Some(&ploop));
+
+    // (+LOOP)I
+    let mut ploopip = State::new(Block::new(&[
+        Unary(Not, EBP, EBP),
+        Binary(And, EBP, EBP, EBX),
+    ]), EBP);
+    ploopip.add_case(TestOp::Lt(0), Block::new(&[
+        // Discard the loop index and limit.
+        Load(EAX, B_RP),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+    ]), None);
+    ploopip.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branchi));
+    let ploopip = Rc::new(ploopip);
+    let mut ploopim = State::new(Block::new(&[
+        Unary(Not, EBX, EBX),
+        Binary(And, EBP, EBP, EBX),
+    ]), EBP);
+    ploopim.add_case(TestOp::Lt(0), Block::new(&[
+        // Discard the loop index and limit.
+        Load(EAX, B_RP),
+        Constant(ECX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_RP),
+    ]), None);
+    ploopim.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branchi));
+    let ploopim = Rc::new(ploopim);
+    let mut ploopi = State::new(Block::new(&[
+        // Pop the step from SP.
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        // Load the index and limit from RP.
+        Load(EAX, B_RP),
+        Load(EBX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(ECX, Memory(ECX)),
+        // Update the index.
+        Binary(Add, EBP, EBX, EDX),
+        Store(EBP, Memory(EAX)),
+        // Compute the differences between old and new indexes and limit.
+        Binary(Sub, EBX, EBX, ECX),
+        Binary(Sub, EBP, EBP, ECX),
+    ]), EDX);
+    ploopi.add_case(TestOp::Ge(0), Block::new(&[]), Some(&ploopip));
+    ploopi.add_case(TestOp::Lt(0), Block::new(&[]), Some(&ploopim));
+    let ploopi = Rc::new(ploopi);
+    root.add_case(TestOp::Bits(0xff, 0x59), Block::new(&[]), Some(&ploopi));
+
+    // UNLOOP
+    root.add_case(TestOp::Bits(0xff, 0x5a), Block::new(&[
+        // Discard two items from RP.
+        Load(EAX, B_RP),
+        Constant(EDX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, EDX),
+        Store(EAX, B_RP),
+    ]), None);
+
+    // J
+    root.add_case(TestOp::Bits(0xff, 0x5b), Block::new(&[
+        // Push the third item of RP to SP.
+        Load(EAX, B_RP),
+        Constant(EDX, cell_bytes(2)),
+        Binary(Add, EAX, EAX, EDX),
+        Load(ECX, Memory(EAX)),
+        Load(EAX, B_SP),
+        Constant(EDX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, EDX),
+        Store(EAX, B_SP),
+        Store(ECX, Memory(EAX)),
+    ]), None);
+
+    // (LITERAL)
+    root.add_case(TestOp::Bits(0xff, 0x5c), Block::new(&[
+        // Load EDX from cell pointed to by EP, and add 4 to EP.
+        Load(EAX, B_EP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+        // Push EDX to the stack.
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        Store(EDX, Memory(EAX)),
+    ]), None);
+
+    // (LITERAL)I
+    root.add_case(TestOp::Bits(0xff, 0x5d), Block::new(&[
+        // Push A to the stack.
+        Load(EAX, B_SP),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Sub, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+        Load(EDX, B_A),
+        Store(EDX, Memory(EAX)),
+    ]), Some(&next));
+
+    // THROW
+    root.add_case(TestOp::Bits(0xff, 0x5e), Block::new(&[
+        // Set 'BAD to EP
+        Load(EAX, B_EP),
+        Store(EAX, BeetleAddress::Bad),
+        // Load EP from 'THROW
+        Load(EAX, BeetleAddress::Throw),
+        Load(EAX, Memory(EAX)),
+        Store(EAX, B_EP), // FIXME: Add check that EP is valid.
+    ]), Some(&next));
+
     // Flatten the tree.
-    let states: Vec<State<BeetleAddress>> = vec![];
+    let states: Vec<control_flow::State<BeetleAddress>> = vec![];
     /* TODO:
         let root_index = flatten(instructions);
         assert_eq!(root_index, 0);
     */
     // Return the machine.
-    Machine {states}
+    control_flow::Machine {states}
 }

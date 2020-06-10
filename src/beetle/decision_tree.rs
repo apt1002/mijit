@@ -1,3 +1,5 @@
+use std::rc::{Rc};
+
 use super::{BeetleAddress, Action, cell_bytes};
 use super::super::code::{self, Action::*, BinaryOp::*};
 
@@ -72,9 +74,10 @@ impl State {
         &mut self,
         test: code::TestOp,
         block: Block,
-        target: Option<State>,
+        target: Option<&Rc<State>>,
     ) {
         let actions = block.actions;
+        let target = target.cloned();
         self.cases.push(Case {test, actions, target});
     }
 }
@@ -87,5 +90,5 @@ impl State {
 pub struct Case {
     test: code::TestOp,
     actions: Vec<Action>,
-    target: Option<State>,
+    target: Option<Rc<State>>,
 }
