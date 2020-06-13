@@ -53,28 +53,24 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     use BeetleAddress::{EP as B_EP, A as B_A, SP as B_SP, RP as B_RP, Memory};
 
     // The root State. Cases with a `target` of `None` return here.
-    let mut root = State::new(Block::new(&[
-        Load(EAX, B_A),
-        Constant(ECX, 8),
-        Binary(Asr, EDX, EAX, ECX),
-        Store(EDX, B_A),
-    ]), EAX);
+    let mut root = State::new(EAX);
+    let mut dispatch = State::new(dummy);
 
     // NEXT
-    let mut next = State::new(Block::new(&[
+    let mut next = State::new(dummy);
+    next.add_case(TestOp::Always, Block::new(&[
         Load(EAX, B_EP), // FIXME: Add check that EP is valid.
         Load(EDX, Memory(EAX)),
         Store(EDX, B_A),
         Constant(ECX, cell_bytes(1)),
         Binary(Add, EAX, EAX, ECX),
         Store(EAX, B_EP),
-    ]), dummy);
-    next.add_case(TestOp::Always, Block::new(&[]), None);
+    ]), None);
     let next = Rc::new(next);
-    root.add_case(TestOp::Bits(0xff, 0x00), Block::new(&[]), Some(&next));
+    dispatch.add_case(TestOp::Bits(0xff, 0x00), Block::new(&[]), Some(&next));
 
     // DUP
-    root.add_case(TestOp::Bits(0xff, 0x01), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x01), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -84,7 +80,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     
     // DROP
-    root.add_case(TestOp::Bits(0xff, 0x02), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x02), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Add, EAX, EAX, ECX),
@@ -92,7 +88,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // SWAP
-    root.add_case(TestOp::Bits(0xff, 0x03), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x03), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Add, EDX, EAX, ECX),
@@ -103,7 +99,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // OVER
-    root.add_case(TestOp::Bits(0xff, 0x04), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x04), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Add, EDX, EAX, ECX),
@@ -114,7 +110,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // ROT
-    root.add_case(TestOp::Bits(0xff, 0x05), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x05), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -129,7 +125,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // -ROT
-    root.add_case(TestOp::Bits(0xff, 0x06), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x06), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(2)),
@@ -144,7 +140,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // TUCK
-    root.add_case(TestOp::Bits(0xff, 0x07), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x07), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -158,7 +154,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // NIP
-    root.add_case(TestOp::Bits(0xff, 0x08), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x08), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -168,10 +164,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // PICK
-    let mut pick = State::new(Block::new(&[
-        Load(EAX, B_SP),
-        Load(EDX, Memory(EAX)),
-    ]), EDX);
+    let mut pick = State::new(EDX);
     for u in 0..4 {
         pick.add_case(TestOp::Eq(u), Block::new(&[
             Load(EAX, B_SP),
@@ -182,24 +175,21 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         ]), None);
     }
     let pick = Rc::new(pick);
-    root.add_case(TestOp::Bits(0xff, 0x09), Block::new(&[]), Some(&pick));
-
-    // ROLL
-    let mut roll = State::new(Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x09), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
-        Constant(ECX, cell_bytes(1)),
-        Binary(Add, EAX, EAX, ECX),
-        Store(EAX, B_SP),
-    ]), EDX);
+    ]), Some(&pick));
+
+    // ROLL
+    let mut roll = State::new(EDX);
     for u in 0..4 {
-        let mut block = Block::new(&[
+        let mut rollu = Block::new(&[
             Constant(ECX, cell_bytes(u)),
             Binary(Add, EBP, EAX, ECX),
             Load(EBX, Memory(EBP)),
         ]);
         for v in 0..u {
-            block = block.extend(&[
+            rollu = rollu.extend(&[
                 Constant(ECX, cell_bytes(v)),
                 Binary(Add, ECX, EAX, ECX),
                 Load(EDX, Memory(ECX)),
@@ -207,19 +197,22 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
                 Move(EBX, EDX),
             ])
         }
-        block = block.extend(&[
+        rollu = rollu.extend(&[
             Store(EBX, Memory(EBP)),
         ]);
-        roll.add_case(TestOp::Eq(u), block, None)
+        roll.add_case(TestOp::Eq(u), rollu, None)
     }
     let roll = Rc::new(roll);
-    root.add_case(TestOp::Bits(0xff, 0x0a), Block::new(&[]), Some(&roll));
-
-    // ?DUP
-    let mut qdup = State::new(Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x0a), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
-    ]), EDX);
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), Some(&roll));
+
+    // ?DUP
+    let mut qdup = State::new(EDX);
     qdup.add_case(TestOp::Eq(0), Block::new(&[
     ]), None);
     qdup.add_case(TestOp::Ne(0), Block::new(&[
@@ -229,10 +222,13 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Store(EAX, B_SP),
     ]), None);
     let qdup = Rc::new(qdup);
-    root.add_case(TestOp::Bits(0xff, 0x0b), Block::new(&[]), Some(&qdup));
+    dispatch.add_case(TestOp::Bits(0xff, 0x0b), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+    ]), Some(&qdup));
 
     // >R
-    root.add_case(TestOp::Bits(0xff, 0x0c), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x0c), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -245,7 +241,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // R>
-    root.add_case(TestOp::Bits(0xff, 0x0d), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x0d), Block::new(&[
         Load(EAX, B_RP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -258,7 +254,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // R@
-    root.add_case(TestOp::Bits(0xff, 0x0e), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x0e), Block::new(&[
         Load(EAX, B_RP),
         Load(EDX, Memory(EAX)),
         Load(EAX, B_SP),
@@ -269,7 +265,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // <
-    root.add_case(TestOp::Bits(0xff, 0x0f), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x0f), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -281,7 +277,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // >
-    root.add_case(TestOp::Bits(0xff, 0x10), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x10), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -293,7 +289,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // =
-    root.add_case(TestOp::Bits(0xff, 0x11), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x11), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -305,7 +301,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // <>
-    root.add_case(TestOp::Bits(0xff, 0x12), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x12), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -318,7 +314,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 0<
-    root.add_case(TestOp::Bits(0xff, 0x13), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x13), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 0),
@@ -327,7 +323,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 0>
-    root.add_case(TestOp::Bits(0xff, 0x14), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x14), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 0),
@@ -336,7 +332,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 0=
-    root.add_case(TestOp::Bits(0xff, 0x15), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x15), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 0),
@@ -345,7 +341,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 0<>
-    root.add_case(TestOp::Bits(0xff, 0x16), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x16), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 0),
@@ -355,7 +351,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // U<
-    root.add_case(TestOp::Bits(0xff, 0x17), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x17), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -367,7 +363,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // U>
-    root.add_case(TestOp::Bits(0xff, 0x18), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x18), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -379,7 +375,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 0
-    root.add_case(TestOp::Bits(0xff, 0x19), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x19), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -389,7 +385,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 1
-    root.add_case(TestOp::Bits(0xff, 0x1a), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x1a), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -399,7 +395,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // -1
-    root.add_case(TestOp::Bits(0xff, 0x1b), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x1b), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -409,7 +405,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // CELL
-    root.add_case(TestOp::Bits(0xff, 0x1c), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x1c), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -419,7 +415,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // -CELL
-    root.add_case(TestOp::Bits(0xff, 0x1d), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x1d), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -429,7 +425,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // +
-    root.add_case(TestOp::Bits(0xff, 0x1e), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x1e), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -441,7 +437,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // -
-    root.add_case(TestOp::Bits(0xff, 0x1f), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x1f), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -453,7 +449,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // >-<
-    root.add_case(TestOp::Bits(0xff, 0x20), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x20), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -465,7 +461,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 1+
-    root.add_case(TestOp::Bits(0xff, 0x21), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x21), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 1),
@@ -474,7 +470,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 1-
-    root.add_case(TestOp::Bits(0xff, 0x22), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x22), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 1),
@@ -483,7 +479,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // CELL+
-    root.add_case(TestOp::Bits(0xff, 0x23), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x23), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -492,7 +488,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // CELL-
-    root.add_case(TestOp::Bits(0xff, 0x24), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x24), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -501,7 +497,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // *
-    root.add_case(TestOp::Bits(0xff, 0x25), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x25), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -513,14 +509,14 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // /
-    // root.add_case(TestOp::Bits(0xff, 0x26), TODO);
+    // dispatch.add_case(TestOp::Bits(0xff, 0x26), TODO);
     // MOD
-    // root.add_case(TestOp::Bits(0xff, 0x27), TODO);
+    // dispatch.add_case(TestOp::Bits(0xff, 0x27), TODO);
     // /MOD
-    // root.add_case(TestOp::Bits(0xff, 0x28), TODO);
+    // dispatch.add_case(TestOp::Bits(0xff, 0x28), TODO);
 
     // U/MOD
-    root.add_case(TestOp::Bits(0xff, 0x29), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x29), Block::new(&[
         Load(EBX, B_SP),
         Load(EDX, Memory(EBX)),
         Constant(ECX, cell_bytes(1)),
@@ -532,7 +528,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // S/REM
-    root.add_case(TestOp::Bits(0xff, 0x2a), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x2a), Block::new(&[
         Load(EBX, B_SP),
         Load(EDX, Memory(EBX)),
         Constant(ECX, cell_bytes(1)),
@@ -544,7 +540,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 2/
-    root.add_case(TestOp::Bits(0xff, 0x2b), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x2b), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 1),
@@ -553,7 +549,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // CELLS
-    root.add_case(TestOp::Bits(0xff, 0x2c), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x2c), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -562,10 +558,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // ABS
-    let mut abs = State::new(Block::new(&[
-        Load(EAX, B_SP),
-        Load(EDX, Memory(EAX)),
-    ]), EDX);
+    let mut abs = State::new(EDX);
     abs.add_case(TestOp::Lt(0), Block::new(&[
         Unary(Negate, EDX, EDX),
         Store(EDX, Memory(EAX)),
@@ -573,10 +566,13 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     abs.add_case(TestOp::Ge(0), Block::new(&[
     ]), None);
     let abs = Rc::new(abs);
-    root.add_case(TestOp::Bits(0xff, 0x2d), Block::new(&[]), Some(&abs));
+    dispatch.add_case(TestOp::Bits(0xff, 0x2d), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+    ]), Some(&abs));
 
     // NEGATE
-    root.add_case(TestOp::Bits(0xff, 0x2e), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x2e), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Unary(Negate, EDX, EDX),
@@ -584,7 +580,14 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // Max
-    let mut max = State::new(Block::new(&[
+    let mut max = State::new(EBX);
+    max.add_case(TestOp::Eq(0), Block::new(&[
+    ]), None);
+    max.add_case(TestOp::Ne(0), Block::new(&[
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    let max = Rc::new(max);
+    dispatch.add_case(TestOp::Bits(0xff, 0x2f), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -592,17 +595,16 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Store(EAX, B_SP),
         Load(ECX, Memory(EAX)),
         Binary(Lt, EBX, ECX, EDX),
-    ]), EBX);
-    max.add_case(TestOp::Eq(0), Block::new(&[
-    ]), None);
-    max.add_case(TestOp::Ne(0), Block::new(&[
-        Store(EDX, Memory(EAX)),
-    ]), None);
-    let max = Rc::new(max);
-    root.add_case(TestOp::Bits(0xff, 0x2f), Block::new(&[]), Some(&max));
+    ]), Some(&max));
 
     // MIN
-    let mut min = State::new(Block::new(&[
+    let mut min = State::new(EBX);
+    min.add_case(TestOp::Eq(0), Block::new(&[
+    ]), None);
+    min.add_case(TestOp::Ne(0), Block::new(&[
+        Store(EDX, Memory(EAX)),
+    ]), None);
+    dispatch.add_case(TestOp::Bits(0xff, 0x30), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -610,16 +612,10 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Store(EAX, B_SP),
         Load(ECX, Memory(EAX)),
         Binary(Lt, EBX, EDX, ECX),
-    ]), EBX);
-    min.add_case(TestOp::Eq(0), Block::new(&[
     ]), None);
-    min.add_case(TestOp::Ne(0), Block::new(&[
-        Store(EDX, Memory(EAX)),
-    ]), None);
-    root.add_case(TestOp::Bits(0xff, 0x30), Block::new(&[]), None);
 
     // INVERT
-    root.add_case(TestOp::Bits(0xff, 0x31), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x31), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Unary(Not, EDX, EDX),
@@ -627,7 +623,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // AND
-    root.add_case(TestOp::Bits(0xff, 0x32), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x32), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -639,7 +635,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // OR
-    root.add_case(TestOp::Bits(0xff, 0x33), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x33), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -651,7 +647,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // XOR
-    root.add_case(TestOp::Bits(0xff, 0x34), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x34), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -663,14 +659,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // LSHIFT
-    let mut lshift = State::new(Block::new(&[
-        Load(EAX, B_SP),
-        Load(EDX, Memory(EAX)),
-        Constant(ECX, cell_bytes(1)),
-        Binary(Add, EAX, EAX, ECX),
-        Load(ECX, Memory(EAX)),
-        Store(EAX, B_SP),
-    ]), ECX);
+    let mut lshift = State::new(ECX);
     lshift.add_case(TestOp::Ult(CELL_BITS), Block::new(&[
         Binary(Lsl, EDX, EDX, ECX),
         Store(EDX, Memory(EAX)),
@@ -680,17 +669,17 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Store(EDX, Memory(EAX)),
     ]), None);
     let lshift = Rc::new(lshift);
-    root.add_case(TestOp::Bits(0xff, 0x35), Block::new(&[]), Some(&lshift));
-
-    // RSHIFT
-    let mut rshift = State::new(Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x35), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
         Binary(Add, EAX, EAX, ECX),
         Load(ECX, Memory(EAX)),
         Store(EAX, B_SP),
-    ]), ECX);
+    ]), Some(&lshift));
+
+    // RSHIFT
+    let mut rshift = State::new(ECX);
     rshift.add_case(TestOp::Ult(CELL_BITS), Block::new(&[
         Binary(Lsr, EDX, EDX, ECX),
         Store(EDX, Memory(EAX)),
@@ -700,10 +689,17 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Store(EDX, Memory(EAX)),
     ]), None);
     let rshift = Rc::new(rshift);
-    root.add_case(TestOp::Bits(0xff, 0x36), Block::new(&[]), Some(&rshift));
+    dispatch.add_case(TestOp::Bits(0xff, 0x36), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Load(ECX, Memory(EAX)),
+        Store(EAX, B_SP),
+    ]), Some(&rshift));
 
     // 1LSHIFT
-    root.add_case(TestOp::Bits(0xff, 0x37), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x37), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 1),
@@ -712,7 +708,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 1RSHIFT
-    root.add_case(TestOp::Bits(0xff, 0x38), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x38), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, 1),
@@ -721,7 +717,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // @
-    root.add_case(TestOp::Bits(0xff, 0x39), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x39), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Load(EDX, Memory(EDX)),
@@ -729,7 +725,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // !
-    root.add_case(TestOp::Bits(0xff, 0x3a), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x3a), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -742,7 +738,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // C@
-    root.add_case(TestOp::Bits(0xff, 0x3b), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x3b), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         LoadNarrow(Width::One, EDX, Memory(EDX)),
@@ -750,7 +746,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // C!
-    root.add_case(TestOp::Bits(0xff, 0x3c), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x3c), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -763,7 +759,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // +!
-    root.add_case(TestOp::Bits(0xff, 0x3d), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x3d), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
@@ -778,7 +774,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // SP@
-    root.add_case(TestOp::Bits(0xff, 0x3e), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x3e), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, ECX, EAX, ECX),
@@ -787,14 +783,14 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // SP!
-    root.add_case(TestOp::Bits(0xff, 0x3f), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x3f), Block::new(&[
         Load(EAX, B_SP),
         Load(EAX, Memory(EAX)),
         Store(EAX, B_SP),
     ]), None);
 
     // RP@
-    root.add_case(TestOp::Bits(0xff, 0x40), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x40), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -804,7 +800,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // RP!
-    root.add_case(TestOp::Bits(0xff, 0x41), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x41), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Store(EDX, B_RP),
@@ -814,7 +810,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // EP@
-    root.add_case(TestOp::Bits(0xff, 0x42), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x42), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -824,7 +820,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // S0@
-    root.add_case(TestOp::Bits(0xff, 0x43), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x43), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -834,7 +830,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // S0!
-    root.add_case(TestOp::Bits(0xff, 0x44), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x44), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Store(EDX, BeetleAddress::S0),
@@ -844,7 +840,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // R0@
-    root.add_case(TestOp::Bits(0xff, 0x45), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x45), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -854,7 +850,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // R0!
-    root.add_case(TestOp::Bits(0xff, 0x46), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x46), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Store(EDX, BeetleAddress::R0),
@@ -864,7 +860,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // #THROW@
-    root.add_case(TestOp::Bits(0xff, 0x47), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x47), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -874,7 +870,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 'THROW!
-    root.add_case(TestOp::Bits(0xff, 0x48), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x48), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Store(EDX, BeetleAddress::Throw),
@@ -884,7 +880,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // MEMORY@
-    root.add_case(TestOp::Bits(0xff, 0x49), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x49), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -894,7 +890,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // 'BAD@
-    root.add_case(TestOp::Bits(0xff, 0x4a), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x4a), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -904,7 +900,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // -ADDRESS@
-    root.add_case(TestOp::Bits(0xff, 0x4b), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x4b), Block::new(&[
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
         Binary(Sub, EAX, EAX, ECX),
@@ -914,37 +910,31 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // BRANCH
-    let mut branch = State::new(Block::new(&[
+    let mut branch = State::new(dummy);
+    branch.add_case(TestOp::Always, Block::new(&[]), Some(&next));
+    let branch = Rc::new(branch);
+    dispatch.add_case(TestOp::Bits(0xff, 0x4c), Block::new(&[
         // Load EP from the cell it points to.
         Load(EAX, B_EP),
         Load(EAX, Memory(EAX)),
         Store(EAX, B_EP), // FIXME: Add check that EP is valid.
-    ]), dummy);
-    branch.add_case(TestOp::Always, Block::new(&[]), Some(&next));
-    let branch = Rc::new(branch);
-    root.add_case(TestOp::Bits(0xff, 0x4c), Block::new(&[]), Some(&branch));
+    ]), Some(&branch));
 
     // BRANCHI
-    let mut branchi = State::new(Block::new(&[
+    let mut branchi = State::new(dummy);
+    branchi.add_case(TestOp::Always, Block::new(&[]), Some(&next));
+    let branchi = Rc::new(branchi);
+    dispatch.add_case(TestOp::Bits(0xff, 0x4d), Block::new(&[
         Load(EAX, B_EP),
         Load(EDX, B_A),
         Constant(ECX, cell_bytes(1)),
         Binary(Mul, EDX, EDX, ECX),
         Binary(Add, EAX, EAX, EDX),
         Store(EAX, B_EP), // FIXME: Add check that EP is valid.
-    ]), dummy);
-    branchi.add_case(TestOp::Always, Block::new(&[]), Some(&next));
-    let branchi = Rc::new(branchi);
-    root.add_case(TestOp::Bits(0xff, 0x4d), Block::new(&[]), Some(&branchi));
+    ]), Some(&branchi));
 
     // ?BRANCH
-    let mut qbranch = State::new(Block::new(&[
-        Load(EAX, B_SP),
-        Load(EDX, Memory(EAX)),
-        Constant(ECX, cell_bytes(1)),
-        Binary(Add, EAX, EAX, ECX),
-        Store(EAX, B_SP),
-    ]), EDX);
+    let mut qbranch = State::new(EDX);
     qbranch.add_case(TestOp::Eq(0), Block::new(&[]), Some(&branch));
     qbranch.add_case(TestOp::Ne(0), Block::new(&[
         Load(EAX, B_EP),
@@ -953,23 +943,29 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Store(EAX, B_EP),
     ]), None);
     let qbranch = Rc::new(qbranch);
-    root.add_case(TestOp::Bits(0xff, 0x4e), Block::new(&[]), Some(&qbranch));
-
-    // ?BRANCHI
-    let mut qbranchi = State::new(Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x4e), Block::new(&[
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
         Constant(ECX, cell_bytes(1)),
         Binary(Add, EAX, EAX, ECX),
         Store(EAX, B_SP),
-    ]), EDX);
+    ]), Some(&qbranch));
+
+    // ?BRANCHI
+    let mut qbranchi = State::new(EDX);
     qbranchi.add_case(TestOp::Eq(0), Block::new(&[]), Some(&branchi));
     qbranchi.add_case(TestOp::Ne(0), Block::new(&[]), None);
     let qbranchi = Rc::new(qbranchi);
-    root.add_case(TestOp::Bits(0xff, 0x4f), Block::new(&[]), Some(&qbranchi));
+    dispatch.add_case(TestOp::Bits(0xff, 0x4f), Block::new(&[
+        Load(EAX, B_SP),
+        Load(EDX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, EAX, EAX, ECX),
+        Store(EAX, B_SP),
+    ]), Some(&qbranchi));
 
     // EXECUTE
-    root.add_case(TestOp::Bits(0xff, 0x50), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x50), Block::new(&[
         // Push EP onto the return stack.
         Load(EDX, B_RP),
         Constant(ECX, cell_bytes(1)),
@@ -987,7 +983,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), Some(&next));
 
     // @EXECUTE
-    root.add_case(TestOp::Bits(0xff, 0x51), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x51), Block::new(&[
         // Push EP onto the return stack.
         Load(EDX, B_RP),
         Constant(ECX, cell_bytes(1)),
@@ -1006,7 +1002,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), Some(&next));
 
     // CALL
-    root.add_case(TestOp::Bits(0xff, 0x52), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x52), Block::new(&[
         // Push EP+4 onto the return stack.
         Load(EDX, B_RP),
         Constant(ECX, cell_bytes(1)),
@@ -1019,7 +1015,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), Some(&branch));
 
     // CALLI
-    root.add_case(TestOp::Bits(0xff, 0x53), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x53), Block::new(&[
         // Push EP onto the return stack.
         Load(EDX, B_RP),
         Constant(ECX, cell_bytes(1)),
@@ -1030,7 +1026,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), Some(&branchi));
 
     // EXIT
-    root.add_case(TestOp::Bits(0xff, 0x54), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x54), Block::new(&[
         // Put a-addr into EP.
         Load(EDX, B_RP),
         Load(EAX, Memory(EDX)),
@@ -1041,7 +1037,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), Some(&next));
 
     // (DO)
-    root.add_case(TestOp::Bits(0xff, 0x55), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x55), Block::new(&[
         // Pop two items from SP.
         Load(EAX, B_SP),
         Load(ECX, Memory(EAX)),
@@ -1061,19 +1057,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // (LOOP)
-    let mut loop_ = State::new(Block::new(&[
-        // Load the index and limit from RP.
-        Load(EAX, B_RP),
-        Load(EBX, Memory(EAX)),
-        Constant(ECX, cell_bytes(1)),
-        Binary(Add, ECX, EAX, ECX),
-        Load(ECX, Memory(ECX)),
-        // Update the index.
-        Constant(EDX, 1),
-        Binary(Add, EBX, EBX, EDX),
-        Store(EBX, Memory(EAX)),
-        Binary(Sub, EBX, EBX, ECX),
-    ]), EBX);
+    let mut loop_ = State::new(EBX);
     loop_.add_case(TestOp::Eq(0), Block::new(&[
         // Discard the loop index and limit.
         Load(EAX, B_RP),
@@ -1088,10 +1072,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     loop_.add_case(TestOp::Ne(0), Block::new(&[]), Some(&branch));
     let loop_ = Rc::new(loop_);
-    root.add_case(TestOp::Bits(0xff, 0x56), Block::new(&[]), Some(&loop_));
-
-    // (LOOP)I
-    let mut loopi = State::new(Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x56), Block::new(&[
         // Load the index and limit from RP.
         Load(EAX, B_RP),
         Load(EBX, Memory(EAX)),
@@ -1103,7 +1084,10 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Binary(Add, EBX, EBX, EDX),
         Store(EBX, Memory(EAX)),
         Binary(Sub, EBX, EBX, ECX),
-    ]), EBX);
+    ]), Some(&loop_));
+
+    // (LOOP)I
+    let mut loopi = State::new(EBX);
     loopi.add_case(TestOp::Eq(0), Block::new(&[
         // Discard the loop index and limit.
         Load(EAX, B_RP),
@@ -1113,13 +1097,24 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     loopi.add_case(TestOp::Ne(0), Block::new(&[]), Some(&branchi));
     let loopi = Rc::new(loopi);
-    root.add_case(TestOp::Bits(0xff, 0x57), Block::new(&[]), Some(&loopi));
+    dispatch.add_case(TestOp::Bits(0xff, 0x57), Block::new(&[
+        // Load the index and limit from RP.
+        Load(EAX, B_RP),
+        Load(EBX, Memory(EAX)),
+        Constant(ECX, cell_bytes(1)),
+        Binary(Add, ECX, EAX, ECX),
+        Load(ECX, Memory(ECX)),
+        // Update the index.
+        Constant(EDX, 1),
+        Binary(Add, EBX, EBX, EDX),
+        Store(EBX, Memory(EAX)),
+        Binary(Sub, EBX, EBX, ECX),
+    ]), Some(&loopi));
 
     // (+LOOP)
-    let mut ploopp = State::new(Block::new(&[
-        Unary(Not, EBP, EBP),
-        Binary(And, EBP, EBP, EBX),
-    ]), EBP);
+    let mut ploop = State::new(EDX);
+
+    let mut ploopp = State::new(EBP);
     ploopp.add_case(TestOp::Lt(0), Block::new(&[
         // Discard the loop index and limit.
         Load(EAX, B_RP),
@@ -1134,10 +1129,12 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     ploopp.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branch));
     let ploopp = Rc::new(ploopp);
-    let mut ploopm = State::new(Block::new(&[
-        Unary(Not, EBX, EBX),
+    ploop.add_case(TestOp::Ge(0), Block::new(&[
+        Unary(Not, EBP, EBP),
         Binary(And, EBP, EBP, EBX),
-    ]), EBP);
+    ]), Some(&ploopp));
+
+    let mut ploopm = State::new(EBP);
     ploopm.add_case(TestOp::Lt(0), Block::new(&[
         // Discard the loop index and limit.
         Load(EAX, B_RP),
@@ -1152,7 +1149,13 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     ploopm.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branch));
     let ploopm = Rc::new(ploopm);
-    let mut ploop = State::new(Block::new(&[
+    ploop.add_case(TestOp::Lt(0), Block::new(&[
+        Unary(Not, EBX, EBX),
+        Binary(And, EBP, EBP, EBX),
+    ]), Some(&ploopm));
+
+    let ploop = Rc::new(ploop);
+    dispatch.add_case(TestOp::Bits(0xff, 0x58), Block::new(&[
         // Pop the step from SP.
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
@@ -1171,17 +1174,12 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         // Compute the differences between old and new indexes and limit.
         Binary(Sub, EBX, EBX, ECX),
         Binary(Sub, EBP, EBP, ECX),
-    ]), EDX);
-    ploop.add_case(TestOp::Ge(0), Block::new(&[]), Some(&ploopp));
-    ploop.add_case(TestOp::Lt(0), Block::new(&[]), Some(&ploopm));
-    let ploop = Rc::new(ploop);
-    root.add_case(TestOp::Bits(0xff, 0x58), Block::new(&[]), Some(&ploop));
+    ]), Some(&ploop));
 
     // (+LOOP)I
-    let mut ploopip = State::new(Block::new(&[
-        Unary(Not, EBP, EBP),
-        Binary(And, EBP, EBP, EBX),
-    ]), EBP);
+    let mut ploopi = State::new(EDX);
+
+    let mut ploopip = State::new(EBP);
     ploopip.add_case(TestOp::Lt(0), Block::new(&[
         // Discard the loop index and limit.
         Load(EAX, B_RP),
@@ -1191,10 +1189,12 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     ploopip.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branchi));
     let ploopip = Rc::new(ploopip);
-    let mut ploopim = State::new(Block::new(&[
-        Unary(Not, EBX, EBX),
+    ploopi.add_case(TestOp::Ge(0), Block::new(&[
+        Unary(Not, EBP, EBP),
         Binary(And, EBP, EBP, EBX),
-    ]), EBP);
+    ]), Some(&ploopip));
+
+    let mut ploopim = State::new(EBP);
     ploopim.add_case(TestOp::Lt(0), Block::new(&[
         // Discard the loop index and limit.
         Load(EAX, B_RP),
@@ -1204,7 +1204,13 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
     ploopim.add_case(TestOp::Ge(0), Block::new(&[]), Some(&branchi));
     let ploopim = Rc::new(ploopim);
-    let mut ploopi = State::new(Block::new(&[
+    ploopi.add_case(TestOp::Lt(0), Block::new(&[  
+        Unary(Not, EBX, EBX),
+        Binary(And, EBP, EBP, EBX),
+    ]), Some(&ploopim));
+
+    let ploopi = Rc::new(ploopi);
+    dispatch.add_case(TestOp::Bits(0xff, 0x59), Block::new(&[
         // Pop the step from SP.
         Load(EAX, B_SP),
         Load(EDX, Memory(EAX)),
@@ -1223,14 +1229,10 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         // Compute the differences between old and new indexes and limit.
         Binary(Sub, EBX, EBX, ECX),
         Binary(Sub, EBP, EBP, ECX),
-    ]), EDX);
-    ploopi.add_case(TestOp::Ge(0), Block::new(&[]), Some(&ploopip));
-    ploopi.add_case(TestOp::Lt(0), Block::new(&[]), Some(&ploopim));
-    let ploopi = Rc::new(ploopi);
-    root.add_case(TestOp::Bits(0xff, 0x59), Block::new(&[]), Some(&ploopi));
+    ]), Some(&ploopi));
 
     // UNLOOP
-    root.add_case(TestOp::Bits(0xff, 0x5a), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x5a), Block::new(&[
         // Discard two items from RP.
         Load(EAX, B_RP),
         Constant(EDX, cell_bytes(2)),
@@ -1239,7 +1241,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // J
-    root.add_case(TestOp::Bits(0xff, 0x5b), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x5b), Block::new(&[
         // Push the third item of RP to SP.
         Load(EAX, B_RP),
         Constant(EDX, cell_bytes(2)),
@@ -1253,7 +1255,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // (LITERAL)
-    root.add_case(TestOp::Bits(0xff, 0x5c), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x5c), Block::new(&[
         // Load EDX from cell pointed to by EP, and add 4 to EP.
         Load(EAX, B_EP),
         Load(EDX, Memory(EAX)),
@@ -1269,7 +1271,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), None);
 
     // (LITERAL)I
-    root.add_case(TestOp::Bits(0xff, 0x5d), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x5d), Block::new(&[
         // Push A to the stack.
         Load(EAX, B_SP),
         Constant(ECX, cell_bytes(1)),
@@ -1280,7 +1282,7 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
     ]), Some(&next));
 
     // THROW
-    root.add_case(TestOp::Bits(0xff, 0x5e), Block::new(&[
+    dispatch.add_case(TestOp::Bits(0xff, 0x5e), Block::new(&[
         // Set 'BAD to EP
         Load(EAX, B_EP),
         Store(EAX, BeetleAddress::Bad),
@@ -1289,6 +1291,15 @@ pub fn machine() -> control_flow::Machine<BeetleAddress> {
         Load(EAX, Memory(EAX)),
         Store(EAX, B_EP), // FIXME: Add check that EP is valid.
     ]), Some(&next));
+
+    // Finalize dispatch.
+    let dispatch = Rc::new(dispatch);
+    root.add_case(TestOp::Always, Block::new(&[
+        Load(EAX, B_A),
+        Constant(ECX, 8),
+        Binary(Asr, EDX, EAX, ECX),
+        Store(EDX, B_A),
+    ]), Some(&dispatch));
 
     // Flatten the tree.
     let states: Vec<control_flow::State<BeetleAddress>> = vec![];
