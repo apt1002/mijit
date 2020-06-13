@@ -6,12 +6,16 @@ use super::super::code::{self, Action::*, BinaryOp::*};
 /** A block of straight-line code. */
 #[derive(Debug, Clone)]
 pub struct Block {
+    test: code::TestOp,
     actions: Vec<Action>,
 }
 
 impl Block {
-    pub fn new<B: AsRef<[Action]>>(block: &B) -> Self {
-        Block {actions: Vec::new()}.extend(block)
+    pub fn new<B: AsRef<[Action]>>(test: code::TestOp, block: &B) -> Self {
+        Block {
+            test: test,
+            actions: Vec::new(),
+        }.extend(block)
     }
 
     pub fn append(mut self, a: Action) -> Self {
@@ -41,6 +45,15 @@ impl Block {
             Store(r, BeetleAddress::Memory(sp)),
         ])
     }
+
+    /** Finalize this Block. */
+    pub fn to_case(self, cases: Option<&Rc<[Case]>>) -> Case {
+        Case {
+            test: self.test,
+            actions: self.actions,
+            cases: cases.cloned(),
+        }
+    }
 }
 
 impl AsRef<[Action]> for Block {
@@ -50,42 +63,13 @@ impl AsRef<[Action]> for Block {
 }
 
 /**
- * Execute `actions`.
- * Select the first of `cases` whose `test` (applied to `register`) passes.
- * If none pass, fall back to the trap handler.
- */
-#[derive(Debug, Clone)]
-pub struct State {
-    cases: Vec<Case>,
-}
-
-impl State {
-    /** Constructs a State, initially with no `cases`. */
-    pub fn new() -> Self {
-        let cases = Vec::new();
-        State {cases}
-    }
-
-    /** Append `case` to `self.cases`. */
-    pub fn add_case(
-        &mut self,
-        test: code::TestOp,
-        block: Block,
-        target: Option<&Rc<State>>,
-    ) {
-        let actions = block.actions;
-        let target = target.cloned();
-        self.cases.push(Case {test, actions, target});
-    }
-}
-
-/**
- * If `test` passes, execute `actions` then go to `target`.
- * A `target` of `None` means the root State.
+ * If `test` passes, execute `actions` then if `cases` is `None`, go to the
+ * root State; otherwise, try each of `cases` in turn and if none passes,
+ * fall back to the trap handler.
  */
 #[derive(Debug, Clone)]
 pub struct Case {
     test: code::TestOp,
     actions: Vec<Action>,
-    target: Option<Rc<State>>,
+    cases: Option<Rc<[Case]>>,
 }
