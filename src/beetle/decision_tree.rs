@@ -56,15 +56,14 @@ impl AsRef<[Action]> for Block {
  */
 #[derive(Debug, Clone)]
 pub struct State {
-    register: code::R,
     cases: Vec<Case>,
 }
 
 impl State {
     /** Constructs a State, initially with no `cases`. */
-    pub fn new(register: code::R) -> Self {
+    pub fn new() -> Self {
         let cases = Vec::new();
-        State {register, cases}
+        State {cases}
     }
 
     /** Append `case` to `self.cases`. */

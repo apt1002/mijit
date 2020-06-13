@@ -3,13 +3,13 @@ pub use super::x86_64::{Register as R};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
-    Bits(u32, u32),
-    Lt(u32),
-    Ge(u32),
-    Ult(u32),
-    Uge(u32),
-    Eq(u32),
-    Ne(u32),
+    Bits(R, u32, u32),
+    Lt(R, u32),
+    Ge(R, u32),
+    Ult(R, u32),
+    Uge(R, u32),
+    Eq(R, u32),
+    Ne(R, u32),
     Always,
 }
 
