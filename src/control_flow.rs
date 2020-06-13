@@ -10,17 +10,13 @@ pub trait Address: Debug + Clone + Hash + Eq {
     fn can_alias(&self, other: &Self) -> bool;
 }
 
-pub struct Test {
-    pub condition: code::TestOp,
-    pub if_true: usize,
-}
-
-pub struct State<A: Address> {
-    pub actions: Vec<code::Action<A>>,
-    pub regisrer: code::R,
-    pub tests: Vec<Test>,
-}
-
-pub struct Machine<A: Address> {
-    pub states: Vec<State<A>>,
+pub trait Machine: Debug {
+    type State: Debug + Clone + Hash + Eq;
+    type Address: Address;
+    fn get_code(state: Self::State) ->
+        Vec<(
+            code::TestOp,
+            Vec<code::Action<Self::Address>>,
+            Self::State
+        )>;
 }
