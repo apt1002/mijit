@@ -1,5 +1,20 @@
+//! Tools for generating code using the x86_64 instruction set.
+//!
+//! The focus here is in concrete x86_64 instructions. One method call on an
+//! Assembler generates one instruction. This ensures that documentation about
+//! the x86_64 instructions set applies to the code we assemble. For example,
+//! you can look up the costs of instructions.
+//!
+//! We make no attempt to be exhaustive. We implement only a subset of the
+//! x86_64 which is sufficient for Mijit. Where we have freedom to do so, we
+//! choose to make the subset as regular as possible.
 use std::ops::{DerefMut};
 
+/**
+ * All x86_64 registers that can be used interchangeably in our chosen subset
+ * of x86_64. SP and R12 cannot be used in the `rm` field of a ModR/M byte,
+ * (assembled by `Assembler.load_op()`, for example), so they are excluded.
+ */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Register {
@@ -21,9 +36,10 @@ pub enum Register {
     R15 = 15,
 }
 
-pub use Register::*;
+use Register::*;
 
 impl Register {
+    /** Returns a bit pattern which includes `self` in all useful positions. */
     pub fn mask(self) -> u64 {
         [
             0x0000000000,
@@ -46,6 +62,9 @@ impl Register {
     }
 }
 
+pub const ALL_REGISTERS: [Register; 14] =
+    [A, D, C, B, BP, SI, DI, R8, R9, R10, R11, R13, R14, R15];
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum BinaryOp {
@@ -59,7 +78,7 @@ pub enum BinaryOp {
     Cmp = 7,
 }
 
-pub use BinaryOp::*;
+use BinaryOp::*;
 
 impl BinaryOp {
     pub fn rm_imm(self, rm_is_reg: bool) -> u64 {
@@ -75,9 +94,8 @@ impl BinaryOp {
     }
 }
 
-pub const ALLOCATABLE_REGISTERS: [Register; 14] = [
-    A, D, C, B, BP, SI, DI, R8, R9, R10, R11, R13, R14, R15
-];
+pub const ALL_BINARY_OPS: [BinaryOp; 8] =
+    [Add, Or, Adc, Sbb, And, Sub, Xor, Cmp];
 
 pub fn disp(from: usize, to: usize) -> isize {
     if from > isize::MAX as usize || to > isize::MAX as usize {
@@ -304,7 +322,7 @@ pub mod tests {
     fn regs() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        for &r in &ALLOCATABLE_REGISTERS {
+        for &r in &ALL_REGISTERS {
             a.mov(r, r);
         }
         let len = a.label();
@@ -323,6 +341,26 @@ pub mod tests {
             "0000000010000021                           ED 8B 45   mov r13d,r13d",
             "0000000010000024                           F6 8B 45   mov r14d,r14d",
             "0000000010000027                           FF 8B 45   mov r15d,r15d",
+        ]);
+    }
+
+    #[test]
+    fn binary_op() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &op in &ALL_BINARY_OPS {
+            a.op(op, R10, R9);
+        }
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                           CA 01 45   add r10d,r9d",
+            "0000000010000003                           CA 09 45   or r10d,r9d",
+            "0000000010000006                           CA 11 45   adc r10d,r9d",
+            "0000000010000009                           CA 19 45   sbb r10d,r9d",
+            "000000001000000C                           CA 21 45   and r10d,r9d",
+            "000000001000000F                           CA 29 45   sub r10d,r9d",
+            "0000000010000012                           CA 31 45   xor r10d,r9d",
+            "0000000010000015                           CA 39 45   cmp r10d,r9d",
         ]);
     }
 
@@ -346,7 +384,7 @@ pub mod tests {
     }
 
     #[test]
-    fn add() {
+    fn addressing_modes() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         a.op(Add, R10, R9);
@@ -361,26 +399,6 @@ pub mod tests {
             "000000001000000A               12 34 56 78 88 03 45   add r9d,[r8+12345678h]",
             "0000000010000011               12 34 56 78 90 01 45   add [r8+12345678h],r10d",
             "0000000010000018   76 54 32 10 12 34 56 78 80 81 41   add dword [r8+12345678h],76543210h",
-        ]);
-    }
-
-    #[test]
-    fn binary_op() {
-        let mut code_bytes = vec![0u8; 0x1000];
-        let mut a = Assembler::new(&mut code_bytes);
-        for &op in &[Add, Or, Adc, Sbb, And, Sub, Xor, Cmp] {
-            a.op(op, R10, R9);
-        }
-        let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           CA 01 45   add r10d,r9d",
-            "0000000010000003                           CA 09 45   or r10d,r9d",
-            "0000000010000006                           CA 11 45   adc r10d,r9d",
-            "0000000010000009                           CA 19 45   sbb r10d,r9d",
-            "000000001000000C                           CA 21 45   and r10d,r9d",
-            "000000001000000F                           CA 29 45   sub r10d,r9d",
-            "0000000010000012                           CA 31 45   xor r10d,r9d",
-            "0000000010000015                           CA 39 45   cmp r10d,r9d",
         ]);
     }
 }
