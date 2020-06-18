@@ -77,7 +77,7 @@ impl control_flow::Machine for Machine {
     type Address = Address;
 
     fn get_code(state: Self::State) -> Vec<(code::TestOp, Vec<Action>, Self::State)> {
-        use super::x86_64::{A as EAX, D as EDX, C as ECX, B as EBX, BP as EBP};
+        use super::x86_64::Register::{A as EAX, D as EDX, C as ECX, B as EBX, BP as EBP};
         use Address::{EP as B_EP, A as B_A, SP as B_SP, RP as B_RP, Memory};
         match state {
             State::Root => {vec![

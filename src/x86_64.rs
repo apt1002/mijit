@@ -1,27 +1,30 @@
 use std::ops::{DerefMut};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Register(u8);
+#[repr(u8)]
+pub enum Register {
+    A = 0,
+    D = 1,
+    C = 2,
+    B = 3,
+    // SP is not a general-purpose register.
+    BP = 5,
+    SI = 6,
+    DI = 7,
+    R8 = 8,
+    R9 = 9,
+    R10 = 10,
+    R11 = 11,
+    // R12 is not a general-purpose register.
+    R13 = 13,
+    R14 = 14,
+    R15 = 15,
+}
 
-pub const A: Register = Register(0);
-pub const D: Register = Register(1);
-pub const C: Register = Register(2);
-pub const B: Register = Register(3);
-// SP is not a general-purpose register.
-pub const BP: Register = Register(5);
-pub const SI: Register = Register(6);
-pub const DI: Register = Register(7);
-pub const R8: Register = Register(8);
-pub const R9: Register = Register(9);
-pub const R10: Register = Register(10);
-pub const R11: Register = Register(11);
-// R12 is not a general-purpose register.
-pub const R13: Register = Register(13);
-pub const R14: Register = Register(14);
-pub const R15: Register = Register(15);
+pub use Register::*;
 
 impl Register {
-    pub fn mask(&self) -> u64 {
+    pub fn mask(self) -> u64 {
         [
             0x0000000000,
             0x0909090900, // 1
@@ -39,7 +42,36 @@ impl Register {
             0x2D2D2D2D07,
             0x3636363607,
             0x3F3F3F3F07,
-        ][self.0 as usize]
+        ][self as usize]
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum BinaryOp {
+    Add = 0,
+    Or = 1,
+    Adc = 2,
+    Sbb = 3,
+    And = 4,
+    Sub = 5,
+    Xor = 6,
+    Cmp = 7,
+}
+
+pub use BinaryOp::*;
+
+impl BinaryOp {
+    pub fn rm_imm(self, rm_is_reg: bool) -> u64 {
+        0x808140 | ((rm_is_reg as u64) << 22) | (self as u64) << 19
+    }
+
+    pub fn rm_reg(self, rm_is_reg: bool) -> u64 {
+        0x800140 | ((rm_is_reg as u64) << 22) | (self as u64) << 11
+    }
+
+    pub fn reg_rm(self, rm_is_reg: bool) -> u64 {
+        0x800340 | ((rm_is_reg as u64) << 22) | (self as u64) << 11
     }
 }
 
@@ -197,32 +229,32 @@ impl<'a> Assembler<'a> {
         self.write_imm32(imm);
     }
 
-    /** Add register to register. */
-    pub fn add(&mut self, dest: Register, src: Register) {
-        self.write_rom_2(0xC00140, dest, src);
+    /** Op register to register. */
+    pub fn op(&mut self, op: BinaryOp, dest: Register, src: Register) {
+        self.write_rom_2(op.rm_reg(true), dest, src);
     }
 
-    /** Add constant to register. */
-    pub fn const_add(&mut self, dest: Register, imm: i32) {
-        self.write_rom_1(0xC08140, dest);
+    /** Op constant to register. */
+    pub fn const_op(&mut self, op: BinaryOp, dest: Register, imm: i32) {
+        self.write_rom_1(op.rm_imm(true), dest);
         self.write_imm32(imm);
     }
 
-    /** Add a memory location to a register. */
-    pub fn load_add(&mut self, dest: Register, src: (Register, i32)) {
-        self.write_rom_2(0x800340, src.0, dest);
+    /** Op a memory location to a register. */
+    pub fn load_op(&mut self, op: BinaryOp, dest: Register, src: (Register, i32)) {
+        self.write_rom_2(op.reg_rm(false), src.0, dest);
         self.write_imm32(src.1);
     }
 
-    /** Add a register to a memory location. */
-    pub fn load_add_store(&mut self, dest: (Register, i32), src: Register) {
-        self.write_rom_2(0x800140, dest.0, src);
+    /** Op a register to a memory location. */
+    pub fn load_op_store(&mut self, op: BinaryOp, dest: (Register, i32), src: Register) {
+        self.write_rom_2(op.rm_reg(false), dest.0, src);
         self.write_imm32(dest.1);
     }
 
-    /** Add a constant to a memory location. */
-    pub fn load_const_add_store(&mut self, dest: (Register, i32), imm: i32) {
-        self.write_rom_1(0x808140, dest.0);
+    /** Op a constant to a memory location. */
+    pub fn load_const_op_store(&mut self, op: BinaryOp, dest: (Register, i32), imm: i32) {
+        self.write_rom_1(op.rm_imm(false), dest.0);
         self.write_imm32(dest.1);
         self.write_imm32(imm);
     }
@@ -317,11 +349,11 @@ pub mod tests {
     fn add() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.add(R10, R9);
-        a.const_add(R10, IMM);
-        a.load_add(R9, (R8, DISP));
-        a.load_add_store((R8, DISP), R10);
-        a.load_const_add_store((R8, DISP), IMM);
+        a.op(Add, R10, R9);
+        a.const_op(Add, R10, IMM);
+        a.load_op(Add, R9, (R8, DISP));
+        a.load_op_store(Add, (R8, DISP), R10);
+        a.load_const_op_store(Add, (R8, DISP), IMM);
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                           CA 01 45   add r10d,r9d",
@@ -329,6 +361,26 @@ pub mod tests {
             "000000001000000A               12 34 56 78 88 03 45   add r9d,[r8+12345678h]",
             "0000000010000011               12 34 56 78 90 01 45   add [r8+12345678h],r10d",
             "0000000010000018   76 54 32 10 12 34 56 78 80 81 41   add dword [r8+12345678h],76543210h",
+        ]);
+    }
+
+    #[test]
+    fn binary_op() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &op in &[Add, Or, Adc, Sbb, And, Sub, Xor, Cmp] {
+            a.op(op, R10, R9);
+        }
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                           CA 01 45   add r10d,r9d",
+            "0000000010000003                           CA 09 45   or r10d,r9d",
+            "0000000010000006                           CA 11 45   adc r10d,r9d",
+            "0000000010000009                           CA 19 45   sbb r10d,r9d",
+            "000000001000000C                           CA 21 45   and r10d,r9d",
+            "000000001000000F                           CA 29 45   sub r10d,r9d",
+            "0000000010000012                           CA 31 45   xor r10d,r9d",
+            "0000000010000015                           CA 39 45   cmp r10d,r9d",
         ]);
     }
 }
