@@ -5,27 +5,35 @@
 //! the x86_64 instructions set applies to the code we assemble. For example,
 //! you can look up the costs of instructions.
 //!
-//! We make no attempt to be exhaustive. We implement only a subset of the
-//! x86_64 which is sufficient for Mijit. Where we have freedom to do so, we
-//! choose to make the subset as regular as possible.
+//! We make no attempt to be exhaustive. We implement a subset of x86_64 which
+//! is sufficient for Mijit. Where we have freedom to do so, we choose to make
+//! the subset as regular as possible, sometimes ignoring more efficient
+//! encodings. We include unnecessary functionality (e.g. testing the P flag)
+//! only if it is a regular generalization of functionality we need.
 use std::ops::{DerefMut};
+
+//-----------------------------------------------------------------------------
 
 /**
  * All x86_64 registers that can be used interchangeably in our chosen subset
  * of x86_64. SP and R12 cannot be used in the `rm` field of a ModR/M byte,
  * (assembled by `Assembler.load_op()`, for example), so they are excluded.
+ *
+ * All register names include a leading `R`, and omit a trailing `X`. This is
+ * not intended to imply anything about the operand width, which is specified
+ * in another way.
  */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Register {
-    A = 0,
-    D = 1,
-    C = 2,
-    B = 3,
+    RA = 0,
+    RD = 1,
+    RC = 2,
+    RB = 3,
     // SP is not a general-purpose register.
-    BP = 5,
-    SI = 6,
-    DI = 7,
+    RBP = 5,
+    RSI = 6,
+    RDI = 7,
     R8 = 8,
     R9 = 9,
     R10 = 10,
@@ -63,7 +71,9 @@ impl Register {
 }
 
 pub const ALL_REGISTERS: [Register; 14] =
-    [A, D, C, B, BP, SI, DI, R8, R9, R10, R11, R13, R14, R15];
+    [RA, RD, RC, RB, RBP, RSI, RDI, R8, R9, R10, R11, R13, R14, R15];
+
+//-----------------------------------------------------------------------------
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -82,20 +92,56 @@ use BinaryOp::*;
 
 impl BinaryOp {
     pub fn rm_imm(self, rm_is_reg: bool) -> u64 {
-        0x808140 | ((rm_is_reg as u64) << 22) | (self as u64) << 19
+        0x808140 | (rm_is_reg as u64) << 22 | (self as u64) << 19
     }
 
     pub fn rm_reg(self, rm_is_reg: bool) -> u64 {
-        0x800140 | ((rm_is_reg as u64) << 22) | (self as u64) << 11
+        0x800140 | (rm_is_reg as u64) << 22 | (self as u64) << 11
     }
 
     pub fn reg_rm(self, rm_is_reg: bool) -> u64 {
-        0x800340 | ((rm_is_reg as u64) << 22) | (self as u64) << 11
+        0x800340 | (rm_is_reg as u64) << 22 | (self as u64) << 11
     }
 }
 
 pub const ALL_BINARY_OPS: [BinaryOp; 8] =
     [Add, Or, Adc, Sbb, And, Sub, Xor, Cmp];
+
+//-----------------------------------------------------------------------------
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Condition {
+    O  = 0x0,
+    NO = 0x1,
+    B  = 0x2,
+    AE = 0x3,
+    Z  = 0x4,
+    NZ = 0x5,
+    BE = 0x6,
+    A  = 0x7,
+    S  = 0x8,
+    NS = 0x9,
+    P  = 0xA,
+    NP = 0xB,
+    L  = 0xC,
+    GE = 0xD,
+    LE = 0xE,
+    G  = 0xF,
+}
+
+use Condition::*;
+
+impl Condition {
+    pub fn jump_if(self, is_true: bool) -> u64 {
+        0x800F | ((!is_true as u64) ^ (self as u64)) << 8
+    }
+}
+
+pub const ALL_CONDITIONS: [Condition; 16] =
+    [O, NO, B, AE, Z, NZ, BE, A, S, NS, P, NP, L, GE, LE, G];
+
+//-----------------------------------------------------------------------------
 
 pub fn disp(from: usize, to: usize) -> isize {
     if from > isize::MAX as usize || to > isize::MAX as usize {
@@ -113,7 +159,7 @@ pub fn disp32(from: usize, to: usize) -> i32 {
 }
 
 /**
- * An assembler.
+ * An assembler, implementing a regularish subset of x86_64.
  *
  * The low-level memory address of `buffer` definitely won't change while the
  * Assembler exists, but it could change at other times, e.g. because the
@@ -121,8 +167,27 @@ pub fn disp32(from: usize, to: usize) -> i32 {
  * memory addresses. Assembler itself never uses them, and instead represents
  * addresses as displacements from the beginning of `buffer`.
  *
- * Patterns are described [here](doc/x86.rs). A typical pattern is "ROOM"
- * meaning a REX byte, two opcode bytes, and a ModR/M byte.
+ * You probably don't need to call the `write_x()` methods directly, but you
+ * can if necessary (e.g. to assemble an instruction that is not provided by
+ * Assembler itself). There is a `write_x()` method for each encoding pattern
+ * `x`. Patterns are described [here](../doc/x86.rs). A typical pattern is
+ * "ROOM" meaning a REX byte, two opcode bytes, and a ModR/M byte. There are
+ * also `write_x()` methods for immediate constants, for displacements, and for
+ * raw bytes.
+ *
+ * Instead, call the methods that assemble a single instruction. These include:
+ *  - Variants of [`const()`], [`load()`], and [`store()`], which assemble
+ *  `MOV` instructions.
+ *  - Variants of `op()`, which assemble arithmetic instructions, including
+ *  `CMP` instructions. For now, only 32-bit arithmetic operations are
+ *  supported.
+ *  - `jump_if()`, `ret()`, and variants of `jump()` and `call()`, which
+ *  assemble control-flow instructions.
+ *  - `push()` and `pop()`, which assemble `PUSH` and `POP` instructions.
+ *
+ * Registers are represented by type [`Register`]. Binary arithmetic operations
+ * are represented by type [`BinaryOp`]. Condition codes are represented by
+ * type [`Condition`].
  */
 pub struct Assembler<'a> {
     /// The area we're filling with code.
@@ -179,8 +244,8 @@ impl<'a> Assembler<'a> {
         self.write_imm32(disp);
     }
 
-    /** Writes an instruction with pattern "OO", i.e. two opcode bytes. */
-    pub fn write_oo(&mut self, opcode: u64) {
+    /** Writes an instruction with pattern "OO", and no registers. */
+    pub fn write_oo_0(&mut self, opcode: u64) {
         self.write(opcode, 2);
     }
 
@@ -275,6 +340,29 @@ impl<'a> Assembler<'a> {
         self.write_rom_1(op.rm_imm(false), dest.0);
         self.write_imm32(dest.1);
         self.write_imm32(imm);
+    }
+
+    /** Conditional branch. */
+    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: usize) {
+        self.write_oo_0(cc.jump_if(is_true));
+        self.write_rel32(target);
+    }
+
+    /** Unconditional jump to a constant. */
+    pub fn const_jump(&mut self, target: usize) {
+        self.write_ro_0(0xE940);
+        self.write_rel32(target);
+    }
+
+    /** Unconditional jump to a register. */
+    pub fn jump(&mut self, target: Register) {
+        self.write_rom_1(0xE0FF40, target);
+    }
+
+    /** Unconditional jump to a memory location. */
+    pub fn load_jump(&mut self, target: (Register, i32)) {
+        self.write_rom_1(0xA0FF40, target.0);
+        self.write_imm32(target.1);
     }
 }
 
@@ -384,7 +472,7 @@ pub mod tests {
     }
 
     #[test]
-    fn addressing_modes() {
+    fn mode() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         a.op(Add, R10, R9);
@@ -399,6 +487,66 @@ pub mod tests {
             "000000001000000A               12 34 56 78 88 03 45   add r9d,[r8+12345678h]",
             "0000000010000011               12 34 56 78 90 01 45   add [r8+12345678h],r10d",
             "0000000010000018   76 54 32 10 12 34 56 78 80 81 41   add dword [r8+12345678h],76543210h",
+        ]);
+    }
+
+    #[test]
+    fn condition() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &cc in &ALL_CONDITIONS {
+            a.jump_if(cc, true, 0x28);
+            a.jump_if(cc, false, 0x28);
+        }
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                  00 00 00 22 80 0F   jo near 0000000010000028h",
+            "0000000010000006                  00 00 00 1C 81 0F   jno near 0000000010000028h",
+            "000000001000000C                  00 00 00 16 81 0F   jno near 0000000010000028h",
+            "0000000010000012                  00 00 00 10 80 0F   jo near 0000000010000028h",
+            "0000000010000018                  00 00 00 0A 82 0F   jb near 0000000010000028h",
+            "000000001000001E                  00 00 00 04 83 0F   jae near 0000000010000028h",
+            "0000000010000024                  FF FF FF FE 83 0F   jae near 0000000010000028h",
+            "000000001000002A                  FF FF FF F8 82 0F   jb near 0000000010000028h",
+            "0000000010000030                  FF FF FF F2 84 0F   je near 0000000010000028h",
+            "0000000010000036                  FF FF FF EC 85 0F   jne near 0000000010000028h",
+            "000000001000003C                  FF FF FF E6 85 0F   jne near 0000000010000028h",
+            "0000000010000042                  FF FF FF E0 84 0F   je near 0000000010000028h",
+            "0000000010000048                  FF FF FF DA 86 0F   jbe near 0000000010000028h",
+            "000000001000004E                  FF FF FF D4 87 0F   ja near 0000000010000028h",
+            "0000000010000054                  FF FF FF CE 87 0F   ja near 0000000010000028h",
+            "000000001000005A                  FF FF FF C8 86 0F   jbe near 0000000010000028h",
+            "0000000010000060                  FF FF FF C2 88 0F   js near 0000000010000028h",
+            "0000000010000066                  FF FF FF BC 89 0F   jns near 0000000010000028h",
+            "000000001000006C                  FF FF FF B6 89 0F   jns near 0000000010000028h",
+            "0000000010000072                  FF FF FF B0 88 0F   js near 0000000010000028h",
+            "0000000010000078                  FF FF FF AA 8A 0F   jp near 0000000010000028h",
+            "000000001000007E                  FF FF FF A4 8B 0F   jnp near 0000000010000028h",
+            "0000000010000084                  FF FF FF 9E 8B 0F   jnp near 0000000010000028h",
+            "000000001000008A                  FF FF FF 98 8A 0F   jp near 0000000010000028h",
+            "0000000010000090                  FF FF FF 92 8C 0F   jl near 0000000010000028h",
+            "0000000010000096                  FF FF FF 8C 8D 0F   jge near 0000000010000028h",
+            "000000001000009C                  FF FF FF 86 8D 0F   jge near 0000000010000028h",
+            "00000000100000A2                  FF FF FF 80 8C 0F   jl near 0000000010000028h",
+            "00000000100000A8                  FF FF FF 7A 8E 0F   jle near 0000000010000028h",
+            "00000000100000AE                  FF FF FF 74 8F 0F   jg near 0000000010000028h",
+            "00000000100000B4                  FF FF FF 6E 8F 0F   jg near 0000000010000028h",
+            "00000000100000BA                  FF FF FF 68 8E 0F   jle near 0000000010000028h",
+        ]);
+    }
+
+    #[test]
+    fn jump() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.const_jump(0x0);
+        a.jump(R8);
+        a.load_jump((R8, DISP));
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                  FF FF FF FA E9 40   jmp 0000000010000000h",
+            "0000000010000006                           E0 FF 41   jmp r8",
+            "0000000010000009               12 34 56 78 A0 FF 41   jmp qword [r8+12345678h]",
         ]);
     }
 }
