@@ -75,6 +75,42 @@ pub const ALL_REGISTERS: [Register; 14] =
 
 //-----------------------------------------------------------------------------
 
+// TODO: Finish this design and use it.
+
+/** Represents the value of the `scale` field of a `SIB` byte. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Scale {
+    One = 0,
+    Two = 1,
+    Four = 2,
+    Eight = 3,
+}
+
+/** Represents an addressing mode. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Mode {
+    /// A general-purpose register.
+    R(Register),
+    /// The RSP register.
+    RSP,
+    /// The R12 register.
+    R12,
+    /// A memory location, addressed by adding a displacement to a register.
+    M(Register, i32),
+    /// A memory location, addressed by adding a displacement to RSP.
+    MRSP(i32),
+    /// A memory location, addressed by adding a displacement to R12.
+    MR12(i32),
+    /// A memory location, addressed by adding a displacement and a scaled
+    /// index to a register.
+    MIndex(Register, i32, Scale, Register),
+    /// A memory location, addressed by adding a displacement to RIP.
+    Label(usize),
+}
+
+//-----------------------------------------------------------------------------
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum BinaryOp {
