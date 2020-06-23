@@ -185,6 +185,16 @@ pub const ALL_CONDITIONS: [Condition; 16] =
 
 //-----------------------------------------------------------------------------
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Width {U8, S8, U16, S16, U32, S32, U64, S64}
+
+use Width::*;
+
+pub const ALL_WIDTHS: [Width; 8] =
+    [U8, S8, U16, S16, U32, S32, U64, S64];
+
+//-----------------------------------------------------------------------------
+
 pub fn disp(from: usize, to: usize) -> isize {
     if from > isize::MAX as usize || to > isize::MAX as usize {
         panic!("Displacements greater than isize::MAX are not supported");
@@ -421,6 +431,54 @@ impl<'a> Assembler<'a> {
     /** Pop a register. */
     pub fn pop(&mut self, rd: Register) {
         self.write_ro_1(0x5840, rd);
+    }
+
+    /** Store narrow data. */
+    pub fn store_narrow(&mut self, type_: Width, dest: (Register, i32), src: Register) {
+        match type_ {
+            U8 | S8 => {
+                self.write_rom_2(0x808840, dest.0, src);
+            },
+            U16 | S16 => {
+                self.write_byte(0x66);
+                self.write_rom_2(0x808940, dest.0, src);
+            },
+            U32 | S32 => {
+                self.write_rom_2(0x808940, dest.0, src);
+            },
+            U64 | S64 => {
+                self.write_rom_2(0x808948, dest.0, src);
+            },
+        }
+        self.write_imm32(dest.1);
+    }
+
+    /** Load narrow data, zero-extending to 64 bits. */
+    pub fn load_narrow(&mut self, type_: Width, dest: Register, src: (Register, i32)) {
+        match type_ {
+            U8 => {
+                self.write_room_2(0x80B60F48, src.0, dest);
+            },
+            S8 => {
+                self.write_room_2(0x80BE0F48, src.0, dest);
+            },
+            U16 => {
+                self.write_room_2(0x80B70F48, src.0, dest);
+            },
+            S16 => {
+                self.write_room_2(0x80BF0F48, src.0, dest);
+            },
+            U32 => {
+                self.write_rom_2(0x808B40, src.0, dest);
+            },
+            S32 => {
+                self.write_rom_2(0x806348, src.0, dest);
+            },
+            U64 | S64 => {
+                self.write_rom_2(0x808B48, src.0, dest);
+            },
+        }
+        self.write_imm32(src.1);
     }
 }
 
@@ -672,6 +730,36 @@ pub mod tests {
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                              50 41   push r8",
             "0000000010000002                              59 41   pop r9"
+        ]);
+    }
+
+    /** Test that we can assmeble loads and stores for narrow data. */
+    #[test]
+    fn narrow() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &w in &ALL_WIDTHS {
+            a.load_narrow(w, R9, (R8, DISP));
+            a.store_narrow(w, (R8, DISP), R9);
+        }
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000            12 34 56 78 88 B6 0F 4D   movzx r9,byte [r8+12345678h]",
+            "0000000010000008               12 34 56 78 88 88 45   mov [r8+12345678h],r9b",
+            "000000001000000F            12 34 56 78 88 BE 0F 4D   movsx r9,byte [r8+12345678h]",
+            "0000000010000017               12 34 56 78 88 88 45   mov [r8+12345678h],r9b",
+            "000000001000001E            12 34 56 78 88 B7 0F 4D   movzx r9,word [r8+12345678h]",
+            "0000000010000026            12 34 56 78 88 89 45 66   mov [r8+12345678h],r9w",
+            "000000001000002E            12 34 56 78 88 BF 0F 4D   movsx r9,word [r8+12345678h]",
+            "0000000010000036            12 34 56 78 88 89 45 66   mov [r8+12345678h],r9w",
+            "000000001000003E               12 34 56 78 88 8B 45   mov r9d,[r8+12345678h]",
+            "0000000010000045               12 34 56 78 88 89 45   mov [r8+12345678h],r9d",
+            "000000001000004C               12 34 56 78 88 63 4D   movsxd r9,dword [r8+12345678h]",
+            "0000000010000053               12 34 56 78 88 89 45   mov [r8+12345678h],r9d",
+            "000000001000005A               12 34 56 78 88 8B 4D   mov r9,[r8+12345678h]",
+            "0000000010000061               12 34 56 78 88 89 4D   mov [r8+12345678h],r9",
+            "0000000010000068               12 34 56 78 88 8B 4D   mov r9,[r8+12345678h]",
+            "000000001000006F               12 34 56 78 88 89 4D   mov [r8+12345678h],r9",
         ]);
     }
 }
