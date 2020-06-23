@@ -350,6 +350,16 @@ impl<'a> Assembler<'a> {
         self.write_ro_0(0xE940);
         self.write_rel32(target);
     }
+
+    /** Push a register. */
+    pub fn push(&mut self, rd: Register) {
+        self.write_ro_1(0x5040, rd);
+    }
+
+    /** Pop a register. */
+    pub fn pop(&mut self, rd: Register) {
+        self.write_ro_1(0x5840, rd);
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -475,9 +485,10 @@ pub mod tests {
     fn condition() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
+        let target: usize = 0x28; // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
-            a.jump_if(cc, true, 0x28);
-            a.jump_if(cc, false, 0x28);
+            a.jump_if(cc, true, target);
+            a.jump_if(cc, false, target);
         }
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
@@ -526,6 +537,19 @@ pub mod tests {
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                           E0 FF 41   jmp r8",
             "0000000010000003                  02 46 13 4E E9 40   jmp 0000000012461357h"
+        ]);
+    }
+
+    #[test]
+    fn push_pop() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.push(R8);
+        a.pop(R9);
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                              50 41   push r8",
+            "0000000010000002                              59 41   pop r9"
         ]);
     }
 }
