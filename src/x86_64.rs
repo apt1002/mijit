@@ -418,6 +418,7 @@ pub mod tests {
     const DISP: i32 = 0x12345678;
     const LABEL: usize = 0x02461357;
 
+    /** Test that the Registers are named correctly. */
     #[test]
     fn regs() {
         let mut code_bytes = vec![0u8; 0x1000];
@@ -444,6 +445,25 @@ pub mod tests {
         ]);
     }
 
+    /** Test that we can assemble all the different kinds of "MOV". */
+    #[test]
+    fn mov() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.const_(R9, IMM);
+        a.mov(R10, R9);
+        a.store((R8, DISP), R10);
+        a.load(R11, (R8, DISP));
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                  76 54 32 10 B9 41   mov r9d,76543210h",
+            "0000000010000006                           D1 8B 45   mov r10d,r9d",
+            "0000000010000009               12 34 56 78 90 89 45   mov [r8+12345678h],r10d",
+            "0000000010000010               12 34 56 78 98 8B 45   mov r11d,[r8+12345678h]",
+        ]);
+    }
+
+    /** Test that all the BinaryOps are named correctly. */
     #[test]
     fn binary_op() {
         let mut code_bytes = vec![0u8; 0x1000];
@@ -464,23 +484,7 @@ pub mod tests {
         ]);
     }
 
-    #[test]
-    fn mov() {
-        let mut code_bytes = vec![0u8; 0x1000];
-        let mut a = Assembler::new(&mut code_bytes);
-        a.const_(R9, IMM);
-        a.mov(R10, R9);
-        a.store((R8, DISP), R10);
-        a.load(R11, (R8, DISP));
-        let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                  76 54 32 10 B9 41   mov r9d,76543210h",
-            "0000000010000006                           D1 8B 45   mov r10d,r9d",
-            "0000000010000009               12 34 56 78 90 89 45   mov [r8+12345678h],r10d",
-            "0000000010000010               12 34 56 78 98 8B 45   mov r11d,[r8+12345678h]",
-        ]);
-    }
-
+    /** Test that we can assemble all the different kinds of operation. */
     #[test]
     fn mode() {
         let mut code_bytes = vec![0u8; 0x1000];
@@ -496,6 +500,10 @@ pub mod tests {
         ]);
     }
 
+    /**
+     * Test that all the condition codes are named correctly.
+     * Test that we can assemble conditional branches.
+     */
     #[test]
     fn condition() {
         let mut code_bytes = vec![0u8; 0x1000];
@@ -542,6 +550,7 @@ pub mod tests {
         ]);
     }
 
+    /** Test that we can assemble the different kinds of unconditional jump. */
     #[test]
     fn jump() {
         let mut code_bytes = vec![0u8; 0x1000];
@@ -555,6 +564,7 @@ pub mod tests {
         ]);
     }
 
+    /** Test that we can assemble the different kinds of call and return. */
     #[test]
     fn call_ret() {
         let mut code_bytes = vec![0u8; 0x1000];
@@ -570,6 +580,7 @@ pub mod tests {
         ]);
     }
 
+    /** Test that we can assemble "PUSH" and "POP". */
     #[test]
     fn push_pop() {
         let mut code_bytes = vec![0u8; 0x1000];
