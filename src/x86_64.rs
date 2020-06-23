@@ -16,7 +16,7 @@ use std::ops::{DerefMut};
 
 /**
  * All x86_64 registers that can be used interchangeably in our chosen subset
- * of x86_64. SP and R12 cannot be used in the `rm` field of a ModR/M byte,
+ * of x86_64. `SP` and `R12` cannot be used in the `rm` field of a ModR/M byte,
  * (assembled by `Assembler.load_op()`, for example), so they are excluded.
  *
  * All register names include a leading `R`, and omit a trailing `X`. This is
@@ -75,8 +75,6 @@ pub const ALL_REGISTERS: [Register; 14] =
 
 //-----------------------------------------------------------------------------
 
-// TODO: Finish this design and use it.
-
 /** Represents the value of the `scale` field of a `SIB` byte. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -85,28 +83,6 @@ pub enum Scale {
     Two = 1,
     Four = 2,
     Eight = 3,
-}
-
-/** Represents an addressing mode. */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Mode {
-    /// A general-purpose register.
-    R(Register),
-    /// The RSP register.
-    RSP,
-    /// The R12 register.
-    R12,
-    /// A memory location, addressed by adding a displacement to a register.
-    M(Register, i32),
-    /// A memory location, addressed by adding a displacement to RSP.
-    MRSP(i32),
-    /// A memory location, addressed by adding a displacement to R12.
-    MR12(i32),
-    /// A memory location, addressed by adding a displacement and a scaled
-    /// index to a register.
-    MIndex(Register, i32, Scale, Register),
-    /// A memory location, addressed by adding a displacement to RIP.
-    Label(usize),
 }
 
 //-----------------------------------------------------------------------------
@@ -335,13 +311,6 @@ impl<'a> Assembler<'a> {
         self.write_imm32(dest.1);
     }
 
-    /** Move constant to memory. */
-    pub fn const_store(&mut self, dest: (Register, i32), imm: i32) {
-        self.write_rom_1(0x80C740, dest.0);
-        self.write_imm32(dest.1);
-        self.write_imm32(imm);
-    }
-
     /** Move constant to register. */
     pub fn const_(&mut self, dest: Register, imm: i32) {
         self.write_ro_1(0xB840, dest);
@@ -365,28 +334,9 @@ impl<'a> Assembler<'a> {
         self.write_imm32(src.1);
     }
 
-    /** Op a register to a memory location. */
-    pub fn load_op_store(&mut self, op: BinaryOp, dest: (Register, i32), src: Register) {
-        self.write_rom_2(op.rm_reg(false), dest.0, src);
-        self.write_imm32(dest.1);
-    }
-
-    /** Op a constant to a memory location. */
-    pub fn load_const_op_store(&mut self, op: BinaryOp, dest: (Register, i32), imm: i32) {
-        self.write_rom_1(op.rm_imm(false), dest.0);
-        self.write_imm32(dest.1);
-        self.write_imm32(imm);
-    }
-
     /** Conditional branch. */
     pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: usize) {
         self.write_oo_0(cc.jump_if(is_true));
-        self.write_rel32(target);
-    }
-
-    /** Unconditional jump to a constant. */
-    pub fn const_jump(&mut self, target: usize) {
-        self.write_ro_0(0xE940);
         self.write_rel32(target);
     }
 
@@ -395,10 +345,10 @@ impl<'a> Assembler<'a> {
         self.write_rom_1(0xE0FF40, target);
     }
 
-    /** Unconditional jump to a memory location. */
-    pub fn load_jump(&mut self, target: (Register, i32)) {
-        self.write_rom_1(0xA0FF40, target.0);
-        self.write_imm32(target.1);
+    /** Unconditional jump to a constant. */
+    pub fn const_jump(&mut self, target: usize) {
+        self.write_ro_0(0xE940);
+        self.write_rel32(target);
     }
 }
 
@@ -441,6 +391,7 @@ pub mod tests {
 
     const IMM: i32 = 0x76543210;
     const DISP: i32 = 0x12345678;
+    const LABEL: usize = 0x02461357;
 
     #[test]
     fn regs() {
@@ -496,14 +447,12 @@ pub mod tests {
         a.mov(R10, R9);
         a.store((R8, DISP), R10);
         a.load(R11, (R8, DISP));
-        a.const_store((R8, DISP), IMM);
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                  76 54 32 10 B9 41   mov r9d,76543210h",
             "0000000010000006                           D1 8B 45   mov r10d,r9d",
             "0000000010000009               12 34 56 78 90 89 45   mov [r8+12345678h],r10d",
             "0000000010000010               12 34 56 78 98 8B 45   mov r11d,[r8+12345678h]",
-            "0000000010000017   76 54 32 10 12 34 56 78 80 C7 41   mov dword [r8+12345678h],76543210h",
         ]);
     }
 
@@ -514,15 +463,11 @@ pub mod tests {
         a.op(Add, R10, R9);
         a.const_op(Add, R10, IMM);
         a.load_op(Add, R9, (R8, DISP));
-        a.load_op_store(Add, (R8, DISP), R10);
-        a.load_const_op_store(Add, (R8, DISP), IMM);
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                           CA 01 45   add r10d,r9d",
             "0000000010000003               76 54 32 10 C2 81 41   add r10d,76543210h",
             "000000001000000A               12 34 56 78 88 03 45   add r9d,[r8+12345678h]",
-            "0000000010000011               12 34 56 78 90 01 45   add [r8+12345678h],r10d",
-            "0000000010000018   76 54 32 10 12 34 56 78 80 81 41   add dword [r8+12345678h],76543210h",
         ]);
     }
 
@@ -575,14 +520,12 @@ pub mod tests {
     fn jump() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.const_jump(0x0);
         a.jump(R8);
-        a.load_jump((R8, DISP));
+        a.const_jump(LABEL);
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                  FF FF FF FA E9 40   jmp 0000000010000000h",
-            "0000000010000006                           E0 FF 41   jmp r8",
-            "0000000010000009               12 34 56 78 A0 FF 41   jmp qword [r8+12345678h]",
+            "0000000010000000                           E0 FF 41   jmp r8",
+            "0000000010000003                  02 46 13 4E E9 40   jmp 0000000012461357h"
         ]);
     }
 }
