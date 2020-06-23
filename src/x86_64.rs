@@ -351,6 +351,21 @@ impl<'a> Assembler<'a> {
         self.write_rel32(target);
     }
 
+    /** Unconditional call to a register. */
+    pub fn call(&mut self, target: Register) {
+        self.write_rom_1(0xD0FF40, target);
+    }
+
+    /** Unconditional call to a constant. */
+    pub fn const_call(&mut self, target: usize) {
+        self.write_ro_0(0xE840);
+        self.write_rel32(target);
+    }
+
+    pub fn ret(&mut self) {
+        self.write_ro_0(0xC340);
+    }
+
     /** Push a register. */
     pub fn push(&mut self, rd: Register) {
         self.write_ro_1(0x5040, rd);
@@ -537,6 +552,21 @@ pub mod tests {
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                           E0 FF 41   jmp r8",
             "0000000010000003                  02 46 13 4E E9 40   jmp 0000000012461357h"
+        ]);
+    }
+
+    #[test]
+    fn call_ret() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.call(R8);
+        a.const_call(LABEL);
+        a.ret();
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                           D0 FF 41   call r8",
+            "0000000010000003                  02 46 13 4E E8 40   call 0000000012461357h",
+            "0000000010000009                              C3 40   ret"
         ]);
     }
 
