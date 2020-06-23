@@ -123,6 +123,36 @@ pub const ALL_BINARY_OPS: [BinaryOp; 8] =
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
+pub enum ShiftOp {
+    Rol = 0,
+    Ror = 1,
+    Rcl = 2,
+    Rcr = 3,
+    Shl = 4,
+    Shr = 5,
+    // 6 is an undocumented synonym for 4.
+    Sar = 7,
+}
+
+use ShiftOp::*;
+
+impl ShiftOp {
+    pub fn rm_imm(self, rm_is_reg: bool) -> u64 {
+        0x80C140 | (rm_is_reg as u64) << 22 | (self as u64) << 19
+    }
+
+    pub fn rm_c(self, rm_is_reg: bool) -> u64 {
+        0x80D340 | (rm_is_reg as u64) << 22 | (self as u64) << 19
+    }
+}
+
+pub const ALL_SHIFT_OPS: [ShiftOp; 7] =
+    [Rol, Ror, Rcl, Rcr, Shl, Shr, Sar];
+
+//-----------------------------------------------------------------------------
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum Condition {
     O  = 0x0,
     NO = 0x1,
@@ -245,6 +275,11 @@ impl<'a> Assembler<'a> {
 
     // Patterns and constants.
 
+    /** Writes an 8-bit signed immediate constant. */
+    pub fn write_imm8(&mut self, immediate: i8) {
+        self.write((immediate as u8) as u64, 1);
+    }
+
     /** Writes a 32-bit signed immediate constant. */
     pub fn write_imm32(&mut self, immediate: i32) {
         self.write((immediate as u32) as u64, 4);
@@ -332,6 +367,18 @@ impl<'a> Assembler<'a> {
     pub fn load_op(&mut self, op: BinaryOp, dest: Register, src: (Register, i32)) {
         self.write_rom_2(op.reg_rm(false), src.0, dest);
         self.write_imm32(src.1);
+    }
+
+    /** Shift register by `RC`. */
+    pub fn shift(&mut self, op: ShiftOp, dest: Register) {
+        self.write_rom_1(op.rm_c(true), dest);
+    }
+
+    /** Shift register by constant. */
+    pub fn const_shift(&mut self, op: ShiftOp, dest: Register, imm: u8) {
+        assert!(imm < 32);
+        self.write_rom_1(op.rm_imm(true), dest);
+        self.write_imm8(imm as i8);
     }
 
     /** Conditional branch. */
@@ -484,9 +531,9 @@ pub mod tests {
         ]);
     }
 
-    /** Test that we can assemble all the different kinds of operation. */
+    /** Test that we can assemble BinaryOps in all the different ways. */
     #[test]
-    fn mode() {
+    fn binary_mode() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         a.op(Add, R10, R9);
@@ -497,6 +544,40 @@ pub mod tests {
             "0000000010000000                           CA 01 45   add r10d,r9d",
             "0000000010000003               76 54 32 10 C2 81 41   add r10d,76543210h",
             "000000001000000A               12 34 56 78 88 03 45   add r9d,[r8+12345678h]",
+        ]);
+    }
+
+    /** Test that all the ShiftOps are named correctly. */
+    #[test]
+    fn shift_op() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &op in &ALL_SHIFT_OPS {
+            a.shift(op, R8);
+        }
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                           C0 D3 41   rol r8d,cl",
+            "0000000010000003                           C8 D3 41   ror r8d,cl",
+            "0000000010000006                           D0 D3 41   rcl r8d,cl",
+            "0000000010000009                           D8 D3 41   rcr r8d,cl",
+            "000000001000000C                           E0 D3 41   shl r8d,cl",
+            "000000001000000F                           E8 D3 41   shr r8d,cl",
+            "0000000010000012                           F8 D3 41   sar r8d,cl"
+        ]);
+    }
+
+    /** Test that we can assemble ShiftOps in all the different ways. */
+    #[test]
+    fn shift_mode() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.shift(Shl, R8);
+        a.const_shift(Shl, R8, 7);
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                           E0 D3 41   shl r8d,cl",
+            "0000000010000003                        07 E0 C1 41   shl r8d,7"
         ]);
     }
 
