@@ -13,10 +13,11 @@ pub trait Address: Debug + Clone + Hash + Eq {
 pub trait Machine: Debug {
     type State: Debug + Clone + Hash + Eq;
     type Address: Address;
-    fn get_code(state: Self::State) ->
+    fn get_code(&self, state: Self::State) ->
         Vec<(
             code::TestOp,
             Vec<code::Action<Self::Address>>,
             Self::State
         )>;
+    fn initial_states(&self) -> Vec<Self::State>;
 }

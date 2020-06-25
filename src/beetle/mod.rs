@@ -76,7 +76,7 @@ impl control_flow::Machine for Machine {
     type State = State;
     type Address = Address;
 
-    fn get_code(state: Self::State) -> Vec<(code::TestOp, Vec<Action>, Self::State)> {
+    fn get_code(&self, state: Self::State) -> Vec<(code::TestOp, Vec<Action>, Self::State)> {
         use super::x86_64::Register::{RA, RD, RC, RB, RBP};
         use Address::{EP as B_EP, A as B_A, SP as B_SP, RP as B_RP, Memory};
         match state {
@@ -1337,5 +1337,9 @@ impl control_flow::Machine for Machine {
                 ], State::Next),
             ]},
         }
+    }
+
+    fn initial_states(&self) -> Vec<Self::State> {
+        vec![State::Root]
     }
 }
