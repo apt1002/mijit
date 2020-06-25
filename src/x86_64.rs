@@ -10,6 +10,7 @@
 //! the subset as regular as possible, sometimes ignoring more efficient
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
+use std::mem;
 use std::ops::{DerefMut};
 
 //-----------------------------------------------------------------------------
@@ -195,6 +196,25 @@ pub const ALL_WIDTHS: [Width; 8] =
 
 //-----------------------------------------------------------------------------
 
+/**
+ * A unknown jump target. If unpatched, the jump is likely to crash on
+ * execution.
+ */
+pub const FORWARD_REFERENCE: usize = 0xDEADBEEFDEADBEEF;
+
+/**
+ * Represents a control-flow instruction whose target can be mutated with
+ * `Assembler.patch()`.
+ */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Patch {
+    JumpIf(usize),
+    ConstJump(usize),
+    ConstCall(usize),
+}
+
+//-----------------------------------------------------------------------------
+
 pub fn disp(from: usize, to: usize) -> isize {
     if from > isize::MAX as usize || to > isize::MAX as usize {
         panic!("Displacements greater than isize::MAX are not supported");
@@ -240,6 +260,10 @@ pub fn disp32(from: usize, to: usize) -> i32 {
  * Registers are represented by type [`Register`]. Binary arithmetic operations
  * are represented by type [`BinaryOp`]. Condition codes are represented by
  * type [`Condition`].
+ *
+ * To generate a jump or call to an as-yet unknown constant destination, use
+ * `FORWARD_REFERENCE` as the target, and fill in the returned `Patch`
+ * later.
  */
 pub struct Assembler<'a> {
     /// The area we're filling with code.
@@ -392,9 +416,11 @@ impl<'a> Assembler<'a> {
     }
 
     /** Conditional branch. */
-    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: usize) {
+    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: usize) -> Patch {
+        let label = self.label();
         self.write_oo_0(cc.jump_if(is_true));
         self.write_rel32(target);
+        Patch::JumpIf(label)
     }
 
     /** Unconditional jump to a register. */
@@ -403,9 +429,11 @@ impl<'a> Assembler<'a> {
     }
 
     /** Unconditional jump to a constant. */
-    pub fn const_jump(&mut self, target: usize) {
+    pub fn const_jump(&mut self, target: usize) -> Patch {
+        let label = self.label();
         self.write_ro_0(0xE940);
         self.write_rel32(target);
+        Patch::ConstJump(label)
     }
 
     /** Unconditional call to a register. */
@@ -414,9 +442,32 @@ impl<'a> Assembler<'a> {
     }
 
     /** Unconditional call to a constant. */
-    pub fn const_call(&mut self, target: usize) {
+    pub fn const_call(&mut self, target: usize) -> Patch {
+        let label = self.label();
         self.write_ro_0(0xE840);
         self.write_rel32(target);
+        Patch::ConstCall(label)
+    }
+
+    pub fn patch(&mut self, patch: Patch, target: usize) {
+        let mut at = match patch {
+            Patch::JumpIf(addr) => {
+                assert_eq!(self.buffer[addr], 0x0F);
+                assert_eq!(self.buffer[addr + 1] & 0xF0, 0x80);
+                addr + 2
+            },
+            Patch::ConstJump(addr) => {
+                assert_eq!(self.buffer[addr..(addr + 2)], [0xE9, 0x40]);
+                addr + 2
+            },
+            Patch::ConstCall(addr) => {
+                assert_eq!(self.buffer[addr..(addr + 2)], [0xE8, 0x40]);
+                addr + 2
+            },
+        };
+        mem::swap(&mut at, &mut self.pos);
+        self.write_rel32(target);
+        mem::swap(&mut at, &mut self.pos);
     }
 
     pub fn ret(&mut self) {
