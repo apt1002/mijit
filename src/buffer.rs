@@ -4,14 +4,13 @@ use memmap::{MmapMut};
 #[repr(C)]
 pub struct Buffer {
     memory: MmapMut,
-    used: usize,
 }
 
 impl Buffer {
     /** Allocates a Buffer. Returns `None` if not possible. */
     pub fn new(capacity: usize) -> Option<Self> {
         match MmapMut::map_anon(capacity) {
-            Ok(memory) => Some(Buffer {memory, used: 0}),
+            Ok(memory) => Some(Buffer {memory}),
             Err(_) => None
         }
     }
@@ -32,7 +31,7 @@ impl Buffer {
         callback: F,
     ) -> std::io::Result<(Self, T)> {
         let executable_memory = self.memory.make_exec()?;
-        let result = callback(&executable_memory[..self.used]);
+        let result = callback(&executable_memory);
         self.memory = executable_memory.make_mut()?;
         Ok((self, result))
     }
