@@ -15,6 +15,27 @@ impl Buffer {
             Err(_) => None
         }
     }
+
+    /**
+     * Make this Buffer executable, pass it to `callback`, then make it
+     * writeable again.
+     *
+     * If we can't change the buffer permissions, you get an Err and the Buffer
+     * is gone. T can itself be a Result if necessary to represent errors
+     * returned by `callback`
+     */
+    pub fn execute<
+        T,
+        F: Fn(&[u8]) -> T,
+    >(
+        mut self,
+        callback: F,
+    ) -> std::io::Result<(Self, T)> {
+        let executable_memory = self.memory.make_exec()?;
+        let result = callback(&executable_memory[..self.used]);
+        self.memory = executable_memory.make_mut()?;
+        Ok((self, result))
+    }
 }
 
 impl Deref for Buffer {
@@ -28,5 +49,21 @@ impl Deref for Buffer {
 impl DerefMut for Buffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut *self.memory
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn execute() {
+        let buffer = Buffer::new(0x1000)
+            .expect("Couldn't allocate");
+        let (_buffer, result) = buffer.execute(|_bytes| 42)
+            .expect("Couldn't change permissions");
+        assert_eq!(result, 42);
     }
 }
