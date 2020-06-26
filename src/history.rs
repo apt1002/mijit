@@ -25,15 +25,15 @@ pub struct Jit<M: Machine> {
 }
 
 impl<M: Machine> Jit<M> {
-    pub fn new(machine: M) -> Self {
+    pub fn new(machine: M, code_size: usize) -> Self {
         let mut states: IndexSet<_> = machine.initial_states().into_iter().collect();
-        let mut buffer = Buffer::new(1 << 20).expect("couldn't allocate memory");
+        let mut buffer = Buffer::new(code_size).expect("couldn't allocate memory");
         let mut a = Assembler::new(&mut buffer);
         let mut done = 0;
         while let Some(state) = states.get_index(done) {
             let index = done;
             a.const_op(Cmp, R8, done as i32);
-            let patch = a.jump_if(Condition::Z, true, FORWARD_REFERENCE);
+            let patch = a.jump_if(Condition::Z, true, None);
             for (_test_op, _actions, new_state) in machine.get_code(state.clone()) {
                 let (_, _) = states.insert_full(new_state);
             }
@@ -63,11 +63,13 @@ impl<M: Machine> Jit<M> {
 pub mod tests {
     use super::*;
 
+    const CODE_SIZE: usize = 1 << 20;
+
     #[test]
     pub fn beetle() {
         use super::super::{beetle};
         use beetle::State::*;
-        let jit = Jit::new(beetle::Machine);
+        let jit = Jit::new(beetle::Machine, CODE_SIZE);
         let expected: IndexSet<_> = vec![
             Root, Dispatch, Next, Pick, Roll, Qdup, Abs, Max, Min, Lshift,
             Rshift, Branch, Branchi, Qbranch, Qbranchi, Loop, Loopi, Ploop,

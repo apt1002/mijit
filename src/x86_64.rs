@@ -197,12 +197,6 @@ pub const ALL_WIDTHS: [Width; 8] =
 //-----------------------------------------------------------------------------
 
 /**
- * A unknown jump target. If unpatched, the jump is likely to crash on
- * execution.
- */
-pub const FORWARD_REFERENCE: usize = 0xDEADBEEFDEADBEEF;
-
-/**
  * Represents a control-flow instruction whose target can be mutated with
  * `Assembler.patch()`.
  */
@@ -262,8 +256,7 @@ pub fn disp32(from: usize, to: usize) -> i32 {
  * type [`Condition`].
  *
  * To generate a jump or call to an as-yet unknown constant destination, use
- * `FORWARD_REFERENCE` as the target, and fill in the returned `Patch`
- * later.
+ * `None` as the target, and fill in the returned `Patch` later.
  */
 pub struct Assembler<'a> {
     /// The area we're filling with code.
@@ -320,8 +313,12 @@ impl<'a> Assembler<'a> {
     }
 
     /** Writes a 32-bit displacement from `pos+4` to `target`. */
-    pub fn write_rel32(&mut self, target: usize) {
-        let disp = disp32(self.pos + 4, target);
+    pub fn write_rel32(&mut self, target: Option<usize>) {
+        let disp = if let Some(target) = target {
+            disp32(self.pos + 4, target)
+        } else {
+            -0x80000000
+        };
         self.write_imm32(disp);
     }
 
@@ -416,7 +413,7 @@ impl<'a> Assembler<'a> {
     }
 
     /** Conditional branch. */
-    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: usize) -> Patch {
+    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: Option<usize>) -> Patch {
         let label = self.label();
         self.write_oo_0(cc.jump_if(is_true));
         self.write_rel32(target);
@@ -429,7 +426,7 @@ impl<'a> Assembler<'a> {
     }
 
     /** Unconditional jump to a constant. */
-    pub fn const_jump(&mut self, target: usize) -> Patch {
+    pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
         let label = self.label();
         self.write_ro_0(0xE940);
         self.write_rel32(target);
@@ -442,7 +439,7 @@ impl<'a> Assembler<'a> {
     }
 
     /** Unconditional call to a constant. */
-    pub fn const_call(&mut self, target: usize) -> Patch {
+    pub fn const_call(&mut self, target: Option<usize>) -> Patch {
         let label = self.label();
         self.write_ro_0(0xE840);
         self.write_rel32(target);
@@ -457,16 +454,18 @@ impl<'a> Assembler<'a> {
                 addr + 2
             },
             Patch::ConstJump(addr) => {
-                assert_eq!(self.buffer[addr..(addr + 2)], [0xE9, 0x40]);
+                assert_eq!(self.buffer[addr], 0x40,);
+                assert_eq!(self.buffer[addr + 1] , 0xE9);
                 addr + 2
             },
             Patch::ConstCall(addr) => {
-                assert_eq!(self.buffer[addr..(addr + 2)], [0xE8, 0x40]);
+                assert_eq!(self.buffer[addr], 0x40);
+                assert_eq!(self.buffer[addr + 1] , 0xE8);
                 addr + 2
             },
         };
         mem::swap(&mut at, &mut self.pos);
-        self.write_rel32(target);
+        self.write_rel32(Some(target));
         mem::swap(&mut at, &mut self.pos);
     }
 
@@ -700,8 +699,8 @@ pub mod tests {
         let mut a = Assembler::new(&mut code_bytes);
         let target: usize = 0x28; // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
-            a.jump_if(cc, true, target);
-            a.jump_if(cc, false, target);
+            a.jump_if(cc, true, Some(target));
+            a.jump_if(cc, false, Some(target));
         }
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
@@ -746,7 +745,7 @@ pub mod tests {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         a.jump(R8);
-        a.const_jump(LABEL);
+        a.const_jump(Some(LABEL));
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
             "0000000010000000                           E0 FF 41   jmp r8",
@@ -760,7 +759,7 @@ pub mod tests {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         a.call(R8);
-        a.const_call(LABEL);
+        a.const_call(Some(LABEL));
         a.ret();
         let len = a.label();
         assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
@@ -811,6 +810,31 @@ pub mod tests {
             "0000000010000061               12 34 56 78 88 89 4D   mov [r8+12345678h],r9",
             "0000000010000068               12 34 56 78 88 8B 4D   mov r9,[r8+12345678h]",
             "000000001000006F               12 34 56 78 88 89 4D   mov [r8+12345678h],r9",
+        ]);
+    }
+
+    /** Test that we can patch jumps and calls. */
+    #[test]
+    fn patch() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        let p1 = a.jump_if(Z, true, None);
+        let p2 = a.const_jump(None);
+        let p3 = a.const_call(None);
+        let len = a.label();
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                  80 00 00 00 84 0F   je near 0FFFFFFFF90000006h",
+            "0000000010000006                  80 00 00 00 E9 40   jmp 0FFFFFFFF9000000Ch",
+            "000000001000000C                  80 00 00 00 E8 40   call 0FFFFFFFF90000012h",
+        ]);
+        let mut a = Assembler::new(&mut code_bytes);
+        a.patch(p1, LABEL);
+        a.patch(p2, LABEL);
+        a.patch(p3, LABEL);
+        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
+            "0000000010000000                  02 46 13 51 84 0F   je near 0000000012461357h",
+            "0000000010000006                  02 46 13 4B E9 40   jmp 0000000012461357h",
+            "000000001000000C                  02 46 13 45 E8 40   call 0000000012461357h",
         ]);
     }
 }
