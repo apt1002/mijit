@@ -1,6 +1,8 @@
 use super::{control_flow};
 pub use super::x86_64::{Register as R};
 
+pub mod clock;
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
     Bits(R, u32, u32),
