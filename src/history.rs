@@ -9,12 +9,26 @@ use Register::*;
 use BinaryOp::*;
 use Condition;
 
-pub struct CallingConvention;
+/**
+ * Represents the convention by which code before some label passes values
+ * to code after the label. The concept is similar to a calling convention,
+ * but it's for a jump, not a call.
+ *
+ * This is a place-holder. Possible future uses:
+ *  - Register and spill-slot allocation, including dead values.
+ *  - Knowledge about values, e.g. minimum and maximum possible value, and
+ *    which bits are known to be set or clear.
+ *  - Knowledge about possible common sub-expressions, e.g. knowing that some
+ *    value is the difference of two other values.
+ *  - Knowledge about the cache state, e.g. that some value is the value of
+ *    some memory location, and whether it needs to be stored.
+ */
+pub struct Convention;
 
 pub struct History<A: control_flow::Address> {
     pub test: code::TestOp,
     pub fetch: Vec<code::Action<A>>,
-    pub calling_convention: CallingConvention,
+    pub calling_convention: Convention,
     pub register: code::R,
     pub retire: Vec<code::Action<A>>,
 }
