@@ -201,14 +201,70 @@ pub const ALL_WIDTHS: [Width; 8] =
  * `Assembler.patch()`.
  */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Patch {
+enum Patch {
     JumpIf(usize),
     ConstJump(usize),
     ConstCall(usize),
 }
 
+/**
+ * Represents a possibly unknown control-flow target, and accumulates a list of
+ * instructions the jump to it.
+ *
+ * The address of a Label is represented as a displacement from the beginning
+ * of an Assembler's `buffer`. `None` represents an unknown address that will
+ * be resolved later.
+ */
+pub struct Label {
+    target: Option<usize>,
+    patches: Vec<Patch>,
+}
+
+impl Label {
+    /** Constructs an unused Label. */
+    pub fn new(target: Option<usize>) -> Self {
+        Label {target: target, patches: Vec::new()}
+    }
+
+    /** Returns the current address of this Label. */
+    pub fn target(&self) -> Option<usize> {
+        self.target
+    }
+
+    /**
+     * Sets the target of this Label to `new_target`, and writes it into all
+     * the instructions that jump to this Label. In simple cases, prefer
+     * `Assembler::define(&mut Label)`, which calls this.
+     *
+     * It is permitted to patch a Label more than once. For example, you could
+     * set the target to one bit of code, execute it for a while, then set the
+     * target to a different bit of code, and execute that.
+     *
+     * Returns the old target of this Label as a fresh Label. This is useful
+     * if you want to assemble some new code that jumps to the old code.
+     */
+    pub fn patch(&mut self, a: &mut Assembler, target: usize) -> Label {
+        let old = Label::new(self.target);
+        self.target = Some(target);
+        for &mut patch in &mut self.patches {
+            a.patch(patch, self.target, old.target);
+        }
+        old
+    }
+
+    /**
+     * Adds a control-flow instruction to `patches`, patching it to point to
+     * this Label. Its previous target must be `DISP_UNKNOWN`.
+     */
+    fn push(&mut self, a: &mut Assembler, patch: Patch) {
+        a.patch(patch, self.target, None);
+        self.patches.push(patch)
+    }
+}
+
 //-----------------------------------------------------------------------------
 
+/** Computes the displacement from `from` to `to`. */
 pub fn disp(from: usize, to: usize) -> isize {
     if from > isize::MAX as usize || to > isize::MAX as usize {
         panic!("Displacements greater than isize::MAX are not supported");
@@ -216,6 +272,7 @@ pub fn disp(from: usize, to: usize) -> isize {
     (to as isize) - (from as isize)
 }
 
+/** Computes the i32 displacement from `from` to `to`, if possible. */
 pub fn disp32(from: usize, to: usize) -> i32 {
     let disp = disp(from, to);
     if disp > i32::MAX as isize || disp < i32::MIN as isize {
@@ -224,13 +281,15 @@ pub fn disp32(from: usize, to: usize) -> i32 {
     disp as i32
 }
 
-pub fn add_disp(from: usize, disp: isize) -> usize {
-    if from > isize::MAX as usize {
-        panic!("Labels greater than isize::MAX are not supported");
-    }
-    (from as isize).checked_add(disp)
-        .expect("Labels greater than isize::MAX are not supported")
-        as usize
+/**
+ * A value which, if used as the `rel32` part of a control-flow instruction,
+ * is likely to result in an immediate crash.
+ */
+const UNKNOWN_DISP: i32 = -0x80000000;
+
+/** Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`. */
+pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
+    if let Some(to) = to { disp32(from, to) } else { UNKNOWN_DISP }
 }
 
 /**
@@ -239,8 +298,8 @@ pub fn add_disp(from: usize, disp: isize) -> usize {
  * The low-level memory address of `buffer` definitely won't change while the
  * Assembler exists, but it could change at other times, e.g. because the
  * containing Vec grows and gets reallocated. Therefore, be wary of absolute
- * memory addresses. Assembler itself never uses them, and instead represents
- * addresses as displacements from the beginning of `buffer`.
+ * memory addresses. Assembler itself never uses them. For code addresses,
+ * use [`Label`].
  *
  * You probably don't need to call the `write_x()` methods directly, but you
  * can if necessary (e.g. to assemble an instruction that is not provided by
@@ -280,14 +339,20 @@ impl<'a> Assembler<'a> {
         Assembler {buffer: &mut *buffer, pos: 0}
     }
 
-    /** Returns current assembly pointer. */
-    pub fn label(&self) -> usize {
+    /** Get the assembly pointer. */
+    pub fn get_pos(&mut self) -> usize {
         self.pos
     }
 
     /** Set the assembly pointer. */
-    pub fn goto(&mut self, pos: usize) {
+    pub fn set_pos(&mut self, pos: usize) {
         self.pos = pos;
+    }
+
+    /** Define `label`, which must not previously have been defined. */
+    pub fn define(&mut self, label: &mut Label) {
+        let target = self.pos;
+        assert_eq!(label.patch(self, target).target(), None);
     }
 
     /** Reads a single byte. */
@@ -341,12 +406,7 @@ impl<'a> Assembler<'a> {
 
     /** Writes a 32-bit displacement from `pos+4` to `target`. */
     pub fn write_rel32(&mut self, target: Option<usize>) {
-        let disp = if let Some(target) = target {
-            disp32(self.pos + 4, target)
-        } else {
-            -0x80000000
-        };
-        self.write_imm32(disp);
+        self.write_imm32(optional_disp32(self.pos + 4, target));
     }
 
     /** Writes an instruction with pattern "OO", and no registers. */
@@ -440,11 +500,11 @@ impl<'a> Assembler<'a> {
     }
 
     /** Conditional branch. */
-    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: Option<usize>) -> Patch {
-        let label = self.label();
+    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
+        let patch = Patch::JumpIf(self.pos);
         self.write_oo_0(cc.jump_if(is_true));
-        self.write_rel32(target);
-        Patch::JumpIf(label)
+        self.write_imm32(UNKNOWN_DISP);
+        target.push(self, patch);
     }
 
     /** Unconditional jump to a register. */
@@ -453,11 +513,11 @@ impl<'a> Assembler<'a> {
     }
 
     /** Unconditional jump to a constant. */
-    pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
-        let label = self.label();
+    pub fn const_jump(&mut self, target: &mut Label) {
+        let patch = Patch::ConstJump(self.pos);
         self.write_ro_0(0xE940);
-        self.write_rel32(target);
-        Patch::ConstJump(label)
+        self.write_imm32(UNKNOWN_DISP);
+        target.push(self, patch);
     }
 
     /** Unconditional call to a register. */
@@ -466,14 +526,14 @@ impl<'a> Assembler<'a> {
     }
 
     /** Unconditional call to a constant. */
-    pub fn const_call(&mut self, target: Option<usize>) -> Patch {
-        let label = self.label();
+    pub fn const_call(&mut self, target: &mut Label){
+        let patch = Patch::ConstCall(self.pos);
         self.write_ro_0(0xE840);
-        self.write_rel32(target);
-        Patch::ConstCall(label)
+        self.write_imm32(UNKNOWN_DISP);
+        target.push(self, patch);
     }
 
-    pub fn patch(&mut self, patch: Patch, target: usize) -> Option<usize> {
+    fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
         let mut at = match patch {
             Patch::JumpIf(addr) => {
                 assert_eq!(self.buffer[addr], 0x0F);
@@ -491,15 +551,11 @@ impl<'a> Assembler<'a> {
                 addr + 2
             },
         };
-        let old_disp = self.read(at, 4);
+        let old_disp = self.read(at, 4) as i32;
         mem::swap(&mut at, &mut self.pos);
-        self.write_rel32(Some(target));
+        self.write_rel32(new_target);
         mem::swap(&mut at, &mut self.pos);
-        if old_disp == 0x80000000 {
-            None
-        } else {
-            Some(add_disp(at, old_disp as i32 as isize))
-        }
+        assert_eq!(old_disp, optional_disp32(at, old_target));
     }
 
     pub fn ret(&mut self) {
@@ -573,10 +629,6 @@ pub mod tests {
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
 
-    pub struct DisassemblyError {
-        observed: Vec<String>,
-    }
-
     /**
      * Disassemble the given x64_64 `code_bytes` as if they were at `code_ip`.
      */
@@ -608,8 +660,8 @@ pub mod tests {
             let o_line = if i < observed.len() { &observed[i] } else { "missing" };
             if e_line != o_line {
                 println!("Difference in line {}", i+1);
-                println!("{:016X}   {:>32}   {:}", ips[i], byteses[i], o_line);
-                println!("Expected {}", e_line);
+                println!("{:016X}   {:>32}   {}", ips[i], byteses[i], o_line);
+                println!("{:>16}   {:>32}   {}", "Expected", "", e_line);
                 error = true;
             }
         }
@@ -639,7 +691,7 @@ pub mod tests {
         for &r in &ALL_REGISTERS {
             a.mov(r, r);
         }
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "mov eax,eax",
             "mov ecx,ecx",
@@ -667,7 +719,7 @@ pub mod tests {
         a.mov(R10, R9);
         a.store((R8, DISP), R10);
         a.load(R11, (R8, DISP));
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "mov r9d,76543210h",
             "mov r10d,r9d",
@@ -684,7 +736,7 @@ pub mod tests {
         for &op in &ALL_BINARY_OPS {
             a.op(op, R10, R9);
         }
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "add r10d,r9d",
             "or r10d,r9d",
@@ -705,7 +757,7 @@ pub mod tests {
         a.op(Add, R10, R9);
         a.const_op(Add, R10, IMM);
         a.load_op(Add, R9, (R8, DISP));
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "add r10d,r9d",
             "add r10d,76543210h",
@@ -721,7 +773,7 @@ pub mod tests {
         for &op in &ALL_SHIFT_OPS {
             a.shift(op, R8);
         }
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "rol r8d,cl",
             "ror r8d,cl",
@@ -740,7 +792,7 @@ pub mod tests {
         let mut a = Assembler::new(&mut code_bytes);
         a.shift(Shl, R8);
         a.const_shift(Shl, R8, 7);
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "shl r8d,cl",
             "shl r8d,7",
@@ -755,12 +807,12 @@ pub mod tests {
     fn condition() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        let target: usize = 0x28; // Somewhere in the middle of the code.
+        let mut label = Label::new(Some(0x28)); // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
-            a.jump_if(cc, true, Some(target));
-            a.jump_if(cc, false, Some(target));
+            a.jump_if(cc, true, &mut label);
+            a.jump_if(cc, false, &mut label);
         }
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "jo near 0000000000000028h",
             "jno near 0000000000000028h",
@@ -802,9 +854,10 @@ pub mod tests {
     fn jump() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
+        let mut label = Label::new(Some(LABEL));
         a.jump(R8);
-        a.const_jump(Some(LABEL));
-        let len = a.label();
+        a.const_jump(&mut label);
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "jmp r8",
             "jmp 0000000002461357h",
@@ -816,10 +869,11 @@ pub mod tests {
     fn call_ret() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
+        let mut label = Label::new(Some(LABEL));
         a.call(R8);
-        a.const_call(Some(LABEL));
+        a.const_call(&mut label);
         a.ret();
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "call r8",
             "call 0000000002461357h",
@@ -834,7 +888,7 @@ pub mod tests {
         let mut a = Assembler::new(&mut code_bytes);
         a.push(R8);
         a.pop(R9);
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "push r8",
             "pop r9",
@@ -850,7 +904,7 @@ pub mod tests {
             a.load_narrow(w, R9, (R8, DISP));
             a.store_narrow(w, (R8, DISP), R9);
         }
-        let len = a.label();
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "movzx r9,byte [r8+12345678h]",
             "mov [r8+12345678h],r9b",
@@ -876,28 +930,25 @@ pub mod tests {
     fn patch() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        let p1 = a.jump_if(Z, true, None);
-        let p2 = a.const_jump(None);
-        let p3 = a.const_call(None);
-        let len = a.label();
+        let mut label = Label::new(None);
+        a.jump_if(Z, true, &mut label);
+        a.const_jump(&mut label);
+        a.const_call(&mut label);
+        let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "je near 0FFFFFFFF80000006h",
             "jmp 0FFFFFFFF8000000Ch",
             "call 0FFFFFFFF80000012h",
         ]).unwrap();
         let mut a = Assembler::new(&mut code_bytes);
-        assert_eq!(a.patch(p1, LABEL), None);
-        assert_eq!(a.patch(p2, LABEL), None);
-        assert_eq!(a.patch(p3, LABEL), None);
+        assert_eq!(label.patch(&mut a, LABEL).target(), None);
         disassemble(&code_bytes[..len], vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
         let mut a = Assembler::new(&mut code_bytes);
-        assert_eq!(a.patch(p1, LABEL), Some(LABEL));
-        assert_eq!(a.patch(p2, LABEL), Some(LABEL));
-        assert_eq!(a.patch(p3, LABEL), Some(LABEL));
+        assert_eq!(label.patch(&mut a, LABEL).target(), Some(LABEL));
         disassemble(&code_bytes[..len], vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",

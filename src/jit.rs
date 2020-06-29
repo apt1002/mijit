@@ -27,42 +27,6 @@ pub struct Convention {
     pub test_register: code::R,
 }
 
-/**
- * A collection of x86_64::Patch, all with the same target.
- */
-pub struct Patches {
-    patches: Vec<Patch>,
-    target: Option<usize>,
-}
-
-impl Patches {
-    pub fn new(target: Option<usize>) -> Self {
-        Patches {patches: Vec::new(), target: target}
-    }
-
-    pub fn patch(&mut self, a: &mut Assembler) -> Option<usize> {
-        let target = a.label();
-        let old_target = self.target;
-        for &mut patch in &mut self.patches {
-            assert_eq!(a.patch(patch, target), old_target);
-        }
-        self.target = Some(target);
-        old_target
-    }
-
-    pub fn jump_if(&mut self, a: &mut Assembler, cc: Condition, is_true: bool) {
-        self.patches.push(a.jump_if(cc, is_true, self.target));
-    }
-
-    pub fn const_jump(&mut self, a: &mut Assembler) {
-        self.patches.push(a.const_jump(self.target));
-    }
-
-    pub fn const_call(&mut self, a: &mut Assembler) {
-        self.patches.push(a.const_call(self.target));
-    }
-}
-
 pub struct History<A: control_flow::Address> {
     /** The test which must pass in order to execute `fetch`. */
     pub test: code::TestOp,
@@ -73,7 +37,7 @@ pub struct History<A: control_flow::Address> {
     /** The code for the unique "retire" transition from this History. */
     pub retire: Vec<code::Action<A>>,
     /** All jump instructions whose target is `retire`. */
-    pub retire_jumps: Vec<Patch>,
+    pub retire_labels: Vec<Label>,
 }
 
 /**
@@ -107,34 +71,35 @@ impl<M: Machine> Jit<M> {
         // Assemble the function prologue.
         let mut buffer = Buffer::new(code_size).expect("couldn't allocate memory");
         let mut a = Assembler::new(&mut buffer);
-        let mut retire_jumps: Vec<Patches> = (0..states.len()).map(|_| Patches::new(None)).collect();
+        let mut retire_labels: Vec<Label> = (0..states.len()).map(|_| Label::new(None)).collect();
         for (index, &_) in states.iter().enumerate() {
             a.const_op(Cmp, R8, index as i32);
-            retire_jumps[index].jump_if(&mut a, Condition::Z, true);
+            a.jump_if(Condition::Z, true, &mut retire_labels[index]);
         }
         a.const_(RA, -1i32);
 
         // Assemble the function epilogue.
-        let epilogue = a.label();
+        let mut epilogue = Label::new(None);
+        a.define(&mut epilogue);
         a.ret();
 
         // Construct the root labels. [TODO: Histories].
         for (index, _) in states.iter().enumerate() {
-            assert_eq!(retire_jumps[index].patch(&mut a), None);
+            a.define(&mut retire_labels[index]);
             a.const_(RA, index as i32);
-            a.const_jump(Some(epilogue));
+            a.const_jump(&mut epilogue);
         }
 
         for (index, state) in states.iter().enumerate() {
-            for (test_op, actions, new_state) in machine.get_code(state.clone()) {
-                let old_retire_label = retire_jumps[index].patch(&mut a);
-                retire_jumps[index] = Patches::new(old_retire_label);
-                retire_jumps[index].const_jump(&mut a);
+            for (_test_op, _actions, _new_state) in machine.get_code(state.clone()) {
+                let new_target = a.get_pos();
+                retire_labels[index] = retire_labels[index].patch(&mut a, new_target);
+                a.const_jump(&mut retire_labels[index]);
             }
         }
 
         // Return everything.
-        let used = a.label();
+        let used = a.get_pos();
         Jit {states, buffer, used}
     }
 
