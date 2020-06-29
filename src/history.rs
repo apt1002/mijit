@@ -10,9 +10,8 @@ use BinaryOp::*;
 use Condition;
 
 /**
- * Represents the convention by which code before some label passes values
- * to code after the label. The concept is similar to a calling convention,
- * but it's for a jump, not a call.
+ * Represents the convention by which code passes values to a label. The
+ * concept is similar to a calling convention, but it's for a jump, not a call.
  *
  * This is a place-holder. Possible future uses:
  *  - Register and spill-slot allocation, including dead values.
@@ -23,14 +22,22 @@ use Condition;
  *  - Knowledge about the cache state, e.g. that some value is the value of
  *    some memory location, and whether it needs to be stored.
  */
-pub struct Convention;
+pub struct Convention {
+    /** The Register whose value will be tested next. */
+    test_register: code::R,
+};
 
 pub struct History<A: control_flow::Address> {
+    /** The test which must pass in order to execute `fetch`. */
     pub test: code::TestOp,
+    /** The code for the unique "fetch" transition to this History. */
     pub fetch: Vec<code::Action<A>>,
-    pub calling_convention: Convention,
-    pub register: code::R,
+    /** The interface from `fetch` to `retire`. */
+    pub convention: Convention,
+    /** The code for the unique "retire" transition from this History. */
     pub retire: Vec<code::Action<A>>,
+    /** All jump instructions whose target is `retire`. */
+    pub retire_jumps: Vec<Patch>,
 }
 
 pub struct Jit<M: Machine> {
@@ -76,8 +83,8 @@ impl<M: Machine> Jit<M> {
         let epilogue = a.label();
         a.ret();
 
-        // Construct the root Histories.
-        for (index, &_) in states.iter().enumerate() {
+        // Construct the root labels. [TODO: Histories].
+        for (index, &state) in states.iter().enumerate() {
             a.patch(cases[index], a.label());
             a.const_(RA, index as i32);
             a.const_jump(Some(epilogue));
