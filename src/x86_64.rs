@@ -536,35 +536,60 @@ impl<'a> Assembler<'a> {
 
 #[cfg(test)]
 pub mod tests {
+    use std::cmp::{max};
+
     use iced_x86::{Decoder, Formatter, NasmFormatter};
+
+    pub struct DisassemblyError {
+        observed: Vec<String>,
+    }
 
     /**
      * Disassemble the given x64_64 `code_bytes` as if they were at `code_ip`.
      */
-    pub fn disassemble(code_bytes: &[u8], code_ip: u64) -> Vec<String> {
+    pub fn disassemble(code_bytes: &[u8], expected: Vec<&str>)
+    -> Result<(), Vec<String>> {
+        // Disassemble the code.
         let mut decoder = Decoder::new(64, code_bytes, 0);
-        decoder.set_ip(code_ip);
+        decoder.set_ip(0);
         let mut formatter = NasmFormatter::new();
-        decoder.iter().map(|instruction| {
-            let ip = instruction.ip();
-            let start = (ip - code_ip) as usize;
+        let mut ips = Vec::new();
+        let mut byteses = Vec::new();
+        let mut observed = Vec::new();
+        for instruction in decoder {
+            let start = instruction.ip() as usize;
             let len = instruction.len() as usize;
-            let bytes = code_bytes[start..][..len].iter().rev().map(
+            ips.push(start);
+            byteses.push(code_bytes[start..][..len].iter().rev().map(
                 |b| format!("{:02X}", b)
-            ).collect::<Vec<String>>().join(" ");
+            ).collect::<Vec<String>>().join(" "));
             let mut assembly = String::with_capacity(80);
             formatter.format(&instruction, &mut assembly);
-            format!("{:016X}   {:>32}   {:}", ip, bytes, assembly)
-        }).collect()
+            observed.push(assembly);
+        };
+
+        // Search for differences.
+        let mut error = false;
+        for i in 0..max(expected.len(), observed.len()) {
+            let e_line = if i < expected.len() { &expected[i] } else { "missing" };
+            let o_line = if i < observed.len() { &observed[i] } else { "missing" };
+            if e_line != o_line {
+                println!("Difference in line {}", i+1);
+                println!("{:016X}   {:>32}   {:}", ips[i], byteses[i], observed[i]);
+                println!("Expected {}", expected[i]);
+                error = true;
+            }
+        }
+        if error { Err(observed) } else { Ok(()) }
     }
 
     #[test]
     fn test_disassemble() {
         let example_code = &[0x48, 0x89, 0x5C, 0x24, 0x10, 0x55];
-        assert_eq!(disassemble(example_code, 0x10000000), [
-            "0000000010000000                     10 24 5C 89 48   mov [rsp+10h],rbx",
-            "0000000010000005                                 55   push rbp"
-        ]);
+        disassemble(example_code, vec![
+            "mov [rsp+10h],rbx",
+            "push rbp",
+        ]).unwrap();
     }
 
     use super::*;
@@ -582,22 +607,22 @@ pub mod tests {
             a.mov(r, r);
         }
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           C0 8B 40   mov eax,eax",
-            "0000000010000003                           C9 8B 40   mov ecx,ecx",
-            "0000000010000006                           D2 8B 40   mov edx,edx",
-            "0000000010000009                           DB 8B 40   mov ebx,ebx",
-            "000000001000000C                           ED 8B 40   mov ebp,ebp",
-            "000000001000000F                           F6 8B 40   mov esi,esi",
-            "0000000010000012                           FF 8B 40   mov edi,edi",
-            "0000000010000015                           C0 8B 45   mov r8d,r8d",
-            "0000000010000018                           C9 8B 45   mov r9d,r9d",
-            "000000001000001B                           D2 8B 45   mov r10d,r10d",
-            "000000001000001E                           DB 8B 45   mov r11d,r11d",
-            "0000000010000021                           ED 8B 45   mov r13d,r13d",
-            "0000000010000024                           F6 8B 45   mov r14d,r14d",
-            "0000000010000027                           FF 8B 45   mov r15d,r15d",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "mov eax,eax",
+            "mov ecx,ecx",
+            "mov edx,edx",
+            "mov ebx,ebx",
+            "mov ebp,ebp",
+            "mov esi,esi",
+            "mov edi,edi",
+            "mov r8d,r8d",
+            "mov r9d,r9d",
+            "mov r10d,r10d",
+            "mov r11d,r11d",
+            "mov r13d,r13d",
+            "mov r14d,r14d",
+            "mov r15d,r15d",
+        ]).unwrap();
     }
 
     /** Test that we can assemble all the different kinds of "MOV". */
@@ -610,12 +635,12 @@ pub mod tests {
         a.store((R8, DISP), R10);
         a.load(R11, (R8, DISP));
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                  76 54 32 10 B9 41   mov r9d,76543210h",
-            "0000000010000006                           D1 8B 45   mov r10d,r9d",
-            "0000000010000009               12 34 56 78 90 89 45   mov [r8+12345678h],r10d",
-            "0000000010000010               12 34 56 78 98 8B 45   mov r11d,[r8+12345678h]",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "mov r9d,76543210h",
+            "mov r10d,r9d",
+            "mov [r8+12345678h],r10d",
+            "mov r11d,[r8+12345678h]",
+        ]).unwrap();
     }
 
     /** Test that all the BinaryOps are named correctly. */
@@ -627,16 +652,16 @@ pub mod tests {
             a.op(op, R10, R9);
         }
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           CA 01 45   add r10d,r9d",
-            "0000000010000003                           CA 09 45   or r10d,r9d",
-            "0000000010000006                           CA 11 45   adc r10d,r9d",
-            "0000000010000009                           CA 19 45   sbb r10d,r9d",
-            "000000001000000C                           CA 21 45   and r10d,r9d",
-            "000000001000000F                           CA 29 45   sub r10d,r9d",
-            "0000000010000012                           CA 31 45   xor r10d,r9d",
-            "0000000010000015                           CA 39 45   cmp r10d,r9d",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "add r10d,r9d",
+            "or r10d,r9d",
+            "adc r10d,r9d",
+            "sbb r10d,r9d",
+            "and r10d,r9d",
+            "sub r10d,r9d",
+            "xor r10d,r9d",
+            "cmp r10d,r9d",
+        ]).unwrap();
     }
 
     /** Test that we can assemble BinaryOps in all the different ways. */
@@ -648,11 +673,11 @@ pub mod tests {
         a.const_op(Add, R10, IMM);
         a.load_op(Add, R9, (R8, DISP));
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           CA 01 45   add r10d,r9d",
-            "0000000010000003               76 54 32 10 C2 81 41   add r10d,76543210h",
-            "000000001000000A               12 34 56 78 88 03 45   add r9d,[r8+12345678h]",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "add r10d,r9d",
+            "add r10d,76543210h",
+            "add r9d,[r8+12345678h]",
+        ]).unwrap();
     }
 
     /** Test that all the ShiftOps are named correctly. */
@@ -664,15 +689,15 @@ pub mod tests {
             a.shift(op, R8);
         }
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           C0 D3 41   rol r8d,cl",
-            "0000000010000003                           C8 D3 41   ror r8d,cl",
-            "0000000010000006                           D0 D3 41   rcl r8d,cl",
-            "0000000010000009                           D8 D3 41   rcr r8d,cl",
-            "000000001000000C                           E0 D3 41   shl r8d,cl",
-            "000000001000000F                           E8 D3 41   shr r8d,cl",
-            "0000000010000012                           F8 D3 41   sar r8d,cl"
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "rol r8d,cl",
+            "ror r8d,cl",
+            "rcl r8d,cl",
+            "rcr r8d,cl",
+            "shl r8d,cl",
+            "shr r8d,cl",
+            "sar r8d,cl",
+        ]).unwrap();
     }
 
     /** Test that we can assemble ShiftOps in all the different ways. */
@@ -683,10 +708,10 @@ pub mod tests {
         a.shift(Shl, R8);
         a.const_shift(Shl, R8, 7);
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           E0 D3 41   shl r8d,cl",
-            "0000000010000003                        07 E0 C1 41   shl r8d,7"
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "shl r8d,cl",
+            "shl r8d,7",
+        ]).unwrap();
     }
 
     /**
@@ -703,40 +728,40 @@ pub mod tests {
             a.jump_if(cc, false, Some(target));
         }
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                  00 00 00 22 80 0F   jo near 0000000010000028h",
-            "0000000010000006                  00 00 00 1C 81 0F   jno near 0000000010000028h",
-            "000000001000000C                  00 00 00 16 81 0F   jno near 0000000010000028h",
-            "0000000010000012                  00 00 00 10 80 0F   jo near 0000000010000028h",
-            "0000000010000018                  00 00 00 0A 82 0F   jb near 0000000010000028h",
-            "000000001000001E                  00 00 00 04 83 0F   jae near 0000000010000028h",
-            "0000000010000024                  FF FF FF FE 83 0F   jae near 0000000010000028h",
-            "000000001000002A                  FF FF FF F8 82 0F   jb near 0000000010000028h",
-            "0000000010000030                  FF FF FF F2 84 0F   je near 0000000010000028h",
-            "0000000010000036                  FF FF FF EC 85 0F   jne near 0000000010000028h",
-            "000000001000003C                  FF FF FF E6 85 0F   jne near 0000000010000028h",
-            "0000000010000042                  FF FF FF E0 84 0F   je near 0000000010000028h",
-            "0000000010000048                  FF FF FF DA 86 0F   jbe near 0000000010000028h",
-            "000000001000004E                  FF FF FF D4 87 0F   ja near 0000000010000028h",
-            "0000000010000054                  FF FF FF CE 87 0F   ja near 0000000010000028h",
-            "000000001000005A                  FF FF FF C8 86 0F   jbe near 0000000010000028h",
-            "0000000010000060                  FF FF FF C2 88 0F   js near 0000000010000028h",
-            "0000000010000066                  FF FF FF BC 89 0F   jns near 0000000010000028h",
-            "000000001000006C                  FF FF FF B6 89 0F   jns near 0000000010000028h",
-            "0000000010000072                  FF FF FF B0 88 0F   js near 0000000010000028h",
-            "0000000010000078                  FF FF FF AA 8A 0F   jp near 0000000010000028h",
-            "000000001000007E                  FF FF FF A4 8B 0F   jnp near 0000000010000028h",
-            "0000000010000084                  FF FF FF 9E 8B 0F   jnp near 0000000010000028h",
-            "000000001000008A                  FF FF FF 98 8A 0F   jp near 0000000010000028h",
-            "0000000010000090                  FF FF FF 92 8C 0F   jl near 0000000010000028h",
-            "0000000010000096                  FF FF FF 8C 8D 0F   jge near 0000000010000028h",
-            "000000001000009C                  FF FF FF 86 8D 0F   jge near 0000000010000028h",
-            "00000000100000A2                  FF FF FF 80 8C 0F   jl near 0000000010000028h",
-            "00000000100000A8                  FF FF FF 7A 8E 0F   jle near 0000000010000028h",
-            "00000000100000AE                  FF FF FF 74 8F 0F   jg near 0000000010000028h",
-            "00000000100000B4                  FF FF FF 6E 8F 0F   jg near 0000000010000028h",
-            "00000000100000BA                  FF FF FF 68 8E 0F   jle near 0000000010000028h",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "jo near 0000000000000028h",
+            "jno near 0000000000000028h",
+            "jno near 0000000000000028h",
+            "jo near 0000000000000028h",
+            "jb near 0000000000000028h",
+            "jae near 0000000000000028h",
+            "jae near 0000000000000028h",
+            "jb near 0000000000000028h",
+            "je near 0000000000000028h",
+            "jne near 0000000000000028h",
+            "jne near 0000000000000028h",
+            "je near 0000000000000028h",
+            "jbe near 0000000000000028h",
+            "ja near 0000000000000028h",
+            "ja near 0000000000000028h",
+            "jbe near 0000000000000028h",
+            "js near 0000000000000028h",
+            "jns near 0000000000000028h",
+            "jns near 0000000000000028h",
+            "js near 0000000000000028h",
+            "jp near 0000000000000028h",
+            "jnp near 0000000000000028h",
+            "jnp near 0000000000000028h",
+            "jp near 0000000000000028h",
+            "jl near 0000000000000028h",
+            "jge near 0000000000000028h",
+            "jge near 0000000000000028h",
+            "jl near 0000000000000028h",
+            "jle near 0000000000000028h",
+            "jg near 0000000000000028h",
+            "jg near 0000000000000028h",
+            "jle near 0000000000000028h",
+        ]).unwrap();
     }
 
     /** Test that we can assemble the different kinds of unconditional jump. */
@@ -747,10 +772,10 @@ pub mod tests {
         a.jump(R8);
         a.const_jump(Some(LABEL));
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           E0 FF 41   jmp r8",
-            "0000000010000003                  02 46 13 4E E9 40   jmp 0000000012461357h"
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "jmp r8",
+            "jmp 0000000002461357h",
+        ]).unwrap();
     }
 
     /** Test that we can assemble the different kinds of call and return. */
@@ -762,11 +787,11 @@ pub mod tests {
         a.const_call(Some(LABEL));
         a.ret();
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                           D0 FF 41   call r8",
-            "0000000010000003                  02 46 13 4E E8 40   call 0000000012461357h",
-            "0000000010000009                              C3 40   ret"
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "call r8",
+            "call 0000000002461357h",
+            "ret",
+        ]).unwrap();
     }
 
     /** Test that we can assemble "PUSH" and "POP". */
@@ -777,10 +802,10 @@ pub mod tests {
         a.push(R8);
         a.pop(R9);
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                              50 41   push r8",
-            "0000000010000002                              59 41   pop r9"
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "push r8",
+            "pop r9",
+        ]).unwrap();
     }
 
     /** Test that we can assmeble loads and stores for narrow data. */
@@ -793,24 +818,24 @@ pub mod tests {
             a.store_narrow(w, (R8, DISP), R9);
         }
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000            12 34 56 78 88 B6 0F 4D   movzx r9,byte [r8+12345678h]",
-            "0000000010000008               12 34 56 78 88 88 45   mov [r8+12345678h],r9b",
-            "000000001000000F            12 34 56 78 88 BE 0F 4D   movsx r9,byte [r8+12345678h]",
-            "0000000010000017               12 34 56 78 88 88 45   mov [r8+12345678h],r9b",
-            "000000001000001E            12 34 56 78 88 B7 0F 4D   movzx r9,word [r8+12345678h]",
-            "0000000010000026            12 34 56 78 88 89 45 66   mov [r8+12345678h],r9w",
-            "000000001000002E            12 34 56 78 88 BF 0F 4D   movsx r9,word [r8+12345678h]",
-            "0000000010000036            12 34 56 78 88 89 45 66   mov [r8+12345678h],r9w",
-            "000000001000003E               12 34 56 78 88 8B 45   mov r9d,[r8+12345678h]",
-            "0000000010000045               12 34 56 78 88 89 45   mov [r8+12345678h],r9d",
-            "000000001000004C               12 34 56 78 88 63 4D   movsxd r9,dword [r8+12345678h]",
-            "0000000010000053               12 34 56 78 88 89 45   mov [r8+12345678h],r9d",
-            "000000001000005A               12 34 56 78 88 8B 4D   mov r9,[r8+12345678h]",
-            "0000000010000061               12 34 56 78 88 89 4D   mov [r8+12345678h],r9",
-            "0000000010000068               12 34 56 78 88 8B 4D   mov r9,[r8+12345678h]",
-            "000000001000006F               12 34 56 78 88 89 4D   mov [r8+12345678h],r9",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "movzx r9,byte [r8+12345678h]",
+            "mov [r8+12345678h],r9b",
+            "movsx r9,byte [r8+12345678h]",
+            "mov [r8+12345678h],r9b",
+            "movzx r9,word [r8+12345678h]",
+            "mov [r8+12345678h],r9w",
+            "movsx r9,word [r8+12345678h]",
+            "mov [r8+12345678h],r9w",
+            "mov r9d,[r8+12345678h]",
+            "mov [r8+12345678h],r9d",
+            "movsxd r9,dword [r8+12345678h]",
+            "mov [r8+12345678h],r9d",
+            "mov r9,[r8+12345678h]",
+            "mov [r8+12345678h],r9",
+            "mov r9,[r8+12345678h]",
+            "mov [r8+12345678h],r9",
+        ]).unwrap();
     }
 
     /** Test that we can patch jumps and calls. */
@@ -822,19 +847,19 @@ pub mod tests {
         let p2 = a.const_jump(None);
         let p3 = a.const_call(None);
         let len = a.label();
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                  80 00 00 00 84 0F   je near 0FFFFFFFF90000006h",
-            "0000000010000006                  80 00 00 00 E9 40   jmp 0FFFFFFFF9000000Ch",
-            "000000001000000C                  80 00 00 00 E8 40   call 0FFFFFFFF90000012h",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "je near 0FFFFFFFF80000006h",
+            "jmp 0FFFFFFFF8000000Ch",
+            "call 0FFFFFFFF80000012h",
+        ]).unwrap();
         let mut a = Assembler::new(&mut code_bytes);
         a.patch(p1, LABEL);
         a.patch(p2, LABEL);
         a.patch(p3, LABEL);
-        assert_eq!(disassemble(&code_bytes[..len], 0x10000000), [
-            "0000000010000000                  02 46 13 51 84 0F   je near 0000000012461357h",
-            "0000000010000006                  02 46 13 4B E9 40   jmp 0000000012461357h",
-            "000000001000000C                  02 46 13 45 E8 40   call 0000000012461357h",
-        ]);
+        disassemble(&code_bytes[..len], vec![
+            "je near 0000000002461357h",
+            "jmp 0000000002461357h",
+            "call 0000000002461357h",
+        ]).unwrap();
     }
 }
