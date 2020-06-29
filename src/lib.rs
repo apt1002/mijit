@@ -4,7 +4,7 @@ pub mod control_flow;
 pub mod x86_64;
 pub use x86_64::{Assembler};
 
-pub mod history;
+pub mod jit;
 
 pub mod beetle;
 
