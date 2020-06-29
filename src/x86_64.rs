@@ -455,12 +455,12 @@ impl<'a> Assembler<'a> {
             },
             Patch::ConstJump(addr) => {
                 assert_eq!(self.buffer[addr], 0x40,);
-                assert_eq!(self.buffer[addr + 1] , 0xE9);
+                assert_eq!(self.buffer[addr + 1], 0xE9);
                 addr + 2
             },
             Patch::ConstCall(addr) => {
                 assert_eq!(self.buffer[addr], 0x40);
-                assert_eq!(self.buffer[addr + 1] , 0xE8);
+                assert_eq!(self.buffer[addr + 1], 0xE8);
                 addr + 2
             },
         };
@@ -488,17 +488,17 @@ impl<'a> Assembler<'a> {
         match type_ {
             U8 | S8 => {
                 self.write_rom_2(0x808840, dest.0, src);
-            },
+            }
             U16 | S16 => {
                 self.write_byte(0x66);
                 self.write_rom_2(0x808940, dest.0, src);
-            },
+            }
             U32 | S32 => {
                 self.write_rom_2(0x808940, dest.0, src);
-            },
+            }
             U64 | S64 => {
                 self.write_rom_2(0x808948, dest.0, src);
-            },
+            }
         }
         self.write_imm32(dest.1);
     }
@@ -508,25 +508,25 @@ impl<'a> Assembler<'a> {
         match type_ {
             U8 => {
                 self.write_room_2(0x80B60F48, src.0, dest);
-            },
+            }
             S8 => {
                 self.write_room_2(0x80BE0F48, src.0, dest);
-            },
+            }
             U16 => {
                 self.write_room_2(0x80B70F48, src.0, dest);
-            },
+            }
             S16 => {
                 self.write_room_2(0x80BF0F48, src.0, dest);
-            },
+            }
             U32 => {
                 self.write_rom_2(0x808B40, src.0, dest);
-            },
+            }
             S32 => {
                 self.write_rom_2(0x806348, src.0, dest);
-            },
+            }
             U64 | S64 => {
                 self.write_rom_2(0x808B48, src.0, dest);
-            },
+            }
         }
         self.write_imm32(src.1);
     }
