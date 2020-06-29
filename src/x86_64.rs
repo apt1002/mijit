@@ -498,7 +498,7 @@ impl<'a> Assembler<'a> {
         if old_disp == 0x80000000 {
             None
         } else {
-            Some(add_disp(at, old_disp as i32 as isize + 4))
+            Some(add_disp(at, old_disp as i32 as isize))
         }
     }
 
@@ -608,8 +608,8 @@ pub mod tests {
             let o_line = if i < observed.len() { &observed[i] } else { "missing" };
             if e_line != o_line {
                 println!("Difference in line {}", i+1);
-                println!("{:016X}   {:>32}   {:}", ips[i], byteses[i], observed[i]);
-                println!("Expected {}", expected[i]);
+                println!("{:016X}   {:>32}   {:}", ips[i], byteses[i], o_line);
+                println!("Expected {}", e_line);
                 error = true;
             }
         }
@@ -894,6 +894,7 @@ pub mod tests {
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
+        let mut a = Assembler::new(&mut code_bytes);
         assert_eq!(a.patch(p1, LABEL), Some(LABEL));
         assert_eq!(a.patch(p2, LABEL), Some(LABEL));
         assert_eq!(a.patch(p3, LABEL), Some(LABEL));
