@@ -2,7 +2,7 @@ use std::{mem};
 
 use indexmap::IndexSet;
 
-use super::{Assembler, Buffer, code, control_flow, x86_64};
+use super::{Buffer, code, control_flow, x86_64};
 use control_flow::{Machine};
 use x86_64::*;
 use Register::*;
@@ -24,8 +24,44 @@ use Condition;
  */
 pub struct Convention {
     /** The Register whose value will be tested next. */
-    test_register: code::R,
-};
+    pub test_register: code::R,
+}
+
+/**
+ * A collection of x86_64::Patch, all with the same target.
+ */
+pub struct Patches {
+    patches: Vec<Patch>,
+    target: Option<usize>,
+}
+
+impl Patches {
+    pub fn new(target: Option<usize>) -> Self {
+        Patches {patches: Vec::new(), target: target}
+    }
+
+    pub fn patch(&mut self, a: &mut Assembler) -> Option<usize> {
+        let target = a.label();
+        let old_target = self.target;
+        for &mut patch in &mut self.patches {
+            assert_eq!(a.patch(patch, target), old_target);
+        }
+        self.target = Some(target);
+        old_target
+    }
+
+    pub fn jump_if(&mut self, a: &mut Assembler, cc: Condition, is_true: bool) {
+        self.patches.push(a.jump_if(cc, is_true, self.target));
+    }
+
+    pub fn const_jump(&mut self, a: &mut Assembler) {
+        self.patches.push(a.const_jump(self.target));
+    }
+
+    pub fn const_call(&mut self, a: &mut Assembler) {
+        self.patches.push(a.const_call(self.target));
+    }
+}
 
 pub struct History<A: control_flow::Address> {
     /** The test which must pass in order to execute `fetch`. */
@@ -40,12 +76,6 @@ pub struct History<A: control_flow::Address> {
     pub retire_jumps: Vec<Patch>,
 }
 
-pub struct Jit<M: Machine> {
-    states: IndexSet<M::State>,
-    buffer: Buffer,
-    used: usize,
-}
-
 /**
  * The type of the generated code.
  *  - current_index - the index of the current M::State in `states`.
@@ -55,6 +85,12 @@ pub struct Jit<M: Machine> {
 type RunFn = extern "C" fn(
     /* current_index */  usize,
 ) -> /* new_index */ usize;
+
+pub struct Jit<M: Machine> {
+    states: IndexSet<M::State>,
+    buffer: Buffer,
+    used: usize,
+}
 
 impl<M: Machine> Jit<M> {
     pub fn new(machine: M, code_size: usize) -> Self {
@@ -71,11 +107,10 @@ impl<M: Machine> Jit<M> {
         // Assemble the function prologue.
         let mut buffer = Buffer::new(code_size).expect("couldn't allocate memory");
         let mut a = Assembler::new(&mut buffer);
-        let mut cases: Vec<Patch> = Vec::new();
+        let mut retire_jumps: Vec<Patches> = (0..states.len()).map(|_| Patches::new(None)).collect();
         for (index, &_) in states.iter().enumerate() {
             a.const_op(Cmp, R8, index as i32);
-            let patch = a.jump_if(Condition::Z, true, None);
-            cases.push(patch);
+            retire_jumps[index].jump_if(&mut a, Condition::Z, true);
         }
         a.const_(RA, -1i32);
 
@@ -84,15 +119,27 @@ impl<M: Machine> Jit<M> {
         a.ret();
 
         // Construct the root labels. [TODO: Histories].
-        for (index, &state) in states.iter().enumerate() {
-            a.patch(cases[index], a.label());
+        for (index, _) in states.iter().enumerate() {
+            assert_eq!(retire_jumps[index].patch(&mut a), None);
             a.const_(RA, index as i32);
             a.const_jump(Some(epilogue));
+        }
+
+        for (index, state) in states.iter().enumerate() {
+            for (test_op, actions, new_state) in machine.get_code(state.clone()) {
+                let old_retire_label = retire_jumps[index].patch(&mut a);
+                retire_jumps[index] = Patches::new(old_retire_label);
+                retire_jumps[index].const_jump(&mut a);
+            }
         }
 
         // Return everything.
         let used = a.label();
         Jit {states, buffer, used}
+    }
+
+    pub fn used(&self) -> usize {
+        self.used
     }
 
     pub fn states(&self) -> &IndexSet<M::State> {
@@ -231,5 +278,10 @@ pub mod tests {
             "mov eax,16h",
             "jmp 0000000000000131h",
         ]).unwrap();
+    }
+
+    #[test]
+    pub fn startup_and_shutdown() {
+
     }
 }
