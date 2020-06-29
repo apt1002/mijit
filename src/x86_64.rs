@@ -224,6 +224,15 @@ pub fn disp32(from: usize, to: usize) -> i32 {
     disp as i32
 }
 
+pub fn add_disp(from: usize, disp: isize) -> usize {
+    if from > isize::MAX as usize {
+        panic!("Labels greater than isize::MAX are not supported");
+    }
+    (from as isize).checked_add(disp)
+        .expect("Labels greater than isize::MAX are not supported")
+        as usize
+}
+
 /**
  * An assembler, implementing a regularish subset of x86_64.
  *
@@ -281,10 +290,28 @@ impl<'a> Assembler<'a> {
         self.pos = pos;
     }
 
+    /** Reads a single byte. */
+    pub fn read_byte(&self, pos: usize) -> u8 {
+        self.buffer[pos]
+    }
+
     /** Writes a single byte at the assembly pointer, incrementing it. */
     pub fn write_byte(&mut self, byte: u8) {
         self.buffer[self.pos] = byte;
         self.pos += 1;
+    }
+
+    /**
+     * Reads up to 8 bytes, as if using `read_byte()` repeatedly.
+     */
+    pub fn read(&self, pos: usize, len: usize) -> u64 {
+        assert!(len <= 8);
+        let mut bytes: u64 = 0;
+        for i in (0..len).rev() {
+            bytes <<= 8;
+            bytes |= self.read_byte(pos + i) as u64;
+        }
+        bytes
     }
 
     /**
@@ -446,7 +473,7 @@ impl<'a> Assembler<'a> {
         Patch::ConstCall(label)
     }
 
-    pub fn patch(&mut self, patch: Patch, target: usize) {
+    pub fn patch(&mut self, patch: Patch, target: usize) -> Option<usize> {
         let mut at = match patch {
             Patch::JumpIf(addr) => {
                 assert_eq!(self.buffer[addr], 0x0F);
@@ -464,9 +491,15 @@ impl<'a> Assembler<'a> {
                 addr + 2
             },
         };
+        let old_disp = self.read(at, 4);
         mem::swap(&mut at, &mut self.pos);
         self.write_rel32(Some(target));
         mem::swap(&mut at, &mut self.pos);
+        if old_disp == 0x80000000 {
+            None
+        } else {
+            Some(add_disp(at, old_disp as i32 as isize + 4))
+        }
     }
 
     pub fn ret(&mut self) {
@@ -853,9 +886,17 @@ pub mod tests {
             "call 0FFFFFFFF80000012h",
         ]).unwrap();
         let mut a = Assembler::new(&mut code_bytes);
-        a.patch(p1, LABEL);
-        a.patch(p2, LABEL);
-        a.patch(p3, LABEL);
+        assert_eq!(a.patch(p1, LABEL), None);
+        assert_eq!(a.patch(p2, LABEL), None);
+        assert_eq!(a.patch(p3, LABEL), None);
+        disassemble(&code_bytes[..len], vec![
+            "je near 0000000002461357h",
+            "jmp 0000000002461357h",
+            "call 0000000002461357h",
+        ]).unwrap();
+        assert_eq!(a.patch(p1, LABEL), Some(LABEL));
+        assert_eq!(a.patch(p2, LABEL), Some(LABEL));
+        assert_eq!(a.patch(p3, LABEL), Some(LABEL));
         disassemble(&code_bytes[..len], vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
