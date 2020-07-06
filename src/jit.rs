@@ -3,10 +3,12 @@ use std::{mem};
 use indexmap::IndexSet;
 
 use super::{Buffer, code, control_flow, x86_64};
+use code::{Action, TestOp};
 use control_flow::{Machine};
 use x86_64::*;
 use Register::*;
 use BinaryOp::*;
+use ShiftOp::*;
 use Condition;
 
 /**
@@ -29,13 +31,13 @@ pub struct Convention {
 
 pub struct History<A: control_flow::Address> {
     /** The test which must pass in order to execute `fetch`. */
-    pub test: code::TestOp,
+    pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */
-    pub fetch: Vec<code::Action<A>>,
+    pub fetch: Vec<Action<A>>,
     /** The interface from `fetch` to `retire`. */
     pub convention: Convention,
     /** The code for the unique "retire" transition from this History. */
-    pub retire: Vec<code::Action<A>>,
+    pub retire: Vec<Action<A>>,
     /** All jump instructions whose target is `retire`. */
     pub retire_labels: Vec<Label>,
 }
@@ -91,10 +93,210 @@ impl<M: Machine> Jit<M> {
         }
 
         for (index, state) in states.iter().enumerate() {
-            for (_test_op, _actions, _new_state) in machine.get_code(state.clone()) {
+            for (test_op, actions, new_state) in machine.get_code(state.clone()) {
                 let new_target = a.get_pos();
                 retire_labels[index] = retire_labels[index].patch(&mut a, new_target);
-                a.const_jump(&mut retire_labels[index]);
+                match test_op {
+                    TestOp::Bits(discriminant, mask, value) => {
+                        a.const_(RC, mask as i32);
+                        a.op(And, RC, discriminant);
+                        a.const_op(Cmp, RC, value as i32);
+                        a.jump_if(Condition::Z, false, &mut retire_labels[index])
+                    },
+                    TestOp::Lt(discriminant, value) => {
+                        a.const_op(Cmp, discriminant, value as i32);
+                        a.jump_if(Condition::L, false, &mut retire_labels[index])
+                    },
+                    TestOp::Ge(discriminant, value) => {
+                        a.const_op(Cmp, discriminant, value as i32);
+                        a.jump_if(Condition::GE, false, &mut retire_labels[index])
+                    },
+                    TestOp::Ult(discriminant, value) => {
+                        a.const_op(Cmp, discriminant, value as i32);
+                        a.jump_if(Condition::B, false, &mut retire_labels[index])
+                    },
+                    TestOp::Uge(discriminant, value) => {
+                        a.const_op(Cmp, discriminant, value as i32);
+                        a.jump_if(Condition::AE, false, &mut retire_labels[index])
+                    },
+                    TestOp::Eq(discriminant, value) => {
+                        a.const_op(Cmp, discriminant, value as i32);
+                        a.jump_if(Condition::Z, false, &mut retire_labels[index])
+                    },
+                    TestOp::Ne(discriminant, value) => {
+                        a.const_op(Cmp, discriminant, value as i32);
+                        a.jump_if(Condition::NZ, false, &mut retire_labels[index])
+                    },
+                    TestOp::Always => {},
+                };
+                for action in actions {
+                    match action {
+                        Action::Constant(dest, value) => {
+                            a.const_(dest, value as i32);
+                        },
+                        Action::Move(dest, src) => {
+                            a.move_(dest, src);
+                        },
+                        Action::Unary(op, dest, src) => {
+                            match op {
+                                code::UnaryOp::Abs => {
+                                    let mut else_ = Label::new(None);
+                                    let mut endif = Label::new(None);
+                                    a.const_op(Cmp, dest, 0);
+                                    a.jump_if(Condition::GE, true, &mut else_);
+                                    // Negative.
+                                    a.move_(RC, src);
+                                    a.const_(dest, 0);
+                                    a.op(Sub, dest, RC);
+                                    a.const_jump(&mut endif);
+                                    a.define(&mut else_);
+                                    // Positive.
+                                    a.move_(dest, src);
+                                    a.define(&mut endif);
+                                },
+                                code::UnaryOp::Negate => {
+                                    a.move_(RC, src);
+                                    a.const_(dest, 0);
+                                    a.op(Sub, dest, RC);
+                                },
+                                code::UnaryOp::Not => {
+                                    a.move_(dest, src);
+                                    a.const_op(Xor, dest, -1);
+                                },
+                            };
+                        },
+                        Action::Binary(op, dest, src1, src2) => {
+                            match op {
+                                code::BinaryOp::Add => {
+                                    a.move_(dest, src1);
+                                    a.op(Add, dest, src2);
+                                },
+                                code::BinaryOp::Sub => {
+                                    a.move_(dest, src1);
+                                    a.op(Sub, dest, src2);
+                                },
+                                code::BinaryOp::Mul => {
+                                    panic!("FIXME: Don't know how to assemble mul");
+                                },
+                                code::BinaryOp::Lsl => {
+                                    a.move_(dest, src1);
+                                    a.move_(RC, src2);
+                                    a.shift(Shl, dest);
+                                },
+                                code::BinaryOp::Lsr => {
+                                    a.move_(dest, src1);
+                                    a.move_(RC, src2);
+                                    a.shift(Shr, dest);
+                                },
+                                code::BinaryOp::Asr => {
+                                    a.move_(dest, src1);
+                                    a.move_(RC, src2);
+                                    a.shift(Sar, dest);
+                                },
+                                code::BinaryOp::And => {
+                                    a.move_(dest, src1);
+                                    a.op(And, dest, src2);
+                                },
+                                code::BinaryOp::Or => {
+                                    a.move_(dest, src1);
+                                    a.op(Or, dest, src2);
+                                },
+                                code::BinaryOp::Xor => {
+                                    a.move_(dest, src1);
+                                    a.op(Xor, dest, src2);
+                                },
+                                code::BinaryOp::Lt => {
+                                    let mut else_ = Label::new(None);
+                                    let mut endif = Label::new(None);
+                                    a.op(Cmp, src1, src2);
+                                    a.jump_if(Condition::L, true, &mut else_);
+                                    // False.
+                                    a.const_(dest, 0);
+                                    a.const_jump(&mut endif);
+                                    a.define(&mut else_);
+                                    // True.
+                                    a.const_(dest, -1);
+                                    a.define(&mut endif);
+                                },
+                                code::BinaryOp::Ult => {
+                                    let mut else_ = Label::new(None);
+                                    let mut endif = Label::new(None);
+                                    a.op(Cmp, src1, src2);
+                                    a.jump_if(Condition::B, true, &mut else_);
+                                    // False.
+                                    a.const_(dest, 0);
+                                    a.const_jump(&mut endif);
+                                    a.define(&mut else_);
+                                    // True.
+                                    a.const_(dest, -1);
+                                    a.define(&mut endif);
+                                },
+                                code::BinaryOp::Eq => {
+                                    let mut else_ = Label::new(None);
+                                    let mut endif = Label::new(None);
+                                    a.op(Cmp, src1, src2);
+                                    a.jump_if(Condition::Z, true, &mut else_);
+                                    // False.
+                                    a.const_(dest, 0);
+                                    a.const_jump(&mut endif);
+                                    a.define(&mut else_);
+                                    // True.
+                                    a.const_(dest, -1);
+                                    a.define(&mut endif);
+                                },
+                                code::BinaryOp::Max => {
+                                    let mut else_ = Label::new(None);
+                                    let mut endif = Label::new(None);
+                                    a.op(Cmp, src1, src2);
+                                    a.jump_if(Condition::GE, true, &mut else_);
+                                    // `src2` is greater.
+                                    a.move_(dest, src2);
+                                    a.const_jump(&mut endif);
+                                    a.define(&mut else_);
+                                    // `src1` is greater.
+                                    a.move_(dest, src1);
+                                    a.define(&mut endif);
+                                },
+                                code::BinaryOp::Min => {
+                                    let mut else_ = Label::new(None);
+                                    let mut endif = Label::new(None);
+                                    a.op(Cmp, src1, src2);
+                                    a.jump_if(Condition::LE, true, &mut else_);
+                                    // `src2` is less.
+                                    a.move_(dest, src2);
+                                    a.const_jump(&mut endif);
+                                    a.define(&mut else_);
+                                    // `src1` is less.
+                                    a.move_(dest, src1);
+                                    a.define(&mut endif);
+                                },
+                            };
+                        },
+                        Action::Division(_op, _, _, _, _) => {
+                            panic!("FIXME: Don't know how to assemble div");
+                        },
+                        Action::Load(_dest, _addr) => {
+                            panic!("TODO");
+                        },
+                        Action::Store(_src, _addr) => {
+                            panic!("TODO");
+                        },
+                        Action::LoadNarrow(_w, _dest, _addr) => {
+                            panic!("TODO");
+                        },
+                        Action::StoreNarrow(_w, _src, _addr) => {
+                            panic!("TODO");
+                        },
+                        Action::Push(_src) => {
+                            panic!("TODO");
+                        },
+                        Action::Pop(_dest) => {
+                            panic!("TODO");
+                        },
+                    };
+                }
+                let new_index = states.get_index_of(&new_state).unwrap();
+                a.const_jump(&mut retire_labels[new_index]);
             }
         }
 

@@ -131,7 +131,7 @@ pub enum ShiftOp {
     Rcr = 3,
     Shl = 4,
     Shr = 5,
-    // 6 is an undocumented synonym for 4.
+    // 6 is allegedly an undocumented synonym for 4.
     Sar = 7,
 }
 
@@ -448,7 +448,7 @@ impl<'a> Assembler<'a> {
     // Instructions.
 
     /** Move register to register. */
-    pub fn mov(&mut self, dest: Register, src: Register) {
+    pub fn move_(&mut self, dest: Register, src: Register) {
         self.write_rom_2(0xC08B40, src, dest);
     }
 
@@ -689,7 +689,7 @@ pub mod tests {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         for &r in &ALL_REGISTERS {
-            a.mov(r, r);
+            a.move_(r, r);
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
@@ -712,11 +712,11 @@ pub mod tests {
 
     /** Test that we can assemble all the different kinds of "MOV". */
     #[test]
-    fn mov() {
+    fn move_() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         a.const_(R9, IMM);
-        a.mov(R10, R9);
+        a.move_(R10, R9);
         a.store((R8, DISP), R10);
         a.load(R11, (R8, DISP));
         let len = a.get_pos();
