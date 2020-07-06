@@ -775,6 +775,7 @@ impl control_flow::Machine for Machine {
                 ], State::Root),
 
                 // ABS
+                // TODO: Use UnaryOp::Abs.
                 (TestOp::Bits(RA, 0xff, 0x2d), vec![
                     Load(RA, B_SP),
                     Load(RD, Memory(RA)),
@@ -789,6 +790,7 @@ impl control_flow::Machine for Machine {
                 ], State::Root),
 
                 // MAX
+                // TODO: Use BinaryOp::Max.
                 (TestOp::Bits(RA, 0xff, 0x2f), vec![
                     Load(RA, B_SP),
                     Load(RD, Memory(RA)),
@@ -800,6 +802,7 @@ impl control_flow::Machine for Machine {
                 ], State::Max),
 
                 // MIN
+                // TODO: Use BinaryOp::Min.
                 (TestOp::Bits(RA, 0xff, 0x30), vec![
                     Load(RA, B_SP),
                     Load(RD, Memory(RA)),
