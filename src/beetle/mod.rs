@@ -24,6 +24,7 @@ pub enum Address {
 
 impl control_flow::Address for Address {
     fn can_alias(&self, other: &Self) -> bool {
+        assert_ne!(self, other);
         match self {
             &Address::Memory(_) => match other {
                 &Address::Memory(_) => true,
@@ -50,9 +51,6 @@ pub enum State {
     Pick,
     Roll,
     Qdup,
-    Abs,
-    Max,
-    Min,
     Lshift,
     Rshift,
     Branch,
@@ -150,25 +148,6 @@ impl control_flow::Machine for Machine {
                      Binary(Sub, RA, RA, RSI),
                      Store(RD, Memory(RA)),
                      Store(RA, B_SP),
-                ], State::Root),
-            ]},
-            State::Abs => {vec![
-                (TestOp::Lt(RD, 0), vec![
-                    Unary(Negate, RD, RD),
-                    Store(RD, Memory(RA)),
-                ], State::Root),
-                (TestOp::Ge(RD, 0), vec![], State::Root),
-            ]},
-            State::Max => {vec![
-                (TestOp::Eq(RB, 0), vec![], State::Root),
-                (TestOp::Ne(RB, 0), vec![
-                    Store(RD, Memory(RA)),
-                ], State::Root),
-            ]},
-            State::Min => {vec![
-                (TestOp::Eq(RB, 0), vec![], State::Root),
-                (TestOp::Ne(RB, 0), vec![
-                    Store(RD, Memory(RA)),
                 ], State::Root),
             ]},
             State::Lshift => {vec![
@@ -775,11 +754,12 @@ impl control_flow::Machine for Machine {
                 ], State::Root),
 
                 // ABS
-                // TODO: Use UnaryOp::Abs.
                 (TestOp::Bits(RA, 0xff, 0x2d), vec![
                     Load(RA, B_SP),
                     Load(RD, Memory(RA)),
-                ], State::Abs),
+                    Unary(Abs, RD, RD),
+                    Store(RD, Memory(RA)),
+                ], State::Root),
 
                 // NEGATE
                 (TestOp::Bits(RA, 0xff, 0x2e), vec![
@@ -790,7 +770,6 @@ impl control_flow::Machine for Machine {
                 ], State::Root),
 
                 // MAX
-                // TODO: Use BinaryOp::Max.
                 (TestOp::Bits(RA, 0xff, 0x2f), vec![
                     Load(RA, B_SP),
                     Load(RD, Memory(RA)),
@@ -798,11 +777,12 @@ impl control_flow::Machine for Machine {
                     Binary(Add, RA, RA, RSI),
                     Store(RA, B_SP),
                     Load(RSI, Memory(RA)),
-                    Binary(Lt, RB, RSI, RD),
-                ], State::Max),
+                    Binary(Max, RD, RD, RSI),
+                    Store(RD, Memory(RA)),
+                    Store(RA, B_SP),
+                ], State::Root),
 
                 // MIN
-                // TODO: Use BinaryOp::Min.
                 (TestOp::Bits(RA, 0xff, 0x30), vec![
                     Load(RA, B_SP),
                     Load(RD, Memory(RA)),
@@ -810,8 +790,10 @@ impl control_flow::Machine for Machine {
                     Binary(Add, RA, RA, RSI),
                     Store(RA, B_SP),
                     Load(RSI, Memory(RA)),
-                    Binary(Lt, RB, RD, RSI),
-                ], State::Min),
+                    Binary(Min, RD, RD, RSI),
+                    Store(RD, Memory(RA)),
+                    Store(RA, B_SP),
+                ], State::Root),
 
                 // INVERT
                 (TestOp::Bits(RA, 0xff, 0x31), vec![
