@@ -19,8 +19,6 @@ pub enum TestOp {
 pub enum UnaryOp {
     Abs,
     Negate,
-    Max,
-    Min,
     Not,
 }
 
@@ -38,6 +36,8 @@ pub enum BinaryOp {
     Lt,
     Ult,
     Eq,
+    Max,
+    Min,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
