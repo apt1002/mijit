@@ -1,3 +1,5 @@
+//! Mijit's branch-free instruction set. See also [`control_flow`].
+
 use super::{control_flow};
 pub use super::x86_64::{Register as R};
 
@@ -15,6 +17,7 @@ pub enum TestOp {
     Always,
 }
 
+/** Unary arithmetic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum UnaryOp {
     Abs,
@@ -22,6 +25,7 @@ pub enum UnaryOp {
     Not,
 }
 
+/** Binary arithmetic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum BinaryOp {
     Add,

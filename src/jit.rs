@@ -140,6 +140,7 @@ impl<M: Machine> Jit<M> {
                         Action::Unary(op, dest, src) => {
                             match op {
                                 code::UnaryOp::Abs => {
+                                    // TODO: Use conditional move, not jump_if.
                                     let mut else_ = Label::new(None);
                                     let mut endif = Label::new(None);
                                     a.const_op(Cmp, dest, 0);
@@ -206,6 +207,7 @@ impl<M: Machine> Jit<M> {
                                     a.op(Xor, dest, src2);
                                 },
                                 code::BinaryOp::Lt => {
+                                    // TODO: Use conditional move, not jump_if.
                                     let mut else_ = Label::new(None);
                                     let mut endif = Label::new(None);
                                     a.op(Cmp, src1, src2);
@@ -219,6 +221,7 @@ impl<M: Machine> Jit<M> {
                                     a.define(&mut endif);
                                 },
                                 code::BinaryOp::Ult => {
+                                    // TODO: Use conditional move, not jump_if.
                                     let mut else_ = Label::new(None);
                                     let mut endif = Label::new(None);
                                     a.op(Cmp, src1, src2);
