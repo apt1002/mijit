@@ -28,7 +28,7 @@ pub mod tests {
         let mut buffer = Buffer::new(0x1000)
             .expect("Couldn't allocate");
         let mut a = Assembler::new(&mut buffer);
-        a.mov(RA, RDI);
+        a.move_(RA, RDI);
         a.const_op(Add, RA, 5);
         a.ret();
         let (_, result) = buffer.execute(|bytes| {

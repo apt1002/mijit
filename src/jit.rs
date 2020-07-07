@@ -289,11 +289,11 @@ impl<M: Machine> Jit<M> {
                         Action::StoreNarrow(_w, _src, _addr) => {
                             panic!("TODO");
                         },
-                        Action::Push(_src) => {
-                            panic!("TODO");
+                        Action::Push(src) => {
+                            a.push(src);
                         },
-                        Action::Pop(_dest) => {
-                            panic!("TODO");
+                        Action::Pop(dest) => {
+                            a.pop(dest);
                         },
                     };
                 }
@@ -336,6 +336,7 @@ pub mod tests {
     const CODE_SIZE: usize = 1 << 20;
 
     #[test]
+    #[ignore]
     pub fn beetle() {
         use super::super::{beetle};
         use beetle::State::*;
@@ -343,7 +344,7 @@ pub mod tests {
 
         // Check the `states` list.
         let expected: IndexSet<_> = vec![
-            Root, Dispatch, Next, Pick, Roll, Qdup, Abs, Max, Min, Lshift, Rshift, Branch, Branchi,
+            Root, Dispatch, Next, Pick, Roll, Qdup, Lshift, Rshift, Branch, Branchi,
             Qbranch, Qbranchi, Loop, Loopi, Ploop, Ploopi, Ploopp, Ploopm, Ploopip, Ploopim,
         ]
         .into_iter()
