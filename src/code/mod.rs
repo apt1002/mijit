@@ -1,6 +1,14 @@
 /*!
  * Mijit's instruction set. This instruction set is used to define virtual
  * machines, and it is also used to remember what code Mijit has generated.
+ *
+ * Control flow is restricted to a finite state machine, defined by
+ * implementing trait Machine. All the other instructions are branch-free.
+ *
+ * Arithmetic operations are all 32-bit (for now). The upper 32 bits of the
+ * destination register will be set to zero.
+ *
+ * Booleans results are returned as `0` or `-1`.
  */
 
 pub use super::x86_64::{Register as R};
@@ -10,6 +18,7 @@ pub use control_flow::{Machine, Address};
 
 pub mod clock;
 
+/** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
     Bits(R, u32, u32),
@@ -55,6 +64,7 @@ pub enum DivisionOp {
     UnsignedDivMod,
 }
 
+/** Used to specify how many bytes to load or store. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Width {
     One,
@@ -62,6 +72,10 @@ pub enum Width {
     Four,
 }
 
+/**
+ * An imperative instruction.
+ * The destination register (where applicable) is on the left.
+ */
 #[derive(Debug, Clone)]
 pub enum Action<A: control_flow::Address> {
     Constant(R, u32),
