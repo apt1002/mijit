@@ -1,7 +1,12 @@
-//! Mijit's branch-free instruction set. See also [`control_flow`].
+/*!
+ * Mijit's instruction set. This instruction set is used to define virtual
+ * machines, and it is also used to remember what code Mijit has generated.
+ */
 
-use super::{control_flow};
 pub use super::x86_64::{Register as R};
+
+pub mod control_flow;
+pub use control_flow::{Machine, Address};
 
 pub mod clock;
 

@@ -2,9 +2,8 @@ use std::{mem};
 
 use indexmap::IndexSet;
 
-use super::{Buffer, code, control_flow, x86_64};
-use code::{Action, TestOp};
-use control_flow::{Machine};
+use super::{Buffer, code, x86_64};
+use code::{Action, TestOp, Machine};
 use x86_64::*;
 use Register::*;
 use BinaryOp::*;
@@ -29,7 +28,7 @@ pub struct Convention {
     pub test_register: code::R,
 }
 
-pub struct History<A: control_flow::Address> {
+pub struct History<A: code::Address> {
     /** The test which must pass in order to execute `fetch`. */
     pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */

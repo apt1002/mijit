@@ -3,7 +3,7 @@
 use std::fmt::{Debug};
 use std::hash::{Hash};
 
-use super::{code};
+use super::{TestOp, Action};
 
 /// Use as a memory address.
 pub trait Address: Debug + Clone + Hash + Eq {
@@ -42,8 +42,8 @@ pub trait Machine: Debug {
      */
     fn get_code(&self, state: Self::State) ->
         Vec<(
-            code::TestOp,
-            Vec<code::Action<Self::Address>>,
+            TestOp,
+            Vec<Action<Self::Address>>,
             Self::State
         )>;
 

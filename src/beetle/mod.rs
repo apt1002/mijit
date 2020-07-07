@@ -1,6 +1,5 @@
 use std::num::{Wrapping};
 
-use super::{control_flow};
 use super::code::{
     self, Width,
     Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*, TestOp
@@ -22,7 +21,7 @@ pub enum Address {
     Memory(code::R),
 }
 
-impl control_flow::Address for Address {
+impl code::Address for Address {
     fn can_alias(&self, other: &Self) -> bool {
         assert_ne!(self, other);
         match self {
@@ -70,7 +69,7 @@ pub enum State {
 #[derive(Debug)]
 pub struct Machine;
 
-impl control_flow::Machine for Machine {
+impl code::Machine for Machine {
     type State = State;
     type Address = Address;
 

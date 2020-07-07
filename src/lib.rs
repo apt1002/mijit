@@ -1,5 +1,4 @@
 pub mod code;
-pub mod control_flow;
 
 pub mod x86_64;
 pub use x86_64::{Assembler};
