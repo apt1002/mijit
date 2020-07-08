@@ -54,8 +54,8 @@ pub enum BinaryOp {
     Lt,
     Ult,
     Eq,
-    Max,
-    Min,
+    Max, // TODO: Unsigned too?
+    Min, // TODO: Unsigned too?
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]

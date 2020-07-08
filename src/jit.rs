@@ -139,20 +139,10 @@ impl<M: Machine> Jit<M> {
                         Action::Unary(op, dest, src) => {
                             match op {
                                 code::UnaryOp::Abs => {
-                                    // TODO: Use conditional move, not jump_if.
-                                    let mut else_ = Label::new(None);
-                                    let mut endif = Label::new(None);
-                                    a.const_op(Cmp, dest, 0);
-                                    a.jump_if(Condition::GE, true, &mut else_);
-                                    // Negative.
                                     a.move_(RC, src);
                                     a.const_(dest, 0);
                                     a.op(Sub, dest, RC);
-                                    a.const_jump(&mut endif);
-                                    a.define(&mut else_);
-                                    // Positive.
-                                    a.move_(dest, src);
-                                    a.define(&mut endif);
+                                    a.move_if(Condition::L, true, dest, RC);
                                 },
                                 code::UnaryOp::Negate => {
                                     a.move_(RC, src);
@@ -176,7 +166,8 @@ impl<M: Machine> Jit<M> {
                                     a.op(Sub, dest, src2);
                                 },
                                 code::BinaryOp::Mul => {
-                                    panic!("FIXME: Don't know how to assemble mul");
+                                    a.move_(dest, src1);
+                                    a.mul(dest, src2);
                                 },
                                 code::BinaryOp::Lsl => {
                                     a.move_(dest, src1);
@@ -206,71 +197,32 @@ impl<M: Machine> Jit<M> {
                                     a.op(Xor, dest, src2);
                                 },
                                 code::BinaryOp::Lt => {
-                                    // TODO: Use conditional move, not jump_if.
-                                    let mut else_ = Label::new(None);
-                                    let mut endif = Label::new(None);
-                                    a.op(Cmp, src1, src2);
-                                    a.jump_if(Condition::L, true, &mut else_);
-                                    // False.
+                                    a.const_(RC, -1);
                                     a.const_(dest, 0);
-                                    a.const_jump(&mut endif);
-                                    a.define(&mut else_);
-                                    // True.
-                                    a.const_(dest, -1);
-                                    a.define(&mut endif);
+                                    a.op(Cmp, src1, src2);
+                                    a.move_if(Condition::L, true, dest, RC);
                                 },
                                 code::BinaryOp::Ult => {
-                                    // TODO: Use conditional move, not jump_if.
-                                    let mut else_ = Label::new(None);
-                                    let mut endif = Label::new(None);
-                                    a.op(Cmp, src1, src2);
-                                    a.jump_if(Condition::B, true, &mut else_);
-                                    // False.
+                                    a.const_(RC, -1);
                                     a.const_(dest, 0);
-                                    a.const_jump(&mut endif);
-                                    a.define(&mut else_);
-                                    // True.
-                                    a.const_(dest, -1);
-                                    a.define(&mut endif);
+                                    a.op(Cmp, src1, src2);
+                                    a.move_if(Condition::B, true, dest, RC);
                                 },
                                 code::BinaryOp::Eq => {
-                                    let mut else_ = Label::new(None);
-                                    let mut endif = Label::new(None);
-                                    a.op(Cmp, src1, src2);
-                                    a.jump_if(Condition::Z, true, &mut else_);
-                                    // False.
+                                    a.const_(RC, -1);
                                     a.const_(dest, 0);
-                                    a.const_jump(&mut endif);
-                                    a.define(&mut else_);
-                                    // True.
-                                    a.const_(dest, -1);
-                                    a.define(&mut endif);
+                                    a.op(Cmp, src1, src2);
+                                    a.move_if(Condition::Z, true, dest, RC);
                                 },
                                 code::BinaryOp::Max => {
-                                    let mut else_ = Label::new(None);
-                                    let mut endif = Label::new(None);
                                     a.op(Cmp, src1, src2);
-                                    a.jump_if(Condition::GE, true, &mut else_);
-                                    // `src2` is greater.
                                     a.move_(dest, src2);
-                                    a.const_jump(&mut endif);
-                                    a.define(&mut else_);
-                                    // `src1` is greater.
-                                    a.move_(dest, src1);
-                                    a.define(&mut endif);
+                                    a.move_if(Condition::G, true, dest, src1);
                                 },
                                 code::BinaryOp::Min => {
-                                    let mut else_ = Label::new(None);
-                                    let mut endif = Label::new(None);
                                     a.op(Cmp, src1, src2);
-                                    a.jump_if(Condition::LE, true, &mut else_);
-                                    // `src2` is less.
                                     a.move_(dest, src2);
-                                    a.const_jump(&mut endif);
-                                    a.define(&mut else_);
-                                    // `src1` is less.
-                                    a.move_(dest, src1);
-                                    a.define(&mut endif);
+                                    a.move_if(Condition::L, true, dest, src1);
                                 },
                             };
                         },
