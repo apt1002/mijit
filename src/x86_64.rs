@@ -472,10 +472,17 @@ impl<'a> Assembler<'a> {
         self.write_imm32(dest.1);
     }
 
-    /** Move constant to register. */
+    /**
+     * Move constant to register.
+     * If `imm` is zero, this will assemble the "zero idiom" xor instruction.
+     */
     pub fn const_(&mut self, dest: Register, imm: i32) {
-        self.write_ro_1(0xB840, dest);
-        self.write_imm32(imm);
+        if imm == 0 {
+            self.op(Xor, dest, dest);
+        } else {
+            self.write_ro_1(0xB840, dest);
+            self.write_imm32(imm);
+        }
     }
 
     /** Op register to register. */
@@ -751,12 +758,14 @@ pub mod tests {
     fn move_() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
+        a.const_(R8, 0);
         a.const_(R9, IMM);
         a.move_(R10, R9);
         a.store((R8, DISP), R10);
         a.load(R11, (R8, DISP));
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
+            "xor r8d,r8d",
             "mov r9d,76543210h",
             "mov r10d,r9d",
             "mov [r8+12345678h],r10d",
