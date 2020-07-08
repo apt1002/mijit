@@ -507,6 +507,23 @@ impl<'a> Assembler<'a> {
         self.write_imm8(imm as i8);
     }
 
+    /** Multiply register by register. */
+    pub fn mul(&mut self, dest: Register, src: Register) {
+        self.write_room_2(0xC0AF0F40, src, dest);
+    }
+
+    /** Multiply register by constant. */
+    pub fn const_mul(&mut self, dest: Register, src: Register, imm: i32) {
+        self.write_rom_2(0xC06940, src, dest);
+        self.write_imm32(imm);
+    }
+
+    /** Multiply register by memory. */
+    pub fn load_mul(&mut self, dest: Register, src: (Register, i32)) {
+        self.write_room_2(0x80AF0F40, src.0, dest);
+        self.write_imm32(src.1);
+    }
+
     /** Conditional move. */
     pub fn move_if(&mut self, cc: Condition, is_true: bool, dest: Register, src: Register) {
         self.write_room_2(cc.move_if(is_true), src, dest);
@@ -815,6 +832,22 @@ pub mod tests {
         disassemble(&code_bytes[..len], vec![
             "shl r8d,cl",
             "shl r8d,7",
+        ]).unwrap();
+    }
+
+    /** Test that we can assemble multiplications in all the different ways. */
+    #[test]
+    fn mul() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.mul(R8, R9);
+        a.const_mul(R10, R11, IMM);
+        a.load_mul(R13, (R14, DISP));
+        let len = a.get_pos();
+        disassemble(&code_bytes[..len], vec![
+            "imul r8d,r9d",
+            "imul r10d,r11d,76543210h",
+            "imul r13d,[r14+12345678h]",
         ]).unwrap();
     }
 
