@@ -176,6 +176,14 @@ pub enum Condition {
 use Condition::*;
 
 impl Condition {
+    pub fn move_if(self, is_true: bool) -> u64 {
+        0xC0400F40 | ((!is_true as u64) ^ (self as u64)) << 16
+    }
+
+    pub fn load_if(self, is_true: bool) -> u64 {
+        0x80400F40 | ((!is_true as u64) ^ (self as u64)) << 16
+    }
+
     pub fn jump_if(self, is_true: bool) -> u64 {
         0x800F | ((!is_true as u64) ^ (self as u64)) << 8
     }
@@ -497,6 +505,17 @@ impl<'a> Assembler<'a> {
         assert!(imm < 32);
         self.write_rom_1(op.rm_imm(true), dest);
         self.write_imm8(imm as i8);
+    }
+
+    /** Conditional move. */
+    pub fn move_if(&mut self, cc: Condition, is_true: bool, dest: Register, src: Register) {
+        self.write_room_2(cc.move_if(is_true), src, dest);
+    }
+
+    /** Conditional load. */
+    pub fn load_if(&mut self, cc: Condition, is_true: bool, dest: Register, src: (Register, i32)) {
+        self.write_room_2(cc.load_if(is_true), src.0, dest);
+        self.write_imm32(src.1);
     }
 
     /** Conditional branch. */
@@ -846,6 +865,24 @@ pub mod tests {
             "jg near 0000000000000028h",
             "jg near 0000000000000028h",
             "jle near 0000000000000028h",
+        ]).unwrap();
+    }
+
+    /** Test that we can assemble conditional moves and loads. */
+    #[test]
+    fn move_if() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        a.move_if(G, true, R8, R9);
+        a.move_if(G, false, R10, R11);
+        a.load_if(G, true, RBP, (R13, DISP));
+        a.load_if(G, false, R14, (R15, DISP));
+        let len = a.get_pos();
+        disassemble(&code_bytes[..len], vec![
+            "cmovg r8d,r9d",
+            "cmovle r10d,r11d",
+            "cmovg ebp,[r13+12345678h]",
+            "cmovle r14d,[r15+12345678h]",
         ]).unwrap();
     }
 
