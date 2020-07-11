@@ -28,15 +28,15 @@ pub struct Convention {
     pub test_register: code::R,
 }
 
-pub struct History<A: code::Address> {
+pub struct History<M: code::Machine> {
     /** The test which must pass in order to execute `fetch`. */
     pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */
-    pub fetch: Vec<Action<A>>,
+    pub fetch: Vec<Action<M::Address>>,
     /** The interface from `fetch` to `retire`. */
     pub convention: Convention,
     /** The code for the unique "retire" transition from this History. */
-    pub retire: Vec<Action<A>>,
+    pub retire: Vec<Action<M::Address>>,
     /** All jump instructions whose target is `retire`. */
     pub retire_labels: Vec<Label>,
 }
@@ -51,10 +51,224 @@ type RunFn = extern "C" fn(
     /* current_index */  usize,
 ) -> /* new_index */ usize;
 
-pub struct Jit<M: Machine> {
+//-----------------------------------------------------------------------------
+
+/**
+ * The part of the state of the JIT compiler that needs to remain mutable
+ * while an Assembler exists.
+ */
+struct JitInner<M: Machine> {
+    machine: M,
+    /** Numbering of all M::States. */
     states: IndexSet<M::State>,
+    /**
+     * The locations of the compiled code for all retire transitions,
+     * and of all instructions that jump to them.
+     */
+    retire_labels: Vec<Label>,
+}
+
+/**
+ * The state of the JIT compiler. This includes the memory allocated for the
+ * compiled code, the [`Machine`] we're compiling, and all house-keeping data.
+ */
+pub struct Jit<M: Machine> {
+    inner: JitInner<M>,
+    /** The mmapped memory buffer containing the compiled code. */
     buffer: Buffer,
+    /** The number of bytes of `buffer` already occupied. */
     used: usize,
+}
+
+impl<M: Machine> JitInner<M> {
+    /**
+     * Construct a History.
+     *  - a - an Assembler to use to compile the fetch and retire transitions.
+     *    It is the caller's responsibility to call `a.set_pos()` beforehand
+     *    to specify the free memory buffer where the code will go, and to call
+     *    `a.get_pos()` afterwards to measure how much space was used.
+     *  - old_index - the index of the History that will become the right
+     *    parent of the new History. TODO: Rename.
+     *  - new_index - the index of the History that will become the left
+     *    parent of the new History. TODO: Rename.
+     *  - test_op - the boolean test which distinguishes the new History from
+     *    its right parent. The new History will be reached only if its right
+     *    parent is reached and `test_op` passes.
+     *  - actions - the code that must be executed before retiring to the left
+     *    parent of the new History. This code will be optimized and divided
+     *    between the fetch and retire transitions.
+     *
+     * TODO: Actually construct and return a History. At the moment we just
+     * assemble the code.
+     */
+    fn insert_history(
+        &mut self,
+        a: &mut Assembler,
+        old_index: usize,
+        test_op: code::TestOp,
+        actions: Vec<Action<M::Address>>,
+        new_index: usize,
+    ) {
+        {
+            let retire_target = a.get_pos(); // Evaluation order.
+            self.retire_labels[old_index] = self.retire_labels[old_index].patch(a, retire_target);
+            match test_op {
+                TestOp::Bits(discriminant, mask, value) => {
+                    a.const_(RC, mask as i32);
+                    a.op(And, RC, discriminant);
+                    a.const_op(Cmp, RC, value as i32);
+                    a.jump_if(Condition::Z, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Lt(discriminant, value) => {
+                    a.const_op(Cmp, discriminant, value as i32);
+                    a.jump_if(Condition::L, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Ge(discriminant, value) => {
+                    a.const_op(Cmp, discriminant, value as i32);
+                    a.jump_if(Condition::GE, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Ult(discriminant, value) => {
+                    a.const_op(Cmp, discriminant, value as i32);
+                    a.jump_if(Condition::B, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Uge(discriminant, value) => {
+                    a.const_op(Cmp, discriminant, value as i32);
+                    a.jump_if(Condition::AE, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Eq(discriminant, value) => {
+                    a.const_op(Cmp, discriminant, value as i32);
+                    a.jump_if(Condition::Z, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Ne(discriminant, value) => {
+                    a.const_op(Cmp, discriminant, value as i32);
+                    a.jump_if(Condition::NZ, false, &mut self.retire_labels[old_index])
+                },
+                TestOp::Always => {},
+            };
+            for action in actions {
+                match action {
+                    Action::Constant(dest, value) => {
+                        a.const_(dest, value as i32);
+                    },
+                    Action::Move(dest, src) => {
+                        a.move_(dest, src);
+                    },
+                    Action::Unary(op, dest, src) => {
+                        match op {
+                            code::UnaryOp::Abs => {
+                                a.move_(RC, src);
+                                a.const_(dest, 0);
+                                a.op(Sub, dest, RC);
+                                a.move_if(Condition::L, true, dest, RC);
+                            },
+                            code::UnaryOp::Negate => {
+                                a.move_(RC, src);
+                                a.const_(dest, 0);
+                                a.op(Sub, dest, RC);
+                            },
+                            code::UnaryOp::Not => {
+                                a.move_(dest, src);
+                                a.const_op(Xor, dest, -1);
+                            },
+                        };
+                    },
+                    Action::Binary(op, dest, src1, src2) => {
+                        match op {
+                            code::BinaryOp::Add => {
+                                a.move_(dest, src1);
+                                a.op(Add, dest, src2);
+                            },
+                            code::BinaryOp::Sub => {
+                                a.move_(dest, src1);
+                                a.op(Sub, dest, src2);
+                            },
+                            code::BinaryOp::Mul => {
+                                a.move_(dest, src1);
+                                a.mul(dest, src2);
+                            },
+                            code::BinaryOp::Lsl => {
+                                a.move_(dest, src1);
+                                a.move_(RC, src2);
+                                a.shift(Shl, dest);
+                            },
+                            code::BinaryOp::Lsr => {
+                                a.move_(dest, src1);
+                                a.move_(RC, src2);
+                                a.shift(Shr, dest);
+                            },
+                            code::BinaryOp::Asr => {
+                                a.move_(dest, src1);
+                                a.move_(RC, src2);
+                                a.shift(Sar, dest);
+                            },
+                            code::BinaryOp::And => {
+                                a.move_(dest, src1);
+                                a.op(And, dest, src2);
+                            },
+                            code::BinaryOp::Or => {
+                                a.move_(dest, src1);
+                                a.op(Or, dest, src2);
+                            },
+                            code::BinaryOp::Xor => {
+                                a.move_(dest, src1);
+                                a.op(Xor, dest, src2);
+                            },
+                            code::BinaryOp::Lt => {
+                                a.const_(RC, -1);
+                                a.const_(dest, 0);
+                                a.op(Cmp, src1, src2);
+                                a.move_if(Condition::L, true, dest, RC);
+                            },
+                            code::BinaryOp::Ult => {
+                                a.const_(RC, -1);
+                                a.const_(dest, 0);
+                                a.op(Cmp, src1, src2);
+                                a.move_if(Condition::B, true, dest, RC);
+                            },
+                            code::BinaryOp::Eq => {
+                                a.const_(RC, -1);
+                                a.const_(dest, 0);
+                                a.op(Cmp, src1, src2);
+                                a.move_if(Condition::Z, true, dest, RC);
+                            },
+                            code::BinaryOp::Max => {
+                                a.op(Cmp, src1, src2);
+                                a.move_(dest, src2);
+                                a.move_if(Condition::G, true, dest, src1);
+                            },
+                            code::BinaryOp::Min => {
+                                a.op(Cmp, src1, src2);
+                                a.move_(dest, src2);
+                                a.move_if(Condition::L, true, dest, src1);
+                            },
+                        };
+                    },
+                    Action::Division(_op, _, _, _, _) => {
+                        panic!("FIXME: Don't know how to assemble div");
+                    },
+                    Action::Load(_dest, _addr) => {
+                        panic!("TODO");
+                    },
+                    Action::Store(_src, _addr) => {
+                        panic!("TODO");
+                    },
+                    Action::LoadNarrow(_w, _dest, _addr) => {
+                        panic!("TODO");
+                    },
+                    Action::StoreNarrow(_w, _src, _addr) => {
+                        panic!("TODO");
+                    },
+                    Action::Push(src) => {
+                        a.push(src);
+                    },
+                    Action::Pop(dest) => {
+                        a.pop(dest);
+                    },
+                };
+            }
+            a.const_jump(&mut self.retire_labels[new_index]);
+        }
+    }
 }
 
 impl<M: Machine> Jit<M> {
@@ -64,7 +278,7 @@ impl<M: Machine> Jit<M> {
         let mut done = 0;
         while let Some(state) = states.get_index(done) {
             for (_test_op, _actions, new_state) in machine.get_code(state.clone()) {
-                let (_, _) = states.insert_full(new_state);
+                let _ = states.insert(new_state);
             }
             done += 1;
         }
@@ -91,172 +305,21 @@ impl<M: Machine> Jit<M> {
             a.const_jump(&mut epilogue);
         }
 
-        for (index, state) in states.iter().enumerate() {
-            for (test_op, actions, new_state) in machine.get_code(state.clone()) {
-                let new_target = a.get_pos();
-                retire_labels[index] = retire_labels[index].patch(&mut a, new_target);
-                match test_op {
-                    TestOp::Bits(discriminant, mask, value) => {
-                        a.const_(RC, mask as i32);
-                        a.op(And, RC, discriminant);
-                        a.const_op(Cmp, RC, value as i32);
-                        a.jump_if(Condition::Z, false, &mut retire_labels[index])
-                    },
-                    TestOp::Lt(discriminant, value) => {
-                        a.const_op(Cmp, discriminant, value as i32);
-                        a.jump_if(Condition::L, false, &mut retire_labels[index])
-                    },
-                    TestOp::Ge(discriminant, value) => {
-                        a.const_op(Cmp, discriminant, value as i32);
-                        a.jump_if(Condition::GE, false, &mut retire_labels[index])
-                    },
-                    TestOp::Ult(discriminant, value) => {
-                        a.const_op(Cmp, discriminant, value as i32);
-                        a.jump_if(Condition::B, false, &mut retire_labels[index])
-                    },
-                    TestOp::Uge(discriminant, value) => {
-                        a.const_op(Cmp, discriminant, value as i32);
-                        a.jump_if(Condition::AE, false, &mut retire_labels[index])
-                    },
-                    TestOp::Eq(discriminant, value) => {
-                        a.const_op(Cmp, discriminant, value as i32);
-                        a.jump_if(Condition::Z, false, &mut retire_labels[index])
-                    },
-                    TestOp::Ne(discriminant, value) => {
-                        a.const_op(Cmp, discriminant, value as i32);
-                        a.jump_if(Condition::NZ, false, &mut retire_labels[index])
-                    },
-                    TestOp::Always => {},
-                };
-                for action in actions {
-                    match action {
-                        Action::Constant(dest, value) => {
-                            a.const_(dest, value as i32);
-                        },
-                        Action::Move(dest, src) => {
-                            a.move_(dest, src);
-                        },
-                        Action::Unary(op, dest, src) => {
-                            match op {
-                                code::UnaryOp::Abs => {
-                                    a.move_(RC, src);
-                                    a.const_(dest, 0);
-                                    a.op(Sub, dest, RC);
-                                    a.move_if(Condition::L, true, dest, RC);
-                                },
-                                code::UnaryOp::Negate => {
-                                    a.move_(RC, src);
-                                    a.const_(dest, 0);
-                                    a.op(Sub, dest, RC);
-                                },
-                                code::UnaryOp::Not => {
-                                    a.move_(dest, src);
-                                    a.const_op(Xor, dest, -1);
-                                },
-                            };
-                        },
-                        Action::Binary(op, dest, src1, src2) => {
-                            match op {
-                                code::BinaryOp::Add => {
-                                    a.move_(dest, src1);
-                                    a.op(Add, dest, src2);
-                                },
-                                code::BinaryOp::Sub => {
-                                    a.move_(dest, src1);
-                                    a.op(Sub, dest, src2);
-                                },
-                                code::BinaryOp::Mul => {
-                                    a.move_(dest, src1);
-                                    a.mul(dest, src2);
-                                },
-                                code::BinaryOp::Lsl => {
-                                    a.move_(dest, src1);
-                                    a.move_(RC, src2);
-                                    a.shift(Shl, dest);
-                                },
-                                code::BinaryOp::Lsr => {
-                                    a.move_(dest, src1);
-                                    a.move_(RC, src2);
-                                    a.shift(Shr, dest);
-                                },
-                                code::BinaryOp::Asr => {
-                                    a.move_(dest, src1);
-                                    a.move_(RC, src2);
-                                    a.shift(Sar, dest);
-                                },
-                                code::BinaryOp::And => {
-                                    a.move_(dest, src1);
-                                    a.op(And, dest, src2);
-                                },
-                                code::BinaryOp::Or => {
-                                    a.move_(dest, src1);
-                                    a.op(Or, dest, src2);
-                                },
-                                code::BinaryOp::Xor => {
-                                    a.move_(dest, src1);
-                                    a.op(Xor, dest, src2);
-                                },
-                                code::BinaryOp::Lt => {
-                                    a.const_(RC, -1);
-                                    a.const_(dest, 0);
-                                    a.op(Cmp, src1, src2);
-                                    a.move_if(Condition::L, true, dest, RC);
-                                },
-                                code::BinaryOp::Ult => {
-                                    a.const_(RC, -1);
-                                    a.const_(dest, 0);
-                                    a.op(Cmp, src1, src2);
-                                    a.move_if(Condition::B, true, dest, RC);
-                                },
-                                code::BinaryOp::Eq => {
-                                    a.const_(RC, -1);
-                                    a.const_(dest, 0);
-                                    a.op(Cmp, src1, src2);
-                                    a.move_if(Condition::Z, true, dest, RC);
-                                },
-                                code::BinaryOp::Max => {
-                                    a.op(Cmp, src1, src2);
-                                    a.move_(dest, src2);
-                                    a.move_if(Condition::G, true, dest, src1);
-                                },
-                                code::BinaryOp::Min => {
-                                    a.op(Cmp, src1, src2);
-                                    a.move_(dest, src2);
-                                    a.move_if(Condition::L, true, dest, src1);
-                                },
-                            };
-                        },
-                        Action::Division(_op, _, _, _, _) => {
-                            panic!("FIXME: Don't know how to assemble div");
-                        },
-                        Action::Load(_dest, _addr) => {
-                            panic!("TODO");
-                        },
-                        Action::Store(_src, _addr) => {
-                            panic!("TODO");
-                        },
-                        Action::LoadNarrow(_w, _dest, _addr) => {
-                            panic!("TODO");
-                        },
-                        Action::StoreNarrow(_w, _src, _addr) => {
-                            panic!("TODO");
-                        },
-                        Action::Push(src) => {
-                            a.push(src);
-                        },
-                        Action::Pop(dest) => {
-                            a.pop(dest);
-                        },
-                    };
-                }
-                let new_index = states.get_index_of(&new_state).unwrap();
-                a.const_jump(&mut retire_labels[new_index]);
+        // Construct the Jit.
+        let mut inner = JitInner {machine, states, retire_labels};
+
+        let all_states: Vec<_> = inner.states.iter().cloned().collect();
+        for old_state in all_states {
+            for (test_op, actions, new_state) in inner.machine.get_code(old_state.clone()) {
+                let old_index = inner.states.get_index_of(&old_state).unwrap();
+                let new_index = inner.states.get_index_of(&new_state).unwrap();
+                inner.insert_history(&mut a, old_index, test_op, actions, new_index);
             }
         }
 
         // Return everything.
         let used = a.get_pos();
-        Jit {states, buffer, used}
+        Jit {inner, buffer, used}
     }
 
     pub fn used(&self) -> usize {
@@ -264,21 +327,23 @@ impl<M: Machine> Jit<M> {
     }
 
     pub fn states(&self) -> &IndexSet<M::State> {
-        &self.states
+        &self.inner.states
     }
 
     pub fn execute(mut self, state: M::State) -> (Self, M::State) {
-        let index = self.states.get_index_of(&state).expect("invalid state");
+        let index = self.inner.states.get_index_of(&state).expect("invalid state");
         let (buffer, new_index) = self.buffer.execute(|bytes| {
             // FIXME: assert we are on x86_64 at compile time.
             let f: RunFn = unsafe { mem::transmute(&bytes[0]) };
             f(index)
         }).expect("Couldn't change permissions");
         self.buffer = buffer;
-        let new_state = self.states.get_index(new_index).expect("invalid index").clone();
+        let new_state = self.inner.states.get_index(new_index).expect("invalid index").clone();
         (self, new_state)
     }
 }
+
+//-----------------------------------------------------------------------------
 
 #[cfg(test)]
 pub mod tests {
