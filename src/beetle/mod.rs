@@ -4,6 +4,7 @@ use super::code::{
     self, Width,
     Action::*, UnaryOp::*, BinaryOp::*, DivisionOp::*, TestOp
 };
+use super::x86_64::Register::{RA, RD, RC, RB, RBP, RSI};
 
 pub type Action = code::Action<Address, Global>;
 
@@ -71,8 +72,27 @@ impl code::Machine for Machine {
     type Address = Address;
     type Global = Global;
 
+    fn lower_load(&self, dest: code::R, addr: Self::Address) ->
+        Vec<code::Action<code::R, Self::Global>>
+    {
+        vec![
+            LoadGlobal(RC, Global::Memory0),
+            Binary(Add, RC, RC, addr.0), // FIXME: 64-bit required.
+            Load(dest, RC),
+        ]
+    }
+
+    fn lower_store(&self, src: code::R, addr: Self::Address) ->
+        Vec<code::Action<code::R, Self::Global>>
+    {
+        vec![
+            LoadGlobal(RC, Global::Memory0),
+            Binary(Add, RC, RC, addr.0), // FIXME: 64-bit required.
+            Store(src, RC),
+        ]
+    }
+
     fn get_code(&self, state: Self::State) -> Vec<(code::TestOp, Vec<Action>, Self::State)> {
-        use super::x86_64::Register::{RA, RD, RB, RBP, RSI};
         use Global::{EP as B_EP, A as B_A, SP as B_SP, RP as B_RP};
         match state {
             State::Root => {vec![

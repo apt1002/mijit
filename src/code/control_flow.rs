@@ -23,6 +23,13 @@ pub trait Address: Debug + Clone + Hash + Eq {
     fn can_alias(&self, other: &Self) -> bool;
 }
 
+impl Address for super::R {
+    fn can_alias(&self, other: &Self) -> bool {
+        assert_ne!(self, other);
+        true
+    }
+}
+
 pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
@@ -32,6 +39,12 @@ pub trait Machine: Debug {
 
     /** A VM storage location with an address. */
     type Address: Address;
+
+    /** Lower `Address` to a native load instruction. */
+    fn lower_load(&self, dest: super::R, addr: Self::Address) -> Vec<Action<super::R, Self::Global>>;
+
+    /** Lower `Address` to a native store instruction. */
+    fn lower_store(&self, src: super::R, addr: Self::Address) -> Vec<Action<super::R, Self::Global>>;
 
     /**
      * Defines the transitions of the finite state machine.

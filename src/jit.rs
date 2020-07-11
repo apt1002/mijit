@@ -261,10 +261,12 @@ impl<M: Machine> JitInner<M> {
                         let offset = self.global_offset(&global);
                         a.store((R8, offset), src);
                     },
-                    Action::Load(_dest, _addr) => {
+                    Action::Load(dest, addr) => {
+                        let _lower_actions = self.machine.lower_load(dest, addr);
                         panic!("TODO");
                     },
-                    Action::Store(_src, _addr) => {
+                    Action::Store(src, addr) => {
+                        let _lower_actions = self.machine.lower_store(src, addr);
                         panic!("TODO");
                     },
                     Action::LoadNarrow(_w, _dest, _addr) => {
