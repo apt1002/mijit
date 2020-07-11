@@ -1,6 +1,5 @@
 use std::{mem};
-
-use indexmap::IndexSet;
+use indexmap::{IndexSet};
 
 use super::{Buffer, code, x86_64};
 use code::{Action, TestOp, Machine};
@@ -32,11 +31,11 @@ pub struct History<M: code::Machine> {
     /** The test which must pass in order to execute `fetch`. */
     pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */
-    pub fetch: Vec<Action<M::Address>>,
+    pub fetch: Vec<Action<M::Address, M::Global>>,
     /** The interface from `fetch` to `retire`. */
     pub convention: Convention,
     /** The code for the unique "retire" transition from this History. */
-    pub retire: Vec<Action<M::Address>>,
+    pub retire: Vec<Action<M::Address, M::Global>>,
     /** All jump instructions whose target is `retire`. */
     pub retire_labels: Vec<Label>,
 }
@@ -61,6 +60,8 @@ struct JitInner<M: Machine> {
     machine: M,
     /** Numbering of all M::States. */
     states: IndexSet<M::State>,
+    /** Numbering of all M::Globals. */
+    globals: IndexSet<M::Global>,
     /**
      * The locations of the compiled code for all retire transitions,
      * and of all instructions that jump to them.
@@ -81,6 +82,12 @@ pub struct Jit<M: Machine> {
 }
 
 impl<M: Machine> JitInner<M> {
+    /** Returns the offset of `global` in the persistent data. */
+    pub fn global_offset(&self, global: &M::Global) -> i32 {
+        let index = self.globals.get_index_of(global).expect("Unknown global");
+        (index * 8) as i32
+    }
+
     /**
      * Construct a History.
      *  - a - an Assembler to use to compile the fetch and retire transitions.
@@ -106,7 +113,7 @@ impl<M: Machine> JitInner<M> {
         a: &mut Assembler,
         old_index: usize,
         test_op: code::TestOp,
-        actions: Vec<Action<M::Address>>,
+        actions: Vec<Action<M::Address, M::Global>>,
         new_index: usize,
     ) {
         {
@@ -246,6 +253,14 @@ impl<M: Machine> JitInner<M> {
                     Action::Division(_op, _, _, _, _) => {
                         panic!("FIXME: Don't know how to assemble div");
                     },
+                    Action::LoadGlobal(dest, global) => {
+                        let offset = self.global_offset(&global);
+                        a.load(dest, (R8, offset));
+                    },
+                    Action::StoreGlobal(src, global) => {
+                        let offset = self.global_offset(&global);
+                        a.store((R8, offset), src);
+                    },
                     Action::Load(_dest, _addr) => {
                         panic!("TODO");
                     },
@@ -274,11 +289,22 @@ impl<M: Machine> JitInner<M> {
 impl<M: Machine> Jit<M> {
     pub fn new(machine: M, code_size: usize) -> Self {
         // Enumerate the reachable states in FIFO order.
-        let mut states: IndexSet<_> = machine.initial_states().into_iter().collect();
+        // Simultaneously enumerate all globals.
+        let mut states: IndexSet<M::State> = machine.initial_states().into_iter().collect();
+        let mut globals: IndexSet<M::Global> = IndexSet::new();
         let mut done = 0;
         while let Some(state) = states.get_index(done) {
-            for (_test_op, _actions, new_state) in machine.get_code(state.clone()) {
+            for (_test_op, actions, new_state) in machine.get_code(state.clone()) {
                 let _ = states.insert(new_state);
+                for action in actions {
+                    if let Some(global) = match action {
+                        Action::LoadGlobal(_, global) => Some(global),
+                        Action::StoreGlobal(_, global) => Some(global),
+                        _ => None,
+                    } {
+                        globals.insert(global.clone());
+                    }
+                }
             }
             done += 1;
         }
@@ -306,7 +332,7 @@ impl<M: Machine> Jit<M> {
         }
 
         // Construct the Jit.
-        let mut inner = JitInner {machine, states, retire_labels};
+        let mut inner = JitInner {machine, states, globals, retire_labels};
 
         let all_states: Vec<_> = inner.states.iter().cloned().collect();
         for old_state in all_states {
@@ -328,6 +354,10 @@ impl<M: Machine> Jit<M> {
 
     pub fn states(&self) -> &IndexSet<M::State> {
         &self.inner.states
+    }
+
+    pub fn globals(&self) -> &IndexSet<M::Global> {
+        &self.inner.globals
     }
 
     pub fn execute(mut self, state: M::State) -> (Self, M::State) {

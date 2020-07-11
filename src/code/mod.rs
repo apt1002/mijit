@@ -77,12 +77,14 @@ pub enum Width {
  * The destination register (where applicable) is on the left.
  */
 #[derive(Debug, Clone)]
-pub enum Action<A: control_flow::Address> {
+pub enum Action<A, G> {
     Constant(R, u32),
     Move(R, R),
     Unary(UnaryOp, R, R),
     Binary(BinaryOp, R, R, R),
     Division(DivisionOp, R, R, R, R),
+    LoadGlobal(R, G),
+    StoreGlobal(R, G),
     Load(R, A),
     Store(R, A),
     LoadNarrow(Width, R, A),

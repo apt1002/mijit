@@ -27,7 +27,10 @@ pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
 
-    /** A storage location somewhere in the virtual machine. */
+    /** A discrete VM storage location, such as a register. */
+    type Global: Debug + Clone + Hash + Eq;
+
+    /** A VM storage location with an address. */
     type Address: Address;
 
     /**
@@ -43,7 +46,7 @@ pub trait Machine: Debug {
     fn get_code(&self, state: Self::State) ->
         Vec<(
             TestOp,
-            Vec<Action<Self::Address>>,
+            Vec<Action<Self::Address, Self::Global>>,
             Self::State
         )>;
 
