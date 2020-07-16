@@ -88,6 +88,218 @@ impl<M: Machine> JitInner<M> {
         (index * 8) as i32
     }
 
+
+    /**
+     * Assemble code that branches to `self.retire_labels[index]` if `test_op`
+     * is false.
+     */
+    pub fn lower_test_op(
+        &mut self,
+        a: &mut Assembler,
+        test_op: code::TestOp,
+        index: usize,
+    ) {
+        match test_op {
+            TestOp::Bits(discriminant, mask, value) => {
+                a.const_(RC, mask as i32);
+                a.op(And, RC, discriminant);
+                a.const_op(Cmp, RC, value as i32);
+                a.jump_if(Condition::Z, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Lt(discriminant, value) => {
+                a.const_op(Cmp, discriminant, value as i32);
+                a.jump_if(Condition::L, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Ge(discriminant, value) => {
+                a.const_op(Cmp, discriminant, value as i32);
+                a.jump_if(Condition::GE, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Ult(discriminant, value) => {
+                a.const_op(Cmp, discriminant, value as i32);
+                a.jump_if(Condition::B, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Uge(discriminant, value) => {
+                a.const_op(Cmp, discriminant, value as i32);
+                a.jump_if(Condition::AE, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Eq(discriminant, value) => {
+                a.const_op(Cmp, discriminant, value as i32);
+                a.jump_if(Condition::Z, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Ne(discriminant, value) => {
+                a.const_op(Cmp, discriminant, value as i32);
+                a.jump_if(Condition::NZ, false, &mut self.retire_labels[index]);
+            },
+            TestOp::Always => {},
+        };
+    }
+    
+    /**
+     * Assemble code to perform the given `unary_op`.
+     */
+    pub fn lower_unary_op(
+        &mut self,
+        a: &mut Assembler,
+        unary_op: code::UnaryOp,
+        dest: code::R,
+        src: code::R,
+    ) {
+        match unary_op {
+            code::UnaryOp::Abs => {
+                a.move_(RC, src);
+                a.const_(dest, 0);
+                a.op(Sub, dest, RC);
+                a.move_if(Condition::L, true, dest, RC);
+            },
+            code::UnaryOp::Negate => {
+                a.move_(RC, src);
+                a.const_(dest, 0);
+                a.op(Sub, dest, RC);
+            },
+            code::UnaryOp::Not => {
+                a.move_(dest, src);
+                a.const_op(Xor, dest, -1);
+            },
+        };
+    }
+
+    /**
+     * Assemble code to perform the given `binary_op`.
+     */
+    pub fn lower_binary_op(
+        &mut self,
+        a: &mut Assembler,
+        binary_op: code::BinaryOp,
+        dest: code::R,
+        src1: code::R,
+        src2: code::R,
+    ) {
+        match binary_op {
+            code::BinaryOp::Add => {
+                a.move_(dest, src1);
+                a.op(Add, dest, src2);
+            },
+            code::BinaryOp::Sub => {
+                a.move_(dest, src1);
+                a.op(Sub, dest, src2);
+            },
+            code::BinaryOp::Mul => {
+                a.move_(dest, src1);
+                a.mul(dest, src2);
+            },
+            code::BinaryOp::Lsl => {
+                a.move_(dest, src1);
+                a.move_(RC, src2);
+                a.shift(Shl, dest);
+            },
+            code::BinaryOp::Lsr => {
+                a.move_(dest, src1);
+                a.move_(RC, src2);
+                a.shift(Shr, dest);
+            },
+            code::BinaryOp::Asr => {
+                a.move_(dest, src1);
+                a.move_(RC, src2);
+                a.shift(Sar, dest);
+            },
+            code::BinaryOp::And => {
+                a.move_(dest, src1);
+                a.op(And, dest, src2);
+            },
+            code::BinaryOp::Or => {
+                a.move_(dest, src1);
+                a.op(Or, dest, src2);
+            },
+            code::BinaryOp::Xor => {
+                a.move_(dest, src1);
+                a.op(Xor, dest, src2);
+            },
+            code::BinaryOp::Lt => {
+                a.const_(RC, -1);
+                a.const_(dest, 0);
+                a.op(Cmp, src1, src2);
+                a.move_if(Condition::L, true, dest, RC);
+            },
+            code::BinaryOp::Ult => {
+                a.const_(RC, -1);
+                a.const_(dest, 0);
+                a.op(Cmp, src1, src2);
+                a.move_if(Condition::B, true, dest, RC);
+            },
+            code::BinaryOp::Eq => {
+                a.const_(RC, -1);
+                a.const_(dest, 0);
+                a.op(Cmp, src1, src2);
+                a.move_if(Condition::Z, true, dest, RC);
+            },
+            code::BinaryOp::Max => {
+                a.op(Cmp, src1, src2);
+                a.move_(dest, src2);
+                a.move_if(Condition::G, true, dest, src1);
+            },
+            code::BinaryOp::Min => {
+                a.op(Cmp, src1, src2);
+                a.move_(dest, src2);
+                a.move_if(Condition::L, true, dest, src1);
+            },
+        };
+    }
+
+    /**
+     * Assemble code to perform the given `action`.
+     */
+    pub fn lower_action(
+        &mut self,
+        a: &mut Assembler,
+        action: Action<M::Address, M::Global>,
+    ) {
+        match action {
+            Action::Constant(dest, value) => {
+                a.const_(dest, value as i32);
+            },
+            Action::Move(dest, src) => {
+                a.move_(dest, src);
+            },
+            Action::Unary(op, dest, src) => {
+                self.lower_unary_op(a, op, dest, src);
+            },
+            Action::Binary(op, dest, src1, src2) => {
+                self.lower_binary_op(a, op, dest, src1, src2);
+            },
+            Action::Division(_op, _, _, _, _) => {
+                panic!("FIXME: Don't know how to assemble div");
+            },
+            Action::LoadGlobal(dest, global) => {
+                let offset = self.global_offset(&global);
+                a.load(dest, (R8, offset));
+            },
+            Action::StoreGlobal(src, global) => {
+                let offset = self.global_offset(&global);
+                a.store((R8, offset), src);
+            },
+            Action::Load(dest, addr) => {
+                let _lower_actions = self.machine.lower_load(dest, addr);
+                panic!("TODO");
+            },
+            Action::Store(src, addr) => {
+                let _lower_actions = self.machine.lower_store(src, addr);
+                panic!("TODO");
+            },
+            Action::LoadNarrow(_w, _dest, _addr) => {
+                panic!("TODO");
+            },
+            Action::StoreNarrow(_w, _src, _addr) => {
+                panic!("TODO");
+            },
+            Action::Push(src) => {
+                a.push(src);
+            },
+            Action::Pop(dest) => {
+                a.pop(dest);
+            },
+        };
+    }
+
     /**
      * Construct a History.
      *  - a - an Assembler to use to compile the fetch and retire transitions.
@@ -119,169 +331,9 @@ impl<M: Machine> JitInner<M> {
         {
             let retire_target = a.get_pos(); // Evaluation order.
             self.retire_labels[old_index] = self.retire_labels[old_index].patch(a, retire_target);
-            match test_op {
-                TestOp::Bits(discriminant, mask, value) => {
-                    a.const_(RC, mask as i32);
-                    a.op(And, RC, discriminant);
-                    a.const_op(Cmp, RC, value as i32);
-                    a.jump_if(Condition::Z, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Lt(discriminant, value) => {
-                    a.const_op(Cmp, discriminant, value as i32);
-                    a.jump_if(Condition::L, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Ge(discriminant, value) => {
-                    a.const_op(Cmp, discriminant, value as i32);
-                    a.jump_if(Condition::GE, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Ult(discriminant, value) => {
-                    a.const_op(Cmp, discriminant, value as i32);
-                    a.jump_if(Condition::B, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Uge(discriminant, value) => {
-                    a.const_op(Cmp, discriminant, value as i32);
-                    a.jump_if(Condition::AE, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Eq(discriminant, value) => {
-                    a.const_op(Cmp, discriminant, value as i32);
-                    a.jump_if(Condition::Z, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Ne(discriminant, value) => {
-                    a.const_op(Cmp, discriminant, value as i32);
-                    a.jump_if(Condition::NZ, false, &mut self.retire_labels[old_index])
-                },
-                TestOp::Always => {},
-            };
+            self.lower_test_op(a, test_op, old_index);
             for action in actions {
-                match action {
-                    Action::Constant(dest, value) => {
-                        a.const_(dest, value as i32);
-                    },
-                    Action::Move(dest, src) => {
-                        a.move_(dest, src);
-                    },
-                    Action::Unary(op, dest, src) => {
-                        match op {
-                            code::UnaryOp::Abs => {
-                                a.move_(RC, src);
-                                a.const_(dest, 0);
-                                a.op(Sub, dest, RC);
-                                a.move_if(Condition::L, true, dest, RC);
-                            },
-                            code::UnaryOp::Negate => {
-                                a.move_(RC, src);
-                                a.const_(dest, 0);
-                                a.op(Sub, dest, RC);
-                            },
-                            code::UnaryOp::Not => {
-                                a.move_(dest, src);
-                                a.const_op(Xor, dest, -1);
-                            },
-                        };
-                    },
-                    Action::Binary(op, dest, src1, src2) => {
-                        match op {
-                            code::BinaryOp::Add => {
-                                a.move_(dest, src1);
-                                a.op(Add, dest, src2);
-                            },
-                            code::BinaryOp::Sub => {
-                                a.move_(dest, src1);
-                                a.op(Sub, dest, src2);
-                            },
-                            code::BinaryOp::Mul => {
-                                a.move_(dest, src1);
-                                a.mul(dest, src2);
-                            },
-                            code::BinaryOp::Lsl => {
-                                a.move_(dest, src1);
-                                a.move_(RC, src2);
-                                a.shift(Shl, dest);
-                            },
-                            code::BinaryOp::Lsr => {
-                                a.move_(dest, src1);
-                                a.move_(RC, src2);
-                                a.shift(Shr, dest);
-                            },
-                            code::BinaryOp::Asr => {
-                                a.move_(dest, src1);
-                                a.move_(RC, src2);
-                                a.shift(Sar, dest);
-                            },
-                            code::BinaryOp::And => {
-                                a.move_(dest, src1);
-                                a.op(And, dest, src2);
-                            },
-                            code::BinaryOp::Or => {
-                                a.move_(dest, src1);
-                                a.op(Or, dest, src2);
-                            },
-                            code::BinaryOp::Xor => {
-                                a.move_(dest, src1);
-                                a.op(Xor, dest, src2);
-                            },
-                            code::BinaryOp::Lt => {
-                                a.const_(RC, -1);
-                                a.const_(dest, 0);
-                                a.op(Cmp, src1, src2);
-                                a.move_if(Condition::L, true, dest, RC);
-                            },
-                            code::BinaryOp::Ult => {
-                                a.const_(RC, -1);
-                                a.const_(dest, 0);
-                                a.op(Cmp, src1, src2);
-                                a.move_if(Condition::B, true, dest, RC);
-                            },
-                            code::BinaryOp::Eq => {
-                                a.const_(RC, -1);
-                                a.const_(dest, 0);
-                                a.op(Cmp, src1, src2);
-                                a.move_if(Condition::Z, true, dest, RC);
-                            },
-                            code::BinaryOp::Max => {
-                                a.op(Cmp, src1, src2);
-                                a.move_(dest, src2);
-                                a.move_if(Condition::G, true, dest, src1);
-                            },
-                            code::BinaryOp::Min => {
-                                a.op(Cmp, src1, src2);
-                                a.move_(dest, src2);
-                                a.move_if(Condition::L, true, dest, src1);
-                            },
-                        };
-                    },
-                    Action::Division(_op, _, _, _, _) => {
-                        panic!("FIXME: Don't know how to assemble div");
-                    },
-                    Action::LoadGlobal(dest, global) => {
-                        let offset = self.global_offset(&global);
-                        a.load(dest, (R8, offset));
-                    },
-                    Action::StoreGlobal(src, global) => {
-                        let offset = self.global_offset(&global);
-                        a.store((R8, offset), src);
-                    },
-                    Action::Load(dest, addr) => {
-                        let _lower_actions = self.machine.lower_load(dest, addr);
-                        panic!("TODO");
-                    },
-                    Action::Store(src, addr) => {
-                        let _lower_actions = self.machine.lower_store(src, addr);
-                        panic!("TODO");
-                    },
-                    Action::LoadNarrow(_w, _dest, _addr) => {
-                        panic!("TODO");
-                    },
-                    Action::StoreNarrow(_w, _src, _addr) => {
-                        panic!("TODO");
-                    },
-                    Action::Push(src) => {
-                        a.push(src);
-                    },
-                    Action::Pop(dest) => {
-                        a.pop(dest);
-                    },
-                };
+                self.lower_action(a, action);
             }
             a.const_jump(&mut self.retire_labels[new_index]);
         }
