@@ -817,31 +817,60 @@ pub mod tests {
         ]).unwrap();
     }
 
+    /** Test that we can assemble all the different sizes of constant. */
+    #[test]
+    fn const_() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &p in &ALL_PRECISIONS {
+            for &c in &[0, 1, 1000, 0x76543210, 0x76543210FEDCBA98] {
+                a.const_(p, R8, c);
+                a.const_(p, R15, !c);
+            }
+        }
+        let len = a.get_pos();
+        disassemble(&code_bytes[..len], vec![
+            "xor r8d,r8d",
+            "mov r15d,0FFFFFFFFh",
+            "mov r8d,1",
+            "mov r15d,0FFFFFFFEh",
+            "mov r8d,3E8h",
+            "mov r15d,0FFFFFC17h",
+            "mov r8d,76543210h",
+            "mov r15d,89ABCDEFh",
+            "mov r8d,0FEDCBA98h",
+            "mov r15d,1234567h",
+            "xor r8,r8",
+            "mov r15,0FFFFFFFFFFFFFFFFh",
+            "mov r8d,1",
+            "mov r15,0FFFFFFFFFFFFFFFEh",
+            "mov r8d,3E8h",
+            "mov r15,0FFFFFFFFFFFFFC17h",
+            "mov r8d,76543210h",
+            "mov r15,0FFFFFFFF89ABCDEFh",
+            "mov r8,76543210FEDCBA98h",
+            "mov r15,89ABCDEF01234567h",
+        ]).unwrap();
+    }
+
     /** Test that we can assemble all the different kinds of "MOV". */
-    // TODO: Test a wider variety of immediate constants.
     #[test]
     fn move_() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         for &p in &ALL_PRECISIONS {
-            a.const_(p, R8, 0);
-            a.const_(p, R9, IMM as i64);
             a.move_(p, R10, R9);
             a.store(p, (R8, DISP), R10);
             a.load(p, R11, (R8, DISP));
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
-            "xor r8d,r8d",
-            "mov r9d,76543210h",
             "mov r10d,r9d",
             "mov [r8+12345678h],r10d",
             "mov r11d,[r8+12345678h]",
-            "xor r8,r8",
-            "mov r9d,76543210h",
             "mov r10,r9",
             "mov [r8+12345678h],r10",
-            "mov r11,[r8+12345678h]",
+            "mov r11,[r8+12345678h]"
         ]).unwrap();
     }
 
