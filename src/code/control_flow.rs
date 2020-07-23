@@ -5,11 +5,11 @@ use std::hash::{Hash};
 
 use super::{TestOp, Action};
 
-/// Use as a memory address.
-pub trait Address: Debug + Clone + Hash + Eq {
+/// Test whether memories overlap.
+pub trait Alias: Debug + Clone + Hash + Eq {
     /**
-     * Tests whether `self` and `other` might refer to the same storage
-     * location. Must be symmetric. May assume `self != other`.
+     * Tests whether an address in `self` and an address in `other` might refer
+     * to the same storage location. Must be symmetric. 
      *
      * The purpose of this method is to enable the following transformations,
      * which are invalid if `self.can_alias(other)`:
@@ -19,14 +19,11 @@ pub trait Address: Debug + Clone + Hash + Eq {
      *  2. Store, store:
      *      - Before: store(other); store(self)
      *      - After: store(self)
+     *
+     * The default implementation returns `*self == *other`.
      */
-    fn can_alias(&self, other: &Self) -> bool;
-}
-
-impl Address for super::R {
     fn can_alias(&self, other: &Self) -> bool {
-        assert_ne!(self, other);
-        true
+        *self == *other
     }
 }
 
@@ -38,13 +35,7 @@ pub trait Machine: Debug {
     type Global: Debug + Clone + Hash + Eq;
 
     /** A VM storage location with an address. */
-    type Address: Address;
-
-    /** Lower `Address` to a native load instruction. */
-    fn lower_load(&self, dest: super::R, addr: Self::Address) -> Vec<Action<super::R, Self::Global>>;
-
-    /** Lower `Address` to a native store instruction. */
-    fn lower_store(&self, src: super::R, addr: Self::Address) -> Vec<Action<super::R, Self::Global>>;
+    type Memory: Alias;
 
     /**
      * Defines the transitions of the finite state machine.
@@ -59,7 +50,7 @@ pub trait Machine: Debug {
     fn get_code(&self, state: Self::State) ->
         Vec<(
             TestOp,
-            Vec<Action<Self::Address, Self::Global>>,
+            Vec<Action<Self::Memory, Self::Global>>,
             Self::State
         )>;
 

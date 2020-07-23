@@ -31,11 +31,11 @@ pub struct History<M: code::Machine> {
     /** The test which must pass in order to execute `fetch`. */
     pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */
-    pub fetch: Vec<Action<M::Address, M::Global>>,
+    pub fetch: Vec<Action<M::Memory, M::Global>>,
     /** The interface from `fetch` to `retire`. */
     pub convention: Convention,
     /** The code for the unique "retire" transition from this History. */
-    pub retire: Vec<Action<M::Address, M::Global>>,
+    pub retire: Vec<Action<M::Memory, M::Global>>,
     /** All jump instructions whose target is `retire`. */
     pub retire_labels: Vec<Label>,
 }
@@ -60,7 +60,7 @@ struct JitAssembler<'a, M: Machine> {
 
 impl <'a, M: Machine> JitAssembler<'a, M> {
     /** Returns the offset of `global` in the persistent data. */
-    pub fn global_offset(&self, global: &M::Global) -> i32 {
+    fn global_offset(&self, global: &M::Global) -> i32 {
         let index = self.globals.get_index_of(global).expect("Unknown global");
         (index * 8) as i32
     }
@@ -68,7 +68,7 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
     /**
      * Assemble code that branches to `false_label` if `test_op` is false.
      */
-    pub fn lower_test_op(
+    fn lower_test_op(
         &mut self,
         test_op: code::TestOp,
         false_label: &mut Label,
@@ -111,7 +111,7 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
     /**
      * Assemble code to perform the given `unary_op`.
      */
-    pub fn lower_unary_op(
+    fn lower_unary_op(
         &mut self,
         unary_op: code::UnaryOp,
         dest: code::R,
@@ -139,7 +139,7 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
     /**
      * Assemble code to perform the given `binary_op`.
      */
-    pub fn lower_binary_op(
+    fn lower_binary_op(
         &mut self,
         binary_op: code::BinaryOp,
         dest: code::R,
@@ -217,12 +217,22 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
         };
     }
 
+    fn lower_memory_location(mloc: code::MemoryLocation<M::Memory>) -> (code::R, x86_64::Width) {
+        use code::MemoryLocation::*;
+        match mloc {
+            One(addr, _m) => (addr, x86_64::Width::U8),
+            Two(addr, _m) => (addr, x86_64::Width::U16),
+            Four(addr, _m) => (addr, x86_64::Width::U32),
+            Eight(addr, _m) => (addr, x86_64::Width::U64),
+        }
+    }
+
     /**
      * Assemble code to perform the given `action`.
      */
-    pub fn lower_action(
+    fn lower_action(
         &mut self,
-        action: Action<M::Address, M::Global>,
+        action: Action<M::Memory, M::Global>,
     ) {
         match action {
             Action::Constant(dest, value) => {
@@ -248,19 +258,13 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
                 let offset = self.global_offset(&global);
                 self.a.store((R8, offset), src);
             },
-            Action::Load(dest, addr) => {
-                let _lower_actions = self.machine.lower_load(dest, addr);
-                panic!("TODO");
+            Action::Load(dest, mloc) => {
+                let (addr, width) = Self::lower_memory_location(mloc);
+                self.a.load_narrow(width, dest, (addr, 0));
             },
-            Action::Store(src, addr) => {
-                let _lower_actions = self.machine.lower_store(src, addr);
-                panic!("TODO");
-            },
-            Action::LoadNarrow(_w, _dest, _addr) => {
-                panic!("TODO");
-            },
-            Action::StoreNarrow(_w, _src, _addr) => {
-                panic!("TODO");
+            Action::Store(src, mloc) => {
+                let (addr, width) = Self::lower_memory_location(mloc);
+                self.a.store_narrow(width, (addr, 0), src);
             },
             Action::Push(src) => {
                 self.a.push(src);
@@ -389,7 +393,7 @@ impl<M: Machine> Jit<M> {
         &mut self,
         old_index: usize,
         test_op: code::TestOp,
-        actions: Vec<Action<M::Address, M::Global>>,
+        actions: Vec<Action<M::Memory, M::Global>>,
         new_index: usize,
     ) {
         let mut ja = JitAssembler {

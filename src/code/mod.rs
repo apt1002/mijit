@@ -14,7 +14,7 @@
 pub use super::x86_64::{Register as R};
 
 pub mod control_flow;
-pub use control_flow::{Machine, Address};
+pub use control_flow::{Machine, Alias};
 
 pub mod clock;
 
@@ -64,12 +64,15 @@ pub enum DivisionOp {
     UnsignedDivMod,
 }
 
-/** Used to specify how many bytes to load or store. */
+/**
+ * Used to specify which bytes to load or store, and what they might alias.
+ */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Width {
-    One,
-    Two,
-    Four,
+pub enum MemoryLocation<M> {
+    One(R, M),
+    Two(R, M),
+    Four(R, M),
+    Eight(R, M),
 }
 
 /**
@@ -77,7 +80,7 @@ pub enum Width {
  * The destination register (where applicable) is on the left.
  */
 #[derive(Debug, Clone)]
-pub enum Action<A, G> {
+pub enum Action<M, G> {
     Constant(R, u32),
     Move(R, R),
     Unary(UnaryOp, R, R),
@@ -85,10 +88,8 @@ pub enum Action<A, G> {
     Division(DivisionOp, R, R, R, R),
     LoadGlobal(R, G),
     StoreGlobal(R, G),
-    Load(R, A),
-    Store(R, A),
-    LoadNarrow(Width, R, A),
-    StoreNarrow(Width, R, A),
+    Load(R, MemoryLocation<M>),
+    Store(R, MemoryLocation<M>),
     Push(R),
     Pop(R),
 }
