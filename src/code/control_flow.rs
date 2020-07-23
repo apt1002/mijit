@@ -3,7 +3,7 @@
 use std::fmt::{Debug};
 use std::hash::{Hash};
 
-use super::{TestOp, Action};
+use super::{TestOp, Action, Precision};
 
 /// Test whether memories overlap.
 pub trait Alias: Debug + Clone + Hash + Eq {
@@ -49,7 +49,7 @@ pub trait Machine: Debug {
      */
     fn get_code(&self, state: Self::State) ->
         Vec<(
-            TestOp,
+            (TestOp, Precision),
             Vec<Action<Self::Memory, Self::Global>>,
             Self::State
         )>;

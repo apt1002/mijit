@@ -2,9 +2,10 @@ use std::{mem};
 use indexmap::{IndexSet};
 
 use super::{Buffer, code, x86_64};
-use code::{Action, TestOp, Machine};
+use code::{Action, TestOp, Machine, Precision};
 use x86_64::*;
 use Register::*;
+use Precision::*;
 use BinaryOp::*;
 use ShiftOp::*;
 use Condition;
@@ -71,37 +72,38 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
     fn lower_test_op(
         &mut self,
         test_op: code::TestOp,
+        prec: Precision,
         false_label: &mut Label,
     ) {
         match test_op {
             TestOp::Bits(discriminant, mask, value) => {
-                self.a.const_(RC, mask as i32);
-                self.a.op(And, RC, discriminant);
-                self.a.const_op(Cmp, RC, value as i32);
+                self.a.const_(prec, RC, mask as i64);
+                self.a.op(And, prec, RC, discriminant);
+                self.a.const_op(Cmp, prec, RC, value as i32);
                 self.a.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Lt(discriminant, value) => {
-                self.a.const_op(Cmp, discriminant, value as i32);
+                self.a.const_op(Cmp, prec, discriminant, value as i32);
                 self.a.jump_if(Condition::L, false, false_label);
             },
             TestOp::Ge(discriminant, value) => {
-                self.a.const_op(Cmp, discriminant, value as i32);
+                self.a.const_op(Cmp, prec, discriminant, value as i32);
                 self.a.jump_if(Condition::GE, false, false_label);
             },
             TestOp::Ult(discriminant, value) => {
-                self.a.const_op(Cmp, discriminant, value as i32);
+                self.a.const_op(Cmp, prec, discriminant, value as i32);
                 self.a.jump_if(Condition::B, false, false_label);
             },
             TestOp::Uge(discriminant, value) => {
-                self.a.const_op(Cmp, discriminant, value as i32);
+                self.a.const_op(Cmp, prec, discriminant, value as i32);
                 self.a.jump_if(Condition::AE, false, false_label);
             },
             TestOp::Eq(discriminant, value) => {
-                self.a.const_op(Cmp, discriminant, value as i32);
+                self.a.const_op(Cmp, prec, discriminant, value as i32);
                 self.a.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Ne(discriminant, value) => {
-                self.a.const_op(Cmp, discriminant, value as i32);
+                self.a.const_op(Cmp, prec, discriminant, value as i32);
                 self.a.jump_if(Condition::NZ, false, false_label);
             },
             TestOp::Always => {},
@@ -114,24 +116,25 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
     fn lower_unary_op(
         &mut self,
         unary_op: code::UnaryOp,
+        prec: Precision,
         dest: code::R,
         src: code::R,
     ) {
         match unary_op {
             code::UnaryOp::Abs => {
-                self.a.move_(RC, src);
-                self.a.const_(dest, 0);
-                self.a.op(Sub, dest, RC);
-                self.a.move_if(Condition::L, true, dest, RC);
+                self.a.move_(prec, RC, src);
+                self.a.const_(prec, dest, 0);
+                self.a.op(Sub, prec, dest, RC);
+                self.a.move_if(Condition::L, true, prec, dest, RC);
             },
             code::UnaryOp::Negate => {
-                self.a.move_(RC, src);
-                self.a.const_(dest, 0);
-                self.a.op(Sub, dest, RC);
+                self.a.move_(prec, RC, src);
+                self.a.const_(prec, dest, 0);
+                self.a.op(Sub, prec, dest, RC);
             },
             code::UnaryOp::Not => {
-                self.a.move_(dest, src);
-                self.a.const_op(Xor, dest, -1);
+                self.a.move_(prec, dest, src);
+                self.a.const_op(Xor, prec, dest, -1);
             },
         };
     }
@@ -142,77 +145,79 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
     fn lower_binary_op(
         &mut self,
         binary_op: code::BinaryOp,
+        prec: Precision,
         dest: code::R,
         src1: code::R,
         src2: code::R,
     ) {
         match binary_op {
             code::BinaryOp::Add => {
-                self.a.move_(dest, src1);
-                self.a.op(Add, dest, src2);
+                self.a.move_(prec, dest, src1);
+                self.a.op(Add, prec, dest, src2);
             },
             code::BinaryOp::Sub => {
-                self.a.move_(dest, src1);
-                self.a.op(Sub, dest, src2);
+                self.a.move_(prec, dest, src1);
+                self.a.op(Sub, prec, dest, src2);
             },
             code::BinaryOp::Mul => {
-                self.a.move_(dest, src1);
-                self.a.mul(dest, src2);
+                self.a.move_(prec, dest, src1);
+                self.a.mul(prec, dest, src2);
             },
+            // TODO: Define what happens when you shift too far.
             code::BinaryOp::Lsl => {
-                self.a.move_(dest, src1);
-                self.a.move_(RC, src2);
-                self.a.shift(Shl, dest);
+                self.a.move_(prec, dest, src1);
+                self.a.move_(P32, RC, src2);
+                self.a.shift(Shl, prec, dest);
             },
             code::BinaryOp::Lsr => {
-                self.a.move_(dest, src1);
-                self.a.move_(RC, src2);
-                self.a.shift(Shr, dest);
+                self.a.move_(prec, dest, src1);
+                self.a.move_(P32, RC, src2);
+                self.a.shift(Shr, prec, dest);
             },
             code::BinaryOp::Asr => {
-                self.a.move_(dest, src1);
-                self.a.move_(RC, src2);
-                self.a.shift(Sar, dest);
+                self.a.move_(prec, dest, src1);
+                self.a.move_(P32, RC, src2);
+                self.a.shift(Sar, prec, dest);
             },
             code::BinaryOp::And => {
-                self.a.move_(dest, src1);
-                self.a.op(And, dest, src2);
+                self.a.move_(prec, dest, src1);
+                self.a.op(And, prec, dest, src2);
             },
             code::BinaryOp::Or => {
-                self.a.move_(dest, src1);
-                self.a.op(Or, dest, src2);
+                self.a.move_(prec, dest, src1);
+                self.a.op(Or, prec, dest, src2);
             },
             code::BinaryOp::Xor => {
-                self.a.move_(dest, src1);
-                self.a.op(Xor, dest, src2);
+                self.a.move_(prec, dest, src1);
+                self.a.op(Xor, prec, dest, src2);
             },
             code::BinaryOp::Lt => {
-                self.a.const_(RC, -1);
-                self.a.const_(dest, 0);
-                self.a.op(Cmp, src1, src2);
-                self.a.move_if(Condition::L, true, dest, RC);
+                self.a.const_(prec, RC, -1);
+                self.a.const_(prec, dest, 0);
+                self.a.op(Cmp, prec, src1, src2);
+                self.a.move_if(Condition::L, true, prec, dest, RC);
             },
             code::BinaryOp::Ult => {
-                self.a.const_(RC, -1);
-                self.a.const_(dest, 0);
-                self.a.op(Cmp, src1, src2);
-                self.a.move_if(Condition::B, true, dest, RC);
+                self.a.const_(prec, RC, -1);
+                self.a.const_(prec, dest, 0);
+                self.a.op(Cmp, prec, src1, src2);
+                self.a.move_if(Condition::B, true, prec, dest, RC);
             },
             code::BinaryOp::Eq => {
-                self.a.const_(RC, -1);
-                self.a.const_(dest, 0);
-                self.a.op(Cmp, src1, src2);
-                self.a.move_if(Condition::Z, true, dest, RC);
+                self.a.const_(prec, RC, -1);
+                self.a.const_(prec, dest, 0);
+                self.a.op(Cmp, prec, src1, src2);
+                self.a.move_if(Condition::Z, true, prec, dest, RC);
             },
             code::BinaryOp::Max => {
-                self.a.op(Cmp, src1, src2);
-                self.a.move_(dest, src2);
-                self.a.move_if(Condition::G, true, dest, src1);
+                self.a.op(Cmp, prec, src1, src2);
+                self.a.move_(prec, dest, src2);
+                self.a.move_if(Condition::G, true, prec, dest, src1);
             },
             code::BinaryOp::Min => {
-                self.a.op(Cmp, src1, src2);
-                self.a.move_(dest, src2);
-                self.a.move_if(Condition::L, true, dest, src1);
+                self.a.op(Cmp, prec, src1, src2);
+                self.a.move_(prec, dest, src2);
+                self.a.move_if(Condition::L, true, prec, dest, src1);
             },
         };
     }
@@ -235,32 +240,32 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
         action: Action<M::Memory, M::Global>,
     ) {
         match action {
-            Action::Constant(dest, value) => {
-                self.a.const_(dest, value as i32);
+            Action::Constant(prec, dest, value) => {
+                self.a.const_(prec, dest, value);
             },
-            Action::Move(dest, src) => {
-                self.a.move_(dest, src);
+            Action::Move(prec, dest, src) => {
+                self.a.move_(prec, dest, src);
             },
-            Action::Unary(op, dest, src) => {
-                self.lower_unary_op(op, dest, src);
+            Action::Unary(op, prec, dest, src) => {
+                self.lower_unary_op(op, prec, dest, src);
             },
-            Action::Binary(op, dest, src1, src2) => {
-                self.lower_binary_op(op, dest, src1, src2);
+            Action::Binary(op, prec, dest, src1, src2) => {
+                self.lower_binary_op(op, prec, dest, src1, src2);
             },
-            Action::Division(_op, _, _, _, _) => {
+            Action::Division(_op, _prec, _, _, _, _) => {
                 panic!("FIXME: Don't know how to assemble div");
             },
             Action::LoadGlobal(dest, global) => {
                 let offset = self.global_offset(&global);
-                self.a.load(dest, (R8, offset));
+                self.a.load(P64, dest, (R8, offset));
             },
             Action::StoreGlobal(src, global) => {
                 let offset = self.global_offset(&global);
-                self.a.store((R8, offset), src);
+                self.a.store(P64, (R8, offset), src);
             },
-            Action::Load(dest, mloc) => {
+            Action::Load(prec, dest, mloc) => {
                 let (addr, width) = Self::lower_memory_location(mloc);
-                self.a.load_narrow(width, dest, (addr, 0));
+                self.a.load_narrow(prec, width, dest, (addr, 0));
             },
             Action::Store(src, mloc) => {
                 let (addr, width) = Self::lower_memory_location(mloc);
@@ -327,10 +332,10 @@ impl<M: Machine> Jit<M> {
         let mut buffer = Buffer::new(code_size).expect("couldn't allocate memory");
         let mut a = Assembler::new(&mut buffer);
         for (index, &_) in states.iter().enumerate() {
-            a.const_op(Cmp, R8, index as i32);
+            a.const_op(Cmp, P32, R8, index as i32);
             a.jump_if(Condition::Z, true, &mut retire_labels[index]);
         }
-        a.const_(RA, -1i32);
+        a.const_(P32, RA, -1);
 
         // Assemble the function epilogue.
         let mut epilogue = Label::new(None);
@@ -340,7 +345,7 @@ impl<M: Machine> Jit<M> {
         // Construct the root labels.
         for (index, _) in states.iter().enumerate() {
             a.define(&mut retire_labels[index]);
-            a.const_(RA, index as i32);
+            a.const_(P32, RA, index as i64);
             a.const_jump(&mut epilogue);
         }
 
@@ -351,10 +356,10 @@ impl<M: Machine> Jit<M> {
         // Construct the root Histories.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
         for old_state in all_states {
-            for (test_op, actions, new_state) in jit.machine.get_code(old_state.clone()) {
+            for ((test_op, prec), actions, new_state) in jit.machine.get_code(old_state.clone()) {
                 let old_index = jit.states.get_index_of(&old_state).unwrap();
                 let new_index = jit.states.get_index_of(&new_state).unwrap();
-                jit.insert_history(old_index, test_op, actions, new_index);
+                jit.insert_history(old_index, test_op, prec, actions, new_index);
             }
         }
 
@@ -393,6 +398,7 @@ impl<M: Machine> Jit<M> {
         &mut self,
         old_index: usize,
         test_op: code::TestOp,
+        prec: Precision,
         actions: Vec<Action<M::Memory, M::Global>>,
         new_index: usize,
     ) {
@@ -405,7 +411,7 @@ impl<M: Machine> Jit<M> {
         let retire_target = ja.a.get_pos(); // Evaluation order.
         self.retire_labels[old_index] =
             self.retire_labels[old_index].patch(&mut ja.a, retire_target);
-        ja.lower_test_op(test_op, &mut self.retire_labels[old_index]);
+        ja.lower_test_op(test_op, prec, &mut self.retire_labels[old_index]);
         for action in actions {
             ja.lower_action(action);
         }

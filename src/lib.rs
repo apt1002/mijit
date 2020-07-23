@@ -1,7 +1,6 @@
 pub mod code;
 
 pub mod x86_64;
-pub use x86_64::{Assembler};
 
 pub mod jit;
 
@@ -24,12 +23,13 @@ pub mod tests {
         use x86_64::*;
         use Register::*;
         use BinaryOp::*;
+        use Precision::*;
 
         let mut buffer = Buffer::new(0x1000)
             .expect("Couldn't allocate");
         let mut a = Assembler::new(&mut buffer);
-        a.move_(RA, RDI);
-        a.const_op(Add, RA, 5);
+        a.move_(P64, RA, RDI);
+        a.const_op(Add, P64, RA, 5);
         a.ret();
         let (_, result) = buffer.execute(|bytes| {
             let f: extern "C" fn(i32) -> i32 = unsafe {mem::transmute(&bytes[0])};

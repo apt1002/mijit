@@ -11,7 +11,7 @@
  * Booleans results are returned as `0` or `-1`.
  */
 
-pub use super::x86_64::{Register as R};
+pub use super::x86_64::{Register as R, Precision};
 
 pub mod control_flow;
 pub use control_flow::{Machine, Alias};
@@ -21,13 +21,14 @@ pub mod clock;
 /** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
-    Bits(R, u32, u32),
-    Lt(R, u32),
-    Ge(R, u32),
-    Ult(R, u32),
-    Uge(R, u32),
-    Eq(R, u32),
-    Ne(R, u32),
+    // TODO: These constants should probably be 64-bit.
+    Bits(R, i32, i32),
+    Lt(R, i32),
+    Ge(R, i32),
+    Ult(R, i32),
+    Uge(R, i32),
+    Eq(R, i32),
+    Ne(R, i32),
     Always,
 }
 
@@ -81,14 +82,14 @@ pub enum MemoryLocation<M> {
  */
 #[derive(Debug, Clone)]
 pub enum Action<M, G> {
-    Constant(R, u32),
-    Move(R, R),
-    Unary(UnaryOp, R, R),
-    Binary(BinaryOp, R, R, R),
-    Division(DivisionOp, R, R, R, R),
+    Constant(Precision, R, i64),
+    Move(Precision, R, R),
+    Unary(UnaryOp, Precision, R, R),
+    Binary(BinaryOp, Precision, R, R, R),
+    Division(DivisionOp, Precision, R, R, R, R),
     LoadGlobal(R, G),
     StoreGlobal(R, G),
-    Load(R, MemoryLocation<M>),
+    Load(Precision, R, MemoryLocation<M>),
     Store(R, MemoryLocation<M>),
     Push(R),
     Pop(R),

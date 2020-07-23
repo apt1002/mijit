@@ -88,6 +88,37 @@ pub enum Scale {
 
 //-----------------------------------------------------------------------------
 
+/**
+ * Represents the precision of an arithmetic operation.
+ * With P32, the arithmetic is performed with 32-bit precision, and written
+ * into the bottom 32 bits of the destination. The top 32 bits are 0.
+ */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Precision {
+    P32 = 0,
+    P64 = 1,
+}
+
+use Precision::*;
+
+impl Precision {
+    pub fn bits(self) -> usize {
+        match self {
+            P32 => 32,
+            P64 => 64,
+        }
+    }
+    
+    pub fn w_bit(self) -> u64 {
+        (self as u64) << 3
+    }
+}
+
+pub const ALL_PRECISIONS: [Precision; 2] = [P32, P64];
+
+//-----------------------------------------------------------------------------
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum BinaryOp {
@@ -412,6 +443,11 @@ impl<'a> Assembler<'a> {
         self.write((immediate as u32) as u64, 4);
     }
 
+    /** Writes a 64-bit signed immediate constant. */
+    pub fn write_imm64(&mut self, immediate: i64) {
+        self.write(immediate as u64, 8);
+    }
+
     /** Writes a 32-bit displacement from `pos+4` to `target`. */
     pub fn write_rel32(&mut self, target: Option<usize>) {
         self.write_imm32(optional_disp32(self.pos + 4, target));
@@ -428,26 +464,30 @@ impl<'a> Assembler<'a> {
     }
 
     /** Writes an instruction with pattern "RO", and one register. */
-    pub fn write_ro_1(&mut self, mut opcode: u64, rd: Register) {
+    pub fn write_ro_1(&mut self, mut opcode: u64, prec: Precision, rd: Register) {
+        opcode |= prec.w_bit();
         opcode |= 0x0701 & rd.mask();
         self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "ROM" and one register. */
-    pub fn write_rom_1(&mut self, mut opcode: u64, rm: Register) {
+    pub fn write_rom_1(&mut self, mut opcode: u64, prec: Precision, rm: Register) {
+        opcode |= prec.w_bit();
         opcode |= 0x070001 & rm.mask();
         self.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROM" and two registers. */
-    pub fn write_rom_2(&mut self, mut opcode: u64, rm: Register, reg: Register) {
+    pub fn write_rom_2(&mut self, mut opcode: u64, prec: Precision, rm: Register, reg: Register) {
+        opcode |= prec.w_bit();
         opcode |= 0x070001 & rm.mask();
         opcode |= 0x380004 & reg.mask();
         self.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROOM" and two registers. */
-    pub fn write_room_2(&mut self, mut opcode: u64, rm: Register, reg: Register) {
+    pub fn write_room_2(&mut self, mut opcode: u64, prec: Precision, rm: Register, reg: Register) {
+        opcode |= prec.w_bit();
         opcode |= 0x07000001 & rm.mask();
         opcode |= 0x38000004 & reg.mask();
         self.write(opcode, 4);
@@ -456,19 +496,19 @@ impl<'a> Assembler<'a> {
     // Instructions.
 
     /** Move register to register. */
-    pub fn move_(&mut self, dest: Register, src: Register) {
-        self.write_rom_2(0xC08B40, src, dest);
+    pub fn move_(&mut self, prec: Precision, dest: Register, src: Register) {
+        self.write_rom_2(0xC08B40, prec, src, dest);
     }
 
     /** Move memory to register. */
-    pub fn load(&mut self, dest: Register, src: (Register, i32)) {
-        self.write_rom_2(0x808B40, src.0, dest);
+    pub fn load(&mut self, prec: Precision, dest: Register, src: (Register, i32)) {
+        self.write_rom_2(0x808B40, prec, src.0, dest);
         self.write_imm32(src.1);
     }
 
     /** Move register to memory. */
-    pub fn store(&mut self, dest: (Register, i32), src: Register) {
-        self.write_rom_2(0x808940, dest.0, src);
+    pub fn store(&mut self, prec: Precision, dest: (Register, i32), src: Register) {
+        self.write_rom_2(0x808940, prec, dest.0, src);
         self.write_imm32(dest.1);
     }
 
@@ -476,69 +516,78 @@ impl<'a> Assembler<'a> {
      * Move constant to register.
      * If `imm` is zero, this will assemble the "zero idiom" xor instruction.
      */
-    pub fn const_(&mut self, dest: Register, imm: i32) {
+    pub fn const_(&mut self, prec: Precision, dest: Register, mut imm: i64) {
+        if prec == P32 {
+            imm &= 0xFFFFFFFF;
+        }
         if imm == 0 {
-            self.op(Xor, dest, dest);
+            self.op(Xor, prec, dest, dest);
+        } else if imm as u32 as i64 == imm {
+            self.write_ro_1(0xB840, P32, dest);
+            self.write_imm32(imm as i32);
+        } else if imm as i32 as i64 == imm {
+            self.write_rom_1(0xC0C740, P64, dest);
+            self.write_imm32(imm as i32);
         } else {
-            self.write_ro_1(0xB840, dest);
-            self.write_imm32(imm);
+            self.write_ro_1(0xB840, P64, dest);
+            self.write_imm64(imm);
         }
     }
 
     /** Op register to register. */
-    pub fn op(&mut self, op: BinaryOp, dest: Register, src: Register) {
-        self.write_rom_2(op.rm_reg(true), dest, src);
+    pub fn op(&mut self, op: BinaryOp, prec: Precision, dest: Register, src: Register) {
+        self.write_rom_2(op.rm_reg(true), prec, dest, src);
     }
 
     /** Op constant to register. */
-    pub fn const_op(&mut self, op: BinaryOp, dest: Register, imm: i32) {
-        self.write_rom_1(op.rm_imm(true), dest);
+    pub fn const_op(&mut self, op: BinaryOp, prec: Precision, dest: Register, imm: i32) {
+        self.write_rom_1(op.rm_imm(true), prec, dest);
         self.write_imm32(imm);
     }
 
     /** Op a memory location to a register. */
-    pub fn load_op(&mut self, op: BinaryOp, dest: Register, src: (Register, i32)) {
-        self.write_rom_2(op.reg_rm(false), src.0, dest);
+    pub fn load_op(&mut self, op: BinaryOp, prec: Precision, dest: Register, src: (Register, i32)) {
+        self.write_rom_2(op.reg_rm(false), prec, src.0, dest);
         self.write_imm32(src.1);
     }
 
     /** Shift register by `RC`. */
-    pub fn shift(&mut self, op: ShiftOp, dest: Register) {
-        self.write_rom_1(op.rm_c(true), dest);
+    pub fn shift(&mut self, op: ShiftOp, prec: Precision, dest: Register) {
+        self.write_rom_1(op.rm_c(true), prec, dest);
     }
 
     /** Shift register by constant. */
-    pub fn const_shift(&mut self, op: ShiftOp, dest: Register, imm: u8) {
-        assert!(imm < 32);
-        self.write_rom_1(op.rm_imm(true), dest);
+    pub fn const_shift(&mut self, op: ShiftOp, prec: Precision, dest: Register, imm: u8) {
+        assert!(imm < prec.bits() as u8);
+        self.write_rom_1(op.rm_imm(true), prec, dest);
         self.write_imm8(imm as i8);
     }
 
     /** Multiply register by register. */
-    pub fn mul(&mut self, dest: Register, src: Register) {
-        self.write_room_2(0xC0AF0F40, src, dest);
+    pub fn mul(&mut self, prec: Precision, dest: Register, src: Register) {
+        self.write_room_2(0xC0AF0F40, prec, src, dest);
     }
 
     /** Multiply register by constant. */
-    pub fn const_mul(&mut self, dest: Register, src: Register, imm: i32) {
-        self.write_rom_2(0xC06940, src, dest);
+    pub fn const_mul(&mut self, prec: Precision, dest: Register, src: Register, imm: i32) {
+        self.write_rom_2(0xC06940, prec, src, dest);
         self.write_imm32(imm);
     }
 
     /** Multiply register by memory. */
-    pub fn load_mul(&mut self, dest: Register, src: (Register, i32)) {
-        self.write_room_2(0x80AF0F40, src.0, dest);
+    pub fn load_mul(&mut self, prec: Precision, dest: Register, src: (Register, i32)) {
+        self.write_room_2(0x80AF0F40, prec, src.0, dest);
         self.write_imm32(src.1);
     }
 
     /** Conditional move. */
-    pub fn move_if(&mut self, cc: Condition, is_true: bool, dest: Register, src: Register) {
-        self.write_room_2(cc.move_if(is_true), src, dest);
+    pub fn move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: Register) {
+        self.write_room_2(cc.move_if(is_true), prec, src, dest);
     }
 
     /** Conditional load. */
-    pub fn load_if(&mut self, cc: Condition, is_true: bool, dest: Register, src: (Register, i32)) {
-        self.write_room_2(cc.load_if(is_true), src.0, dest);
+    pub fn load_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: (Register, i32)) {
+        self.write_room_2(cc.load_if(is_true), prec, src.0, dest);
         self.write_imm32(src.1);
     }
 
@@ -552,7 +601,7 @@ impl<'a> Assembler<'a> {
 
     /** Unconditional jump to a register. */
     pub fn jump(&mut self, target: Register) {
-        self.write_rom_1(0xE0FF40, target);
+        self.write_rom_1(0xE0FF40, P32, target);
     }
 
     /** Unconditional jump to a constant. */
@@ -565,7 +614,7 @@ impl<'a> Assembler<'a> {
 
     /** Unconditional call to a register. */
     pub fn call(&mut self, target: Register) {
-        self.write_rom_1(0xD0FF40, target);
+        self.write_rom_1(0xD0FF40, P32, target);
     }
 
     /** Unconditional call to a constant. */
@@ -607,37 +656,37 @@ impl<'a> Assembler<'a> {
 
     /** Push a register. */
     pub fn push(&mut self, rd: Register) {
-        self.write_ro_1(0x5040, rd);
+        self.write_ro_1(0x5040, P64, rd);
     }
 
     /** Pop a register. */
     pub fn pop(&mut self, rd: Register) {
-        self.write_ro_1(0x5840, rd);
+        self.write_ro_1(0x5840, P64, rd);
     }
 
-    /** Load narrow data, zero-extending to 64 bits. */
-    pub fn load_narrow(&mut self, type_: Width, dest: Register, src: (Register, i32)) {
+    /** Load narrow data, zero-extending to the given precision. */
+    pub fn load_narrow(&mut self, prec: Precision, type_: Width, dest: Register, src: (Register, i32)) {
         match type_ {
             U8 => {
-                self.write_room_2(0x80B60F48, src.0, dest);
+                self.write_room_2(0x80B60F40, prec, src.0, dest);
             }
             S8 => {
-                self.write_room_2(0x80BE0F48, src.0, dest);
+                self.write_room_2(0x80BE0F40, prec, src.0, dest);
             }
             U16 => {
-                self.write_room_2(0x80B70F48, src.0, dest);
+                self.write_room_2(0x80B70F40, prec, src.0, dest);
             }
             S16 => {
-                self.write_room_2(0x80BF0F48, src.0, dest);
+                self.write_room_2(0x80BF0F40, prec, src.0, dest);
             }
             U32 => {
-                self.write_rom_2(0x808B40, src.0, dest);
+                self.write_rom_2(0x808B40, P32, src.0, dest);
             }
             S32 => {
-                self.write_rom_2(0x806348, src.0, dest);
+                self.write_rom_2(0x806340, prec, src.0, dest);
             }
             U64 | S64 => {
-                self.write_rom_2(0x808B48, src.0, dest);
+                self.write_rom_2(0x808B40, prec, src.0, dest);
             }
         }
         self.write_imm32(src.1);
@@ -647,17 +696,17 @@ impl<'a> Assembler<'a> {
     pub fn store_narrow(&mut self, type_: Width, dest: (Register, i32), src: Register) {
         match type_ {
             U8 | S8 => {
-                self.write_rom_2(0x808840, dest.0, src);
+                self.write_rom_2(0x808840, P32, dest.0, src);
             }
             U16 | S16 => {
                 self.write_byte(0x66);
-                self.write_rom_2(0x808940, dest.0, src);
+                self.write_rom_2(0x808940, P32, dest.0, src);
             }
             U32 | S32 => {
-                self.write_rom_2(0x808940, dest.0, src);
+                self.write_rom_2(0x808940, P32, dest.0, src);
             }
             U64 | S64 => {
-                self.write_rom_2(0x808948, dest.0, src);
+                self.write_rom_2(0x808940, P64, dest.0, src);
             }
         }
         self.write_imm32(dest.1);
@@ -732,7 +781,7 @@ pub mod tests {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         for &r in &ALL_REGISTERS {
-            a.move_(r, r);
+            a.move_(P32, r, r);
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
@@ -753,16 +802,34 @@ pub mod tests {
         ]).unwrap();
     }
 
+    /** Test that the Precisions are named correctly. */
+    #[test]
+    fn precs() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &p in &ALL_PRECISIONS {
+            a.move_(p, RA, RA);
+        }
+        let len = a.get_pos();
+        disassemble(&code_bytes[..len], vec![
+            "mov eax,eax",
+            "mov rax,rax",
+        ]).unwrap();
+    }
+
     /** Test that we can assemble all the different kinds of "MOV". */
+    // TODO: Test a wider variety of immediate constants.
     #[test]
     fn move_() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.const_(R8, 0);
-        a.const_(R9, IMM);
-        a.move_(R10, R9);
-        a.store((R8, DISP), R10);
-        a.load(R11, (R8, DISP));
+        for &p in &ALL_PRECISIONS {
+            a.const_(p, R8, 0);
+            a.const_(p, R9, IMM as i64);
+            a.move_(p, R10, R9);
+            a.store(p, (R8, DISP), R10);
+            a.load(p, R11, (R8, DISP));
+        }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "xor r8d,r8d",
@@ -770,6 +837,11 @@ pub mod tests {
             "mov r10d,r9d",
             "mov [r8+12345678h],r10d",
             "mov r11d,[r8+12345678h]",
+            "xor r8,r8",
+            "mov r9d,76543210h",
+            "mov r10,r9",
+            "mov [r8+12345678h],r10",
+            "mov r11,[r8+12345678h]",
         ]).unwrap();
     }
 
@@ -779,7 +851,7 @@ pub mod tests {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         for &op in &ALL_BINARY_OPS {
-            a.op(op, R10, R9);
+            a.op(op, P32, R10, R9);
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
@@ -799,14 +871,19 @@ pub mod tests {
     fn binary_mode() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.op(Add, R10, R9);
-        a.const_op(Add, R10, IMM);
-        a.load_op(Add, R9, (R8, DISP));
+        for &p in &ALL_PRECISIONS {
+            a.op(Add, p, R10, R9);
+            a.const_op(Add, p, R10, IMM);
+            a.load_op(Add, p, R9, (R8, DISP));
+        }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "add r10d,r9d",
             "add r10d,76543210h",
             "add r9d,[r8+12345678h]",
+            "add r10,r9",
+            "add r10,76543210h",
+            "add r9,[r8+12345678h]",
         ]).unwrap();
     }
 
@@ -816,7 +893,7 @@ pub mod tests {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
         for &op in &ALL_SHIFT_OPS {
-            a.shift(op, R8);
+            a.shift(op, P32, R8);
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
@@ -835,12 +912,16 @@ pub mod tests {
     fn shift_mode() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.shift(Shl, R8);
-        a.const_shift(Shl, R8, 7);
+        for &p in &ALL_PRECISIONS {
+            a.shift(Shl, p, R8);
+            a.const_shift(Shl, p, R8, 7);
+        }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "shl r8d,cl",
             "shl r8d,7",
+            "shl r8,cl",
+            "shl r8,7",
         ]).unwrap();
     }
 
@@ -849,14 +930,19 @@ pub mod tests {
     fn mul() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.mul(R8, R9);
-        a.const_mul(R10, R11, IMM);
-        a.load_mul(R13, (R14, DISP));
+        for &p in &ALL_PRECISIONS {
+            a.mul(p, R8, R9);
+            a.const_mul(p, R10, R11, IMM);
+            a.load_mul(p, R13, (R14, DISP));
+        }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "imul r8d,r9d",
             "imul r10d,r11d,76543210h",
             "imul r13d,[r14+12345678h]",
+            "imul r8,r9",
+            "imul r10,r11,76543210h",
+            "imul r13,[r14+12345678h]",
         ]).unwrap();
     }
 
@@ -915,16 +1001,22 @@ pub mod tests {
     fn move_if() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        a.move_if(G, true, R8, R9);
-        a.move_if(G, false, R10, R11);
-        a.load_if(G, true, RBP, (R13, DISP));
-        a.load_if(G, false, R14, (R15, DISP));
+        for &p in &ALL_PRECISIONS {
+            a.move_if(G, true, p, R8, R9);
+            a.move_if(G, false, p, R10, R11);
+            a.load_if(G, true, p, RBP, (R13, DISP));
+            a.load_if(G, false, p, R14, (R15, DISP));
+        }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "cmovg r8d,r9d",
             "cmovle r10d,r11d",
             "cmovg ebp,[r13+12345678h]",
             "cmovle r14d,[r15+12345678h]",
+            "cmovg r8,r9",
+            "cmovle r10,r11",
+            "cmovg rbp,[r13+12345678h]",
+            "cmovle r14,[r15+12345678h]",
         ]).unwrap();
     }
 
@@ -974,17 +1066,36 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assmeble loads and stores for narrow data. */
+    /** Test that we can assemble loads and stores for narrow data. */
     #[test]
     fn narrow() {
         let mut code_bytes = vec![0u8; 0x1000];
         let mut a = Assembler::new(&mut code_bytes);
-        for &w in &ALL_WIDTHS {
-            a.load_narrow(w, R9, (R8, DISP));
-            a.store_narrow(w, (R8, DISP), R9);
+        for &p in &ALL_PRECISIONS {
+            for &w in &ALL_WIDTHS {
+                a.load_narrow(p, w, R9, (R8, DISP));
+                a.store_narrow(w, (R8, DISP), R9);
+            }
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
+            "movzx r9d,byte [r8+12345678h]",
+            "mov [r8+12345678h],r9b",
+            "movsx r9d,byte [r8+12345678h]",
+            "mov [r8+12345678h],r9b",
+            "movzx r9d,word [r8+12345678h]",
+            "mov [r8+12345678h],r9w",
+            "movsx r9d,word [r8+12345678h]",
+            "mov [r8+12345678h],r9w",
+            "mov r9d,[r8+12345678h]",
+            "mov [r8+12345678h],r9d",
+            "movsxd r9d,dword [r8+12345678h]",
+            "mov [r8+12345678h],r9d",
+            "mov r9d,[r8+12345678h]",
+            "mov [r8+12345678h],r9",
+            "mov r9d,[r8+12345678h]",
+            "mov [r8+12345678h],r9",
+            
             "movzx r9,byte [r8+12345678h]",
             "mov [r8+12345678h],r9b",
             "movsx r9,byte [r8+12345678h]",
