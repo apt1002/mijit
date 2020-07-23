@@ -615,26 +615,6 @@ impl<'a> Assembler<'a> {
         self.write_ro_1(0x5840, rd);
     }
 
-    /** Store narrow data. */
-    pub fn store_narrow(&mut self, type_: Width, dest: (Register, i32), src: Register) {
-        match type_ {
-            U8 | S8 => {
-                self.write_rom_2(0x808840, dest.0, src);
-            }
-            U16 | S16 => {
-                self.write_byte(0x66);
-                self.write_rom_2(0x808940, dest.0, src);
-            }
-            U32 | S32 => {
-                self.write_rom_2(0x808940, dest.0, src);
-            }
-            U64 | S64 => {
-                self.write_rom_2(0x808948, dest.0, src);
-            }
-        }
-        self.write_imm32(dest.1);
-    }
-
     /** Load narrow data, zero-extending to 64 bits. */
     pub fn load_narrow(&mut self, type_: Width, dest: Register, src: (Register, i32)) {
         match type_ {
@@ -661,6 +641,26 @@ impl<'a> Assembler<'a> {
             }
         }
         self.write_imm32(src.1);
+    }
+
+    /** Store narrow data. */
+    pub fn store_narrow(&mut self, type_: Width, dest: (Register, i32), src: Register) {
+        match type_ {
+            U8 | S8 => {
+                self.write_rom_2(0x808840, dest.0, src);
+            }
+            U16 | S16 => {
+                self.write_byte(0x66);
+                self.write_rom_2(0x808940, dest.0, src);
+            }
+            U32 | S32 => {
+                self.write_rom_2(0x808940, dest.0, src);
+            }
+            U64 | S64 => {
+                self.write_rom_2(0x808948, dest.0, src);
+            }
+        }
+        self.write_imm32(dest.1);
     }
 }
 
