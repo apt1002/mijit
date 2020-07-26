@@ -143,10 +143,10 @@ impl code::Machine for Machine {
             State::Qdup => {vec![
                 ((TestOp::Eq(RD, 0), P32), vec![], State::Root),
                 ((TestOp::Ne(RD, 0), P32), vec![
-                     Constant(P32, RSI, cell_bytes(1)),
-                     Binary(Sub, P32, RA, RA, RSI),
-                     Store(RD, Four(RA, Memory::M)),
-                     StoreGlobal(RA, B_SP),
+                    Constant(P32, RSI, cell_bytes(1)),
+                    Binary(Sub, P32, RA, RA, RSI),
+                    Store(RD, Four(RA, Memory::M)),
+                    StoreGlobal(RA, B_SP),
                 ], State::Root),
             ]},
             State::Lshift => {vec![
