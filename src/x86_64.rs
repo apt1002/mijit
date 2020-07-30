@@ -28,8 +28,8 @@ use std::ops::{DerefMut};
 #[repr(u8)]
 pub enum Register {
     RA = 0,
-    RD = 1,
-    RC = 2,
+    RC = 1,
+    RD = 2,
     RB = 3,
     // SP is not a general-purpose register.
     RBP = 5,
@@ -72,7 +72,13 @@ impl Register {
 }
 
 pub const ALL_REGISTERS: [Register; 14] =
-    [RA, RD, RC, RB, RBP, RSI, RDI, R8, R9, R10, R11, R13, R14, R15];
+    [RA, RC, RD, RB, RBP, RSI, RDI, R8, R9, R10, R11, R13, R14, R15];
+
+/**
+ * In the System V amd64 calling convention, these registers must be preserved
+ * by subroutines.
+ */
+pub const CALLEE_SAVES: [Register; 5] = [RB, RBP, R13, R14, R15];
 
 //-----------------------------------------------------------------------------
 
