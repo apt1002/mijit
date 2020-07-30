@@ -1269,3 +1269,55 @@ impl code::Machine for Machine {
         vec![State::Root]
     }
 }
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    pub fn ackermann_object() -> Vec<u32> {
+        // Forth source:
+        // : ACKERMANN   ( m n -- result )
+        // OVER 0= IF                  \ m = 0
+        //     NIP 1+                  \ n+1
+        // ELSE
+        //     DUP 0= IF               \ n = 0
+        //         DROP 1- 1 RECURSE   \ A(m-1, 1)
+        //     ELSE
+        //         OVER 1- -ROT        \ m-1 m n
+        //         1- RECURSE          \ m-1 A(m, n-1)
+        //         RECURSE             \ A(m-1, A(m, n-1))
+        //     THEN
+        // THEN ;
+
+        // Beetle assembler:
+        // $00: OVER
+        //      0=
+        // $04: ?BRANCHI $10
+        // $08: NIP
+        //      1+
+        // $0C: BRANCHI $30
+        // $10: DUP
+        //      0=
+        // $14: ?BRANCHI $24
+        // $18: DROP
+        //      1-
+        //      1
+        // $1C: CALLI $0
+        // $20: BRANCHI $30
+        // $24: OVER
+        //      1-
+        //      -ROT
+        //      1-
+        // $28: CALLI $0
+        // $2C: CALLI $0
+        // $30: EXIT
+
+        // Beetle object code:
+        vec![
+            0x00001504, 0x0000024F, 0x00002108, 0x0000084D,
+            0x00001501, 0x0000034F, 0x001A2202, 0xFFFFF853,
+            0x0000034D, 0x22062204, 0xFFFFF553, 0xFFFFF453,
+            0x00000054,
+        ]
+    }
+}
