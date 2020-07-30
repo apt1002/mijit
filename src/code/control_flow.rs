@@ -51,7 +51,7 @@ pub trait Machine: Debug {
         Vec<(
             (TestOp, Precision),
             Vec<Action<Self::Memory, Self::Global>>,
-            Self::State
+            Self::State,
         )>;
 
     /** Returns some States from which all others are reachable. */

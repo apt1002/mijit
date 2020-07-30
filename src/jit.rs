@@ -48,6 +48,7 @@ pub struct History<M: code::Machine> {
  *  - new_index - updated `current_index`.
  */
 type RunFn = extern "C" fn(
+    /* pool */ *mut u64,
     /* current_index */  usize,
 ) -> /* new_index */ usize;
 
@@ -297,11 +298,18 @@ pub struct Jit<M: Machine> {
      * The locations of the compiled code for all retire transitions,
      * and of all instructions that jump to them.
      */
+    fetch_labels: Vec<Label>,
+    /**
+     * The locations of the compiled code for all retire transitions,
+     * and of all instructions that jump to them.
+     */
     retire_labels: Vec<Label>,
     /** The mmapped memory buffer containing the compiled code. */
     buffer: Buffer,
     /** The number of bytes of `buffer` already occupied. */
     used: usize,
+    /** The pool of mutable storage locations. */
+    pool: Vec<u64>,
 }
 
 impl<M: Machine> Jit<M> {
@@ -328,22 +336,32 @@ impl<M: Machine> Jit<M> {
         }
 
         // Assemble the function prologue.
+        let mut fetch_labels: Vec<Label> = (0..states.len()).map(|_| Label::new(None)).collect();
         let mut retire_labels: Vec<Label> = (0..states.len()).map(|_| Label::new(None)).collect();
         let mut buffer = Buffer::new(code_size).expect("couldn't allocate memory");
         let mut a = Assembler::new(&mut buffer);
+        for &r in &CALLEE_SAVES {
+            a.push(r);
+        }
+        a.move_(P64, R8, RDI);
         for (index, &_) in states.iter().enumerate() {
-            a.const_op(Cmp, P32, R8, index as i32);
-            a.jump_if(Condition::Z, true, &mut retire_labels[index]);
+            a.const_op(Cmp, P32, RSI, index as i32);
+            a.jump_if(Condition::Z, true, &mut fetch_labels[index]);
         }
         a.const_(P32, RA, -1);
 
         // Assemble the function epilogue.
         let mut epilogue = Label::new(None);
         a.define(&mut epilogue);
+        for &r in CALLEE_SAVES.iter().rev() {
+            a.pop(r);
+        }
         a.ret();
 
         // Construct the root labels.
         for (index, _) in states.iter().enumerate() {
+            a.define(&mut fetch_labels[index]);
+            a.const_jump(&mut retire_labels[index]);
             a.define(&mut retire_labels[index]);
             a.const_(P32, RA, index as i64);
             a.const_jump(&mut epilogue);
@@ -351,7 +369,8 @@ impl<M: Machine> Jit<M> {
 
         // Construct the Jit.
         let used = a.get_pos();
-        let mut jit = Jit {machine, states, globals, retire_labels, buffer, used};
+        let pool = vec![0; globals.len()];
+        let mut jit = Jit {machine, states, globals, fetch_labels, retire_labels, buffer, used, pool};
 
         // Construct the root Histories.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
@@ -376,6 +395,11 @@ impl<M: Machine> Jit<M> {
 
     pub fn globals(&self) -> &IndexSet<M::Global> {
         &self.globals
+    }
+
+    pub fn global(&mut self, global: &M::Global) -> &mut u64 {
+        let index = self.globals.get_index_of(global).expect("Unknown global");
+        &mut self.pool[index]
     }
 
     /**
@@ -415,16 +439,18 @@ impl<M: Machine> Jit<M> {
         for action in actions {
             ja.lower_action(action);
         }
-        ja.a.const_jump(&mut self.retire_labels[new_index]);
+        ja.a.const_jump(&mut self.fetch_labels[new_index]);
         self.used = ja.a.get_pos();
     }
 
     pub fn execute(mut self, state: M::State) -> (Self, M::State) {
         let index = self.states.get_index_of(&state).expect("invalid state");
+        assert!(self.pool.len() >= self.globals.len());
+        let pool = self.pool.as_mut_ptr();
         let (buffer, new_index) = self.buffer.execute(|bytes| {
             // FIXME: assert we are on x86_64 at compile time.
             let f: RunFn = unsafe { mem::transmute(&bytes[0]) };
-            f(index)
+            f(pool, index)
         }).expect("Couldn't change permissions");
         self.buffer = buffer;
         let new_state = self.states.get_index(new_index).expect("invalid index").clone();
@@ -437,262 +463,86 @@ impl<M: Machine> Jit<M> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use super::x86_64::tests::{disassemble};
+
+    mod factorial {
+        use super::code::*;
+        use Action::*;
+        use BinaryOp::*;
+        use Precision::*;
+        use R::*;
+
+        #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+        pub enum State {Start, Loop, Return}
+
+        #[derive(Debug, Clone, Hash, PartialEq, Eq)]
+        pub enum Global {N, Result}
+
+        impl super::code::Alias for () {}
+
+        #[derive(Debug)]
+        pub struct Machine;
+
+        impl super::code::Machine for Machine {
+            type State = State;
+            type Global = Global;
+            type Memory = ();
+            
+            fn get_code(&self, state: Self::State) ->
+                Vec<(
+                    (TestOp, Precision),
+                    Vec<Action<Self::Memory, Self::Global>>,
+                    Self::State,
+                )>
+            {
+                match state {
+                    State::Start => {vec![
+                        ((TestOp::Always, P32), vec![
+                            Constant(P32, RD, 1),
+                            LoadGlobal(RA, Global::N),
+                        ], State::Loop),
+                    ]},
+                    State::Loop => {vec![
+                        ((TestOp::Eq(RA, 0), P32), vec![
+                            StoreGlobal(RD, Global::Result),
+                        ], State::Return),
+                        ((TestOp::Ne(RA, 0), P32), vec![
+                            Binary(Mul, P32, RD, RD, RA),
+                            Constant(P32, RC, 1),
+                            Binary(Sub, P32, RA, RA, RC),
+                        ], State::Loop),
+                    ]},
+                    State::Return => {vec![]},
+                }
+            }
+
+            fn initial_states(&self) -> Vec<Self::State> {
+                vec![State::Start]
+            }
+        }
+    }
 
     const CODE_SIZE: usize = 1 << 20;
 
     #[test]
-    #[ignore]
-    pub fn beetle() {
-        use super::super::{beetle};
-        use beetle::State::*;
-        let jit = Jit::new(beetle::Machine, CODE_SIZE);
+    pub fn factorial() {
+        use factorial::*;
+        use State::*;
+
+        let mut jit = Jit::new(Machine, CODE_SIZE);
 
         // Check the `states` list.
         let expected: IndexSet<_> = vec![
-            Root, Dispatch, Next, Pick, Roll, Qdup, Lshift, Rshift, Branch, Branchi,
-            Qbranch, Qbranchi, Loop, Loopi, Ploop, Ploopi, Ploopp, Ploopm, Ploopip, Ploopim,
+            Start, Loop, Return,
         ]
         .into_iter()
         .collect();
         assert_eq!(jit.states(), &expected);
 
-        // Disassemble the prologue and epilogue.
-        disassemble(&jit.buffer[..jit.used], vec![
-            "cmp r8d,0",
-            "je near 0000000000000247h",
-            "cmp r8d,1",
-            "je near 000000000000024Dh",
-            "cmp r8d,2",
-            "je near 0000000000000487h",
-            "cmp r8d,3",
-            "je near 000000000000048Dh",
-            "cmp r8d,4",
-            "je near 00000000000004A5h",
-            "cmp r8d,5",
-            "je near 00000000000004BDh",
-            "cmp r8d,6",
-            "je near 00000000000004C9h",
-            "cmp r8d,7",
-            "je near 00000000000004D5h",
-            "cmp r8d,8",
-            "je near 00000000000004E1h",
-            "cmp r8d,9",
-            "je near 00000000000004EDh",
-            "cmp r8d,0Ah",
-            "je near 00000000000004F9h",
-            "cmp r8d,0Bh",
-            "je near 0000000000000505h",
-            "cmp r8d,0Ch",
-            "je near 000000000000050Bh",
-            "cmp r8d,0Dh",
-            "je near 0000000000000511h",
-            "cmp r8d,0Eh",
-            "je near 000000000000051Dh",
-            "cmp r8d,0Fh",
-            "je near 0000000000000529h",
-            "cmp r8d,10h",
-            "je near 0000000000000535h",
-            "cmp r8d,11h",
-            "je near 0000000000000541h",
-            "cmp r8d,12h",
-            "je near 000000000000054Dh",
-            "cmp r8d,13h",
-            "je near 0000000000000559h",
-            "cmp r8d,14h",
-            "je near 0000000000000565h",
-            "cmp r8d,15h",
-            "je near 0000000000000571h",
-            "cmp r8d,16h",
-            "je near 000000000000057Dh",
-            "mov eax,0FFFFFFFFh",
-            "ret",
-            "mov eax,0",
-            "jmp 0000000000000131h",
-            "mov eax,1",
-            "jmp 0000000000000131h",
-            "mov eax,2",
-            "jmp 0000000000000131h",
-            "mov eax,3",
-            "jmp 0000000000000131h",
-            "mov eax,4",
-            "jmp 0000000000000131h",
-            "mov eax,5",
-            "jmp 0000000000000131h",
-            "mov eax,6",
-            "jmp 0000000000000131h",
-            "mov eax,7",
-            "jmp 0000000000000131h",
-            "mov eax,8",
-            "jmp 0000000000000131h",
-            "mov eax,9",
-            "jmp 0000000000000131h",
-            "mov eax,0Ah",
-            "jmp 0000000000000131h",
-            "mov eax,0Bh",
-            "jmp 0000000000000131h",
-            "mov eax,0Ch",
-            "jmp 0000000000000131h",
-            "mov eax,0Dh",
-            "jmp 0000000000000131h",
-            "mov eax,0Eh",
-            "jmp 0000000000000131h",
-            "mov eax,0Fh",
-            "jmp 0000000000000131h",
-            "mov eax,10h",
-            "jmp 0000000000000131h",
-            "mov eax,11h",
-            "jmp 0000000000000131h",
-            "mov eax,12h",
-            "jmp 0000000000000131h",
-            "mov eax,13h",
-            "jmp 0000000000000131h",
-            "mov eax,14h",
-            "jmp 0000000000000131h",
-            "mov eax,15h",
-            "jmp 0000000000000131h",
-            "mov eax,16h",
-            "jmp 0000000000000131h",
-            "jmp 0000000000000133h",
-            "jmp 0000000000000253h",
-            "jmp 0000000000000259h",
-            "jmp 000000000000025Fh",
-            "jmp 0000000000000265h",
-            "jmp 000000000000026Bh",
-            "jmp 0000000000000271h",
-            "jmp 0000000000000277h",
-            "jmp 000000000000027Dh",
-            "jmp 0000000000000283h",
-            "jmp 0000000000000289h",
-            "jmp 000000000000028Fh",
-            "jmp 0000000000000295h",
-            "jmp 000000000000029Bh",
-            "jmp 00000000000002A1h",
-            "jmp 00000000000002A7h",
-            "jmp 00000000000002ADh",
-            "jmp 00000000000002B3h",
-            "jmp 00000000000002B9h",
-            "jmp 00000000000002BFh",
-            "jmp 00000000000002C5h",
-            "jmp 00000000000002CBh",
-            "jmp 00000000000002D1h",
-            "jmp 00000000000002D7h",
-            "jmp 00000000000002DDh",
-            "jmp 00000000000002E3h",
-            "jmp 00000000000002E9h",
-            "jmp 00000000000002EFh",
-            "jmp 00000000000002F5h",
-            "jmp 00000000000002FBh",
-            "jmp 0000000000000301h",
-            "jmp 0000000000000307h",
-            "jmp 000000000000030Dh",
-            "jmp 0000000000000313h",
-            "jmp 0000000000000319h",
-            "jmp 000000000000031Fh",
-            "jmp 0000000000000325h",
-            "jmp 000000000000032Bh",
-            "jmp 0000000000000331h",
-            "jmp 0000000000000337h",
-            "jmp 000000000000033Dh",
-            "jmp 0000000000000343h",
-            "jmp 0000000000000349h",
-            "jmp 000000000000034Fh",
-            "jmp 0000000000000355h",
-            "jmp 000000000000035Bh",
-            "jmp 0000000000000361h",
-            "jmp 0000000000000367h",
-            "jmp 000000000000036Dh",
-            "jmp 0000000000000373h",
-            "jmp 0000000000000379h",
-            "jmp 000000000000037Fh",
-            "jmp 0000000000000385h",
-            "jmp 000000000000038Bh",
-            "jmp 0000000000000391h",
-            "jmp 0000000000000397h",
-            "jmp 000000000000039Dh",
-            "jmp 00000000000003A3h",
-            "jmp 00000000000003A9h",
-            "jmp 00000000000003AFh",
-            "jmp 00000000000003B5h",
-            "jmp 00000000000003BBh",
-            "jmp 00000000000003C1h",
-            "jmp 00000000000003C7h",
-            "jmp 00000000000003CDh",
-            "jmp 00000000000003D3h",
-            "jmp 00000000000003D9h",
-            "jmp 00000000000003DFh",
-            "jmp 00000000000003E5h",
-            "jmp 00000000000003EBh",
-            "jmp 00000000000003F1h",
-            "jmp 00000000000003F7h",
-            "jmp 00000000000003FDh",
-            "jmp 0000000000000403h",
-            "jmp 0000000000000409h",
-            "jmp 000000000000040Fh",
-            "jmp 0000000000000415h",
-            "jmp 000000000000041Bh",
-            "jmp 0000000000000421h",
-            "jmp 0000000000000427h",
-            "jmp 000000000000042Dh",
-            "jmp 0000000000000433h",
-            "jmp 0000000000000439h",
-            "jmp 000000000000043Fh",
-            "jmp 0000000000000445h",
-            "jmp 000000000000044Bh",
-            "jmp 0000000000000451h",
-            "jmp 0000000000000457h",
-            "jmp 000000000000045Dh",
-            "jmp 0000000000000463h",
-            "jmp 0000000000000469h",
-            "jmp 000000000000046Fh",
-            "jmp 0000000000000475h",
-            "jmp 000000000000047Bh",
-            "jmp 0000000000000481h",
-            "jmp 000000000000013Fh",
-            "jmp 000000000000014Bh",
-            "jmp 0000000000000493h",
-            "jmp 0000000000000499h",
-            "jmp 000000000000049Fh",
-            "jmp 0000000000000157h",
-            "jmp 00000000000004ABh",
-            "jmp 00000000000004B1h",
-            "jmp 00000000000004B7h",
-            "jmp 0000000000000163h",
-            "jmp 00000000000004C3h",
-            "jmp 000000000000016Fh",
-            "jmp 00000000000004CFh",
-            "jmp 000000000000017Bh",
-            "jmp 00000000000004DBh",
-            "jmp 0000000000000187h",
-            "jmp 00000000000004E7h",
-            "jmp 0000000000000193h",
-            "jmp 00000000000004F3h",
-            "jmp 000000000000019Fh",
-            "jmp 00000000000004FFh",
-            "jmp 00000000000001ABh",
-            "jmp 00000000000001B7h",
-            "jmp 00000000000001C3h",
-            "jmp 0000000000000517h",
-            "jmp 00000000000001CFh",
-            "jmp 0000000000000523h",
-            "jmp 00000000000001DBh",
-            "jmp 000000000000052Fh",
-            "jmp 00000000000001E7h",
-            "jmp 000000000000053Bh",
-            "jmp 00000000000001F3h",
-            "jmp 0000000000000547h",
-            "jmp 00000000000001FFh",
-            "jmp 0000000000000553h",
-            "jmp 000000000000020Bh",
-            "jmp 000000000000055Fh",
-            "jmp 0000000000000217h",
-            "jmp 000000000000056Bh",
-            "jmp 0000000000000223h",
-            "jmp 0000000000000577h",
-            "jmp 000000000000022Fh",
-            "jmp 0000000000000583h",
-            "jmp 000000000000023Bh",
-        ]).unwrap();
+        // Run some "code".
+        *jit.global(&Global::N) = 5;
+        let (mut jit, final_state) = jit.execute(Start);
+        assert_eq!(final_state, Return);
+        assert_eq!(*jit.global(&Global::Result), 120);
     }
 
     #[test]
