@@ -521,7 +521,8 @@ pub mod tests {
         }
     }
 
-    const CODE_SIZE: usize = 1 << 20;
+    /** An amount of code space suitable for running tests. */
+    pub const CODE_SIZE: usize = 1 << 20;
 
     #[test]
     pub fn factorial() {

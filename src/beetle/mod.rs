@@ -35,7 +35,7 @@ pub enum Global {
     Memory0,
 }
 
-/** Computes the number of bytes in `n` words. */
+/** Computes the number of bytes in `n` cells. */
 pub const fn cell_bytes(n: i64) -> i64 { Wrapping(4 * n).0 }
 
 /** The number of bits in a word. */
@@ -1274,6 +1274,8 @@ impl code::Machine for Machine {
 
 #[cfg(test)]
 pub mod tests {
+    use super::*;
+
     pub fn ackermann_object() -> Vec<u32> {
         // Forth source:
         // : ACKERMANN   ( m n -- result )
@@ -1319,5 +1321,151 @@ pub mod tests {
             0x0000034D, 0x22062204, 0xFFFFF553, 0xFFFFF453,
             0x00000054,
         ]
+    }
+
+    use crate::{jit};
+
+    /** The size of the Beetle memory, in cells. */
+    const MEMORY_CELLS: usize = 1 << 20;
+    /** The size of the Beetle data stack, in cells. */
+    const DATA_CELLS: usize = 1 << 18;
+    /** The size of the Beetle return stack, in cells. */
+    const RETURN_CELLS: usize = 1 << 18;
+
+    pub struct VM {
+        /** The compiled code, registers, and other compiler state. */
+        jit: jit::Jit<Machine>,
+        /** The Beetle memory. */
+        memory: Vec<u32>,
+        /** The amount of unallocated memory, in cells. */
+        free_cells: u32,
+    }
+
+    impl VM {
+        /**
+         * Constructs a Beetle virtual machine with the specified parameters.
+         *
+         * The memory is `memory_cells` cells. The data stack occupies the last
+         * `data_cells` cells of the memory, and the return stack occupies
+         * the last `return_cells` cells before that. The cells before that
+         * are free for the program's use.
+         */
+        pub fn new(
+            memory_cells: usize,
+            data_cells: usize,
+            return_cells: usize,
+        ) -> Self {
+            assert!(memory_cells <= u32::MAX as usize);
+            assert!(data_cells <= u32::MAX as usize);
+            assert!(return_cells <= u32::MAX as usize);
+            let mut vm = VM {
+                jit: jit::Jit::new(Machine, jit::tests::CODE_SIZE),
+                memory: (0..memory_cells).map(|_| 0).collect(),
+                free_cells: memory_cells as u32,
+            };
+            // Initialize the memory.
+            *vm.jit.global(&Global::Memory0) = vm.memory.as_mut_ptr() as u64;
+            // Allocate the data stack.
+            let s0 = vm.allocate(data_cells as u32);
+            let sp = s0 + cell_bytes(data_cells as i64) as u32;
+            vm.set(&Global::S0, s0);
+            vm.set(&Global::SP, sp);
+            // Allocate the return stack.
+            let r0 = vm.allocate(return_cells as u32);
+            let rp = r0 + cell_bytes(return_cells as i64) as u32;
+            vm.set(&Global::R0, r0);
+            vm.set(&Global::RP, rp);
+            vm
+        }
+
+        /** Read a register. */
+        pub fn get(&mut self, global: &Global) -> u32 {
+            *self.jit.global(global) as u32
+        }
+
+        /** Write a register. */
+        pub fn set(&mut self, global: &Global, value: u32) {
+            *self.jit.global(global) = value as u64
+        }
+
+        /**
+         * Allocate `cells` cells and return a Beetle pointer to them.
+         * Allocation starts at the top of memory and is permanent.
+         */
+        pub fn allocate(&mut self, cells: u32) -> u32 {
+            assert!(cells <= self.free_cells);
+            self.free_cells -= cells;
+            self.free_cells
+        }
+
+        /**
+         * Load `object` at address zero, i.e. in the unallocated memory.
+         */
+        pub fn load(&mut self, object: &[u32]) {
+            assert!(object.len() <= self.free_cells as usize);
+            for (i, &cell) in object.iter().enumerate() {
+                self.memory[i] = cell;
+            }
+        }
+
+        /** Push `item` onto the data stack. */
+        pub fn push(&mut self, item: u32) {
+            let mut sp = self.get(&Global::SP);
+            sp -= cell_bytes(1) as u32;
+            self.set(&Global::SP, sp);
+            self.memory[sp as usize] = item;
+        }
+
+        /** Pop an item from the data stack. */
+        pub fn pop(&mut self) -> u32 {
+            let mut sp = self.get(&Global::SP);
+            let item = self.memory[sp as usize];
+            sp += cell_bytes(1) as u32;
+            self.set(&Global::SP, sp);
+            item
+        }
+
+        /** Push `item` onto the return stack. */
+        pub fn rpush(&mut self, item: u32) {
+            let mut rp = self.get(&Global::RP);
+            rp -= cell_bytes(1) as u32;
+            self.set(&Global::RP, rp);
+            self.memory[rp as usize] = item;
+        }
+
+        /** Pop an item from the return stack. */
+        pub fn rpop(&mut self) -> u32 {
+            let mut rp = self.get(&Global::RP);
+            let item = self.memory[rp as usize];
+            rp += cell_bytes(1) as u32;
+            self.set(&Global::RP, rp);
+            item
+        }
+
+        /** Run the code at address `ep`. */
+        pub fn run(mut self, ep: u32) -> Self {
+            assert_eq!(ep & 0x3, 0);
+            self.set(&Global::EP, ep);
+            let (jit, state) = self.jit.execute(State::Root);
+            assert_eq!(state, State::Dispatch);
+            self.jit = jit;
+            self
+        }
+    }
+
+    #[test]
+    pub fn ackermann() {
+        let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
+        let initial_sp = vm.get(&Global::SP);
+        let initial_rp = vm.get(&Global::RP);
+        vm.load(ackermann_object().as_ref());
+        vm.push(5);
+        vm.push(3);
+        vm.rpush(0xFFFFFFFF);
+        vm = vm.run(0);
+        let result = vm.pop();
+        assert_eq!(initial_sp, vm.get(&Global::SP));
+        assert_eq!(initial_rp, vm.get(&Global::RP));
+        assert_eq!(result, 253);
     }
 }
