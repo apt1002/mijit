@@ -1,13 +1,12 @@
 use std::num::{Wrapping};
 
 use super::code::{
-    self, TestOp, Precision, MemoryLocation, UnaryOp, BinaryOp, DivisionOp,
+    self, TestOp, Precision, MemoryLocation, UnaryOp, BinaryOp,
 };
 use code::Action::*;
 use MemoryLocation::*;
 use UnaryOp::*;
 use BinaryOp::*;
-use DivisionOp::*;
 use Precision::*;
 
 use code::R::{RA, RD, RC, RB, RBP, RSI};
@@ -63,6 +62,7 @@ pub enum State {
     Ploopip,
     Ploopim,
     Ploopi,
+    Halt,
 }
 
 //-----------------------------------------------------------------------------
@@ -406,6 +406,7 @@ impl code::Machine for Machine {
                     b.binary(And, RBP, RBP, RB);
                 }, State::Ploopim),
             ]},
+            State::Halt => {vec![]},
             State::Dispatch => {vec![
                 // NEXT
                 build(TestOp::Bits(RA, 0xff, 0x00), |_| {}, State::Next),
@@ -747,6 +748,7 @@ impl code::Machine for Machine {
                     b.store_global(RA, B_SP);
                 }, State::Root),
 
+                /* TODO:
                 // /
                 build(TestOp::Bits(RA, 0xff, 0x26), |_| {
                     // TODO
@@ -781,6 +783,7 @@ impl code::Machine for Machine {
                     b.store(RD, RB);
                     b.push(RA, RB);
                 }, State::Root),
+                */
 
                 // 2/
                 build(TestOp::Bits(RA, 0xff, 0x2b), |b| {
@@ -1261,6 +1264,9 @@ impl code::Machine for Machine {
                     b.load(RA, RA);
                     b.store_global(RA, B_EP); // FIXME: Add check that EP is valid.
                 }, State::Next),
+
+                // HALT
+                build(TestOp::Bits(RA, 0xff, 0x5f), |_| {}, State::Halt),
             ]},
         }
     }
@@ -1339,6 +1345,8 @@ pub mod tests {
         memory: Vec<u32>,
         /** The amount of unallocated memory, in cells. */
         free_cells: u32,
+        /** The address of a HALT instruction. */
+        halt_addr: u32,
     }
 
     impl VM {
@@ -1362,6 +1370,7 @@ pub mod tests {
                 jit: jit::Jit::new(Machine, jit::tests::CODE_SIZE),
                 memory: (0..memory_cells).map(|_| 0).collect(),
                 free_cells: memory_cells as u32,
+                halt_addr: 0,
             };
             // Initialize the memory.
             *vm.jit.global(&Global::Memory0) = vm.memory.as_mut_ptr() as u64;
@@ -1375,6 +1384,9 @@ pub mod tests {
             let rp = r0 + cell_bytes(return_cells as i64) as u32;
             vm.set(&Global::R0, r0);
             vm.set(&Global::RP, rp);
+            // Allocate a word to hold a HALT instruction.
+            vm.halt_addr = vm.allocate(1);
+            vm.store(vm.halt_addr, 0x5F);
             vm
         }
 
@@ -1395,17 +1407,29 @@ pub mod tests {
         pub fn allocate(&mut self, cells: u32) -> u32 {
             assert!(cells <= self.free_cells);
             self.free_cells -= cells;
-            self.free_cells
+            cell_bytes(self.free_cells as i64) as u32
         }
 
         /**
          * Load `object` at address zero, i.e. in the unallocated memory.
          */
-        pub fn load(&mut self, object: &[u32]) {
+        pub fn load_object(&mut self, object: &[u32]) {
             assert!(object.len() <= self.free_cells as usize);
             for (i, &cell) in object.iter().enumerate() {
                 self.memory[i] = cell;
             }
+        }
+
+        /** Return the value of the word at address `addr`. */
+        pub fn load(&mut self, addr: u32) -> u32 {
+            assert_eq!(addr & 0x3, 0);
+            self.memory[(addr >> 2) as usize]
+        }
+
+        /** Set the word at address `addr` to `value`. */
+        pub fn store(&mut self, addr: u32, value: u32) {
+            assert_eq!(addr & 0x3, 0);
+            self.memory[(addr >> 2) as usize] = value;
         }
 
         /** Push `item` onto the data stack. */
@@ -1413,13 +1437,13 @@ pub mod tests {
             let mut sp = self.get(&Global::SP);
             sp -= cell_bytes(1) as u32;
             self.set(&Global::SP, sp);
-            self.memory[sp as usize] = item;
+            self.store(sp, item);
         }
 
         /** Pop an item from the data stack. */
         pub fn pop(&mut self) -> u32 {
             let mut sp = self.get(&Global::SP);
-            let item = self.memory[sp as usize];
+            let item = self.load(sp);
             sp += cell_bytes(1) as u32;
             self.set(&Global::SP, sp);
             item
@@ -1430,13 +1454,13 @@ pub mod tests {
             let mut rp = self.get(&Global::RP);
             rp -= cell_bytes(1) as u32;
             self.set(&Global::RP, rp);
-            self.memory[rp as usize] = item;
+            self.store(rp, item);
         }
 
         /** Pop an item from the return stack. */
         pub fn rpop(&mut self) -> u32 {
             let mut rp = self.get(&Global::RP);
-            let item = self.memory[rp as usize];
+            let item = self.load(rp);
             rp += cell_bytes(1) as u32;
             self.set(&Global::RP, rp);
             item
@@ -1447,7 +1471,7 @@ pub mod tests {
             assert_eq!(ep & 0x3, 0);
             self.set(&Global::EP, ep);
             let (jit, state) = self.jit.execute(State::Root);
-            assert_eq!(state, State::Dispatch);
+		            assert_eq!(state, State::Dispatch);
             self.jit = jit;
             self
         }
@@ -1458,10 +1482,10 @@ pub mod tests {
         let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
         let initial_sp = vm.get(&Global::SP);
         let initial_rp = vm.get(&Global::RP);
-        vm.load(ackermann_object().as_ref());
-        vm.push(5);
+        vm.load_object(ackermann_object().as_ref());
         vm.push(3);
-        vm.rpush(0xFFFFFFFF);
+        vm.push(5);
+        vm.rpush(vm.halt_addr);
         vm = vm.run(0);
         let result = vm.pop();
         assert_eq!(initial_sp, vm.get(&Global::SP));
