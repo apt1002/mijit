@@ -586,6 +586,17 @@ impl<'a> Assembler<'a> {
         self.write_imm32(src.1);
     }
 
+    /** Unsigned long divide (D, A) by register. Quotient in A, remainder in D. */
+    pub fn udiv(&mut self, prec: Precision, src: Register) {
+        self.write_rom_1(0xF0F740, prec, src);
+    }
+
+    /** Unsigned long divide (D, A) by memory. Quotient in A, remainder in D. */
+    pub fn load_udiv(&mut self, prec: Precision, src: (Register, i32)) {
+        self.write_rom_1(0xB0F740, prec, src.0);
+        self.write_imm32(src.1);
+    }
+
     /** Conditional move. */
     pub fn move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: Register) {
         self.write_room_2(cc.move_if(is_true), prec, src, dest);
@@ -978,6 +989,24 @@ pub mod tests {
             "imul r8,r9",
             "imul r10,r11,76543210h",
             "imul r13,[r14+12345678h]",
+        ]).unwrap();
+    }
+
+    /** Test that we can assemble divisions in all the different ways. */
+    #[test]
+    fn div() {
+        let mut code_bytes = vec![0u8; 0x1000];
+        let mut a = Assembler::new(&mut code_bytes);
+        for &p in &ALL_PRECISIONS {
+            a.udiv(p, R8);
+            a.load_udiv(p, (R14, DISP));
+        }
+        let len = a.get_pos();
+        disassemble(&code_bytes[..len], vec![
+            "div r8d",
+            "div dword [r14+12345678h]",
+            "div r8",
+            "div qword [r14+12345678h]",
         ]).unwrap();
     }
 
