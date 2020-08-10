@@ -1375,14 +1375,14 @@ pub mod tests {
             // Initialize the memory.
             *vm.jit.global(&Global::Memory0) = vm.memory.as_mut_ptr() as u64;
             // Allocate the data stack.
-            let s0 = vm.allocate(data_cells as u32);
-            let sp = s0 + cell_bytes(data_cells as i64) as u32;
-            vm.set(&Global::S0, s0);
+            let s_base = vm.allocate(data_cells as u32);
+            let sp = s_base + cell_bytes(data_cells as i64) as u32;
+            vm.set(&Global::S0, sp);
             vm.set(&Global::SP, sp);
             // Allocate the return stack.
-            let r0 = vm.allocate(return_cells as u32);
-            let rp = r0 + cell_bytes(return_cells as i64) as u32;
-            vm.set(&Global::R0, r0);
+            let r_base = vm.allocate(return_cells as u32);
+            let rp = r_base + cell_bytes(return_cells as i64) as u32;
+            vm.set(&Global::R0, rp);
             vm.set(&Global::RP, rp);
             // Allocate a word to hold a HALT instruction.
             vm.halt_addr = vm.allocate(1);
@@ -1480,16 +1480,14 @@ pub mod tests {
     #[test]
     pub fn ackermann() {
         let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
-        let initial_sp = vm.get(&Global::SP);
-        let initial_rp = vm.get(&Global::RP);
         vm.load_object(ackermann_object().as_ref());
         vm.push(3);
         vm.push(5);
         vm.rpush(vm.halt_addr);
         vm = vm.run(0);
         let result = vm.pop();
-        assert_eq!(initial_sp, vm.get(&Global::SP));
-        assert_eq!(initial_rp, vm.get(&Global::RP));
+        assert_eq!(vm.get(&Global::S0), vm.get(&Global::SP));
+        assert_eq!(vm.get(&Global::R0), vm.get(&Global::RP));
         assert_eq!(result, 253);
     }
 }
