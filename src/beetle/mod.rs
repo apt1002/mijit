@@ -125,7 +125,7 @@ impl Builder {
     }
 
     fn store_global(&mut self, src: code::R, global: Global) {
-        self.0.push(LoadGlobal(src, global));
+        self.0.push(StoreGlobal(src, global));
     }
 
     /**
