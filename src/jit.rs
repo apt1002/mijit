@@ -278,6 +278,9 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
             Action::Pop(dest) => {
                 self.a.pop(dest);
             },
+            Action::Debug => {
+                self.a.debug();
+            },
         };
     }
 }

@@ -80,6 +80,12 @@ pub const ALL_REGISTERS: [Register; 14] =
  */
 pub const CALLEE_SAVES: [Register; 5] = [RB, RBP, R13, R14, R15];
 
+/**
+ * In the System V amd64 calling convention, these registers may be
+ * corrupted by subroutines.
+ */
+pub const CALLER_SAVES: [Register; 8] = [RDI, RSI, RD, RC, R8, R9, R10, R11];
+
 //-----------------------------------------------------------------------------
 
 /** Represents the value of the `scale` field of a `SIB` byte. */
@@ -335,6 +341,11 @@ const UNKNOWN_DISP: i32 = -0x80000000;
 /** Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`. */
 pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
     if let Some(to) = to { disp32(from, to) } else { UNKNOWN_DISP }
+}
+
+#[no_mangle]
+pub extern fn mijit_fooble() {
+    print!("debug");
 }
 
 /**
@@ -727,6 +738,19 @@ impl<'a> Assembler<'a> {
             }
         }
         self.write_imm32(dest.1);
+    }
+
+    /** Call a function that can be used as a breakpoint. */
+    pub fn debug(&mut self) {
+        // R10, R11 and unused argument and return registers
+        for &r in &CALLER_SAVES {
+            self.push(r);
+        }
+        self.const_(P64, RC, mijit_fooble as *const() as i64);
+        self.call(RC);
+        for &r in CALLER_SAVES.iter().rev() {
+            self.pop(r);
+        }
     }
 }
 
@@ -1208,5 +1232,10 @@ pub mod tests {
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
+    }
+
+    #[test]
+    fn fooble() {
+        mijit_fooble();
     }
 }

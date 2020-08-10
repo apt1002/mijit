@@ -205,6 +205,11 @@ impl Builder {
         self.const_binary(Sub, addr, addr, cell_bytes(1));
         self.store(src, addr);
     }
+
+    #[allow(dead_code)]
+    fn debug(&mut self) {
+        self.0.push(Debug);
+    }
 }
 
 //-----------------------------------------------------------------------------
