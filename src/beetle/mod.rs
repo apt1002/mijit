@@ -318,7 +318,7 @@ impl code::Machine for Machine {
             ]},
             State::Qbranchi => {vec![
                 build(TestOp::Eq(RD, 0), |_| {}, State::Branchi),
-                build(TestOp::Ne(RD, 0), |_| {}, State::Root),
+                build(TestOp::Ne(RD, 0), |_| {}, State::Next),
             ]},
             State::Loop => {vec![
                 build(TestOp::Eq(RB, 0), |b| {
@@ -339,7 +339,7 @@ impl code::Machine for Machine {
                     b.load_global(RA, B_RP);
                     b.const_binary(Add, RA, RA, cell_bytes(2));
                     b.store_global(RA, B_RP);
-                }, State::Root),
+                }, State::Next),
                 build(TestOp::Ne(RB, 0), |_| {}, State::Branchi),
             ]},
             State::Ploopp => {vec![
