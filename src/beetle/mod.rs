@@ -1468,12 +1468,17 @@ pub mod tests {
 
         /** Run the code at address `ep`. */
         pub fn run(mut self, ep: u32) -> Self {
-            assert_eq!(ep & 0x3, 0);
+            assert!(Self::is_aligned(ep));
             self.set(&Global::EP, ep);
             let (jit, state) = self.jit.execute(State::Root);
-		            assert_eq!(state, State::Dispatch);
+	    assert_eq!(state, State::Halt);
             self.jit = jit;
             self
+        }
+
+        /** Indicate whether an address is cell-aligned. */
+        pub fn is_aligned(addr: u32) -> bool {
+            addr & 0x3 == 0
         }
     }
 
