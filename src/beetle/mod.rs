@@ -207,8 +207,8 @@ impl Builder {
     }
 
     #[allow(dead_code)]
-    fn debug(&mut self) {
-        self.0.push(Debug);
+    fn debug(&mut self, x: code::R) {
+        self.0.push(Debug(x));
     }
 }
 
@@ -230,6 +230,7 @@ impl code::Machine for Machine {
                     b.load_global(RA, B_A);
                     b.const_binary(Asr, RD, RA, 8);
                     b.store_global(RD, B_A);
+                    b.debug(RA); // TODO: Remove.
                 }, State::Dispatch),
             ]},
             State::Next => {vec![

@@ -84,7 +84,7 @@ pub const CALLEE_SAVES: [Register; 5] = [RB, RBP, R13, R14, R15];
  * In the System V amd64 calling convention, these registers may be
  * corrupted by subroutines.
  */
-pub const CALLER_SAVES: [Register; 8] = [RDI, RSI, RD, RC, R8, R9, R10, R11];
+pub const CALLER_SAVES: [Register; 9] = [RDI, RSI, RD, RC, R8, R9, R10, R11, RA];
 
 //-----------------------------------------------------------------------------
 
@@ -344,8 +344,8 @@ pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
 }
 
 #[no_mangle]
-pub extern fn mijit_fooble() {
-    print!("debug");
+pub extern fn debug_word(x: u64) {
+    println!("Debug: {:#018x}", x);
 }
 
 /**
@@ -740,16 +740,23 @@ impl<'a> Assembler<'a> {
         self.write_imm32(dest.1);
     }
 
-    /** Call a function that can be used as a breakpoint. */
-    pub fn debug(&mut self) {
-        // R10, R11 and unused argument and return registers
+    /** Call a function that prints `x` and can be used as a breakpoint. */
+    pub fn debug(&mut self, x: Register) {
+        if CALLER_SAVES.len() & 1 != 0 {
+            // Adjust alignment of RSP is 16-byte aligned.
+            self.push(CALLER_SAVES[0]);
+        }
         for &r in &CALLER_SAVES {
             self.push(r);
         }
-        self.const_(P64, RC, mijit_fooble as *const() as i64);
+        self.move_(P64, RDI, x);
+        self.const_(P64, RC, debug_word as *const() as i64);
         self.call(RC);
         for &r in CALLER_SAVES.iter().rev() {
             self.pop(r);
+        }
+        if CALLER_SAVES.len() & 1 != 0 {
+            self.pop(CALLER_SAVES[0]);
         }
     }
 }
@@ -1234,8 +1241,9 @@ pub mod tests {
         ]).unwrap();
     }
 
+    /** Ensure the linker symbol `debug_word` is included in the binary. */
     #[test]
-    fn fooble() {
-        mijit_fooble();
+    fn not_really_a_test() {
+        debug_word(0);
     }
 }

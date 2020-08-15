@@ -193,22 +193,22 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
                 self.a.op(Xor, prec, dest, src2);
             },
             code::BinaryOp::Lt => {
-                self.a.const_(prec, RC, -1);
-                self.a.const_(prec, dest, 0);
+                self.a.const_(prec, RC, 0);
                 self.a.op(Cmp, prec, src1, src2);
-                self.a.move_if(Condition::L, true, prec, dest, RC);
+                self.a.const_(prec, dest, -1);
+                self.a.move_if(Condition::L, false, prec, dest, RC);
             },
             code::BinaryOp::Ult => {
-                self.a.const_(prec, RC, -1);
-                self.a.const_(prec, dest, 0);
+                self.a.const_(prec, RC, 0);
                 self.a.op(Cmp, prec, src1, src2);
-                self.a.move_if(Condition::B, true, prec, dest, RC);
+                self.a.const_(prec, dest, -1);
+                self.a.move_if(Condition::B, false, prec, dest, RC);
             },
             code::BinaryOp::Eq => {
-                self.a.const_(prec, RC, -1);
-                self.a.const_(prec, dest, 0);
+                self.a.const_(prec, RC, 0);
                 self.a.op(Cmp, prec, src1, src2);
-                self.a.move_if(Condition::Z, true, prec, dest, RC);
+                self.a.const_(prec, dest, -1);
+                self.a.move_if(Condition::Z, false, prec, dest, RC);
             },
             code::BinaryOp::Max => {
                 self.a.op(Cmp, prec, src1, src2);
@@ -278,8 +278,8 @@ impl <'a, M: Machine> JitAssembler<'a, M> {
             Action::Pop(dest) => {
                 self.a.pop(dest);
             },
-            Action::Debug => {
-                self.a.debug();
+            Action::Debug(x) => {
+                self.a.debug(x);
             },
         };
     }

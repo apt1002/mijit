@@ -93,5 +93,5 @@ pub enum Action<M, G> {
     Store(R, MemoryLocation<M>),
     Push(R),
     Pop(R),
-    Debug,
+    Debug(R),
 }
