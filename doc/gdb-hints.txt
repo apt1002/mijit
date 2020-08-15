@@ -1,0 +1,14 @@
+Command history:
+
+    set history save on
+
+Assembly syntax that matches what Mijit uses:
+
+    set disassembly-flavor intel
+
+When execution stops, print the next 10 instructions, the first 5 globals, and
+the bottom 8 words of the Beetle data stack:
+
+    display/10i $pc
+    display/5xg $r8
+    display/8xw *($r8 as *const u64 + 2) + 0x00000000003fffe0
