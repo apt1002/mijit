@@ -9,7 +9,7 @@ use UnaryOp::*;
 use BinaryOp::*;
 use Precision::*;
 
-use code::R::{RA, RD, RB, RBP, RSI, RDI};
+use code::R::{RA, RD, RB, RBP, RSI, RDI as temp};
 
 pub type Action = code::Action<Memory, Global>;
 
@@ -112,12 +112,12 @@ impl Builder {
 
     /**
      * Apply 32-bit `op` to `src` and `constant`, writing `dest`.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     fn const_binary(&mut self, op: BinaryOp, dest: code::R, src: code::R, constant: i64) {
-        assert_ne!(src, RDI);
-        self.const_(RDI, constant);
-        self.0.push(Binary(op, P32, dest, src, RDI));
+        assert_ne!(src, temp);
+        self.const_(temp, constant);
+        self.0.push(Binary(op, P32, dest, src, temp));
     }
 
     fn load_global(&mut self, dest: code::R, global: Global) {
@@ -130,65 +130,65 @@ impl Builder {
 
     /**
      * Compute the native address corresponding to `addr`.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     fn native_address(&mut self, dest: code::R, addr: code::R) {
-        assert_ne!(addr, RDI);
-        self.load_global(RDI, Global::Memory0);
-        self.0.push(Binary(Add, P64, dest, RDI, addr));
+        assert_ne!(addr, temp);
+        self.load_global(temp, Global::Memory0);
+        self.0.push(Binary(Add, P64, dest, temp, addr));
     }
 
     /**
      * Compute the native address corresponding to `addr`, and load 32 bits.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     // TODO: Bounds checking.
     fn load(&mut self, dest: code::R, addr: code::R) {
-        assert_ne!(addr, RDI);
-        self.native_address(RDI, addr);
-        self.0.push(Load(P32, dest, Four(RDI, Memory::M)));
+        assert_ne!(addr, temp);
+        self.native_address(temp, addr);
+        self.0.push(Load(P32, dest, Four(temp, Memory::M)));
     }
 
     /**
      * Compute the native address corresponding to `addr`, and store 32 bits.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     // TODO: Bounds checking.
     fn store(&mut self, src: code::R, addr: code::R) {
-        assert_ne!(addr, RDI);
-        self.native_address(RDI, addr);
-        self.0.push(Store(src, Four(RDI, Memory::M)));
+        assert_ne!(addr, temp);
+        self.native_address(temp, addr);
+        self.0.push(Store(src, Four(temp, Memory::M)));
     }
 
     /**
      * Compute the native address corresponding to `addr`, and load 8 bits.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     // TODO: Bounds checking.
     fn load_byte(&mut self, dest: code::R, addr: code::R) {
-        assert_ne!(addr, RDI);
-        self.native_address(RDI, addr);
-        self.0.push(Load(P32, dest, One(RDI, Memory::M)));
+        assert_ne!(addr, temp);
+        self.native_address(temp, addr);
+        self.0.push(Load(P32, dest, One(temp, Memory::M)));
     }
 
     /**
      * Compute the native address corresponding to `addr`, and store 8 bits.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     // TODO: Bounds checking.
     fn store_byte(&mut self, src: code::R, addr: code::R) {
-        assert_ne!(addr, RDI);
-        self.native_address(RDI, addr);
-        self.0.push(Store(src, One(RDI, Memory::M)));
+        assert_ne!(addr, temp);
+        self.native_address(temp, addr);
+        self.0.push(Store(src, One(temp, Memory::M)));
     }
 
     /**
      * `load()` `dest` from `addr`, then increment `addr`.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     // TODO: Underflow checking.
     fn pop(&mut self, dest: code::R, addr: code::R) {
-        assert_ne!(dest, RDI);
+        assert_ne!(dest, temp);
         assert_ne!(dest, addr);
         self.load(dest, addr);
         self.const_binary(Add, addr, addr, cell_bytes(1));
@@ -196,11 +196,11 @@ impl Builder {
 
     /**
      * Decrement `addr` by `cell_bytes(1)`, then `store()` `src` at `addr`.
-     * `RDI` is corrupted.
+     * `temp` is corrupted.
      */
     // TODO: Overflow checking.
     fn push(&mut self, src: code::R, addr: code::R) {
-        assert_ne!(src, RDI);
+        assert_ne!(src, temp);
         assert_ne!(src, addr);
         self.const_binary(Sub, addr, addr, cell_bytes(1));
         self.store(src, addr);
@@ -230,7 +230,6 @@ impl code::Machine for Machine {
                     b.load_global(RA, B_A);
                     b.const_binary(Asr, RD, RA, 8);
                     b.store_global(RD, B_A);
-                    b.debug(RA); // TODO: Remove.
                 }, State::Dispatch),
             ]},
             State::Next => {vec![
