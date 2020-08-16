@@ -532,6 +532,9 @@ impl<'a> Assembler<'a> {
     /**
      * Move constant to register.
      * If `imm` is zero, this will assemble the "zero idiom" xor instruction.
+     *
+     * Note that the xor instruction affects the processor flags. If `imm` is
+     * non-zero, the flags will be unaffected.
      */
     pub fn const_(&mut self, prec: Precision, dest: Register, mut imm: i64) {
         if prec == P32 {
