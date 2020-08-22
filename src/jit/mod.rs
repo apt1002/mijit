@@ -7,8 +7,8 @@ use Register::*;
 use Precision::*;
 use BinaryOp::*;
 
-mod assembler;
-use assembler::{Lowerer};
+mod lowerer;
+use lowerer::{Lowerer};
 
 /**
  * Represents the convention by which code passes values to a label. The

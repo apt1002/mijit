@@ -23,6 +23,7 @@ use std::hash::{Hash};
 
 pub use super::x86_64::{Register, Precision};
 
+// Not currently used. Planned for #11.
 pub mod clock;
 
 /** A spill slot or register. */
