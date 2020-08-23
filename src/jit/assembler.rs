@@ -219,9 +219,9 @@ impl <'a, M: Machine> Lowerer<'a, M> {
                 let offset = self.global_offset(&global);
                 self.a.store(P64, (R8, offset), src);
             },
-            Action::Load(prec, dest, mloc) => {
+            Action::Load(dest, mloc) => {
                 let (addr, width) = Self::lower_memory_location(mloc);
-                self.a.load_narrow(prec, width, dest, (addr, 0));
+                self.a.load_narrow(P64, width, dest, (addr, 0));
             },
             Action::Store(src, mloc) => {
                 let (addr, width) = Self::lower_memory_location(mloc);

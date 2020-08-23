@@ -89,7 +89,7 @@ pub enum Action<M, G> {
     Division(DivisionOp, Precision, R, R, R, R),
     LoadGlobal(R, G),
     StoreGlobal(R, G),
-    Load(Precision, R, MemoryLocation<M>),
+    Load(R, MemoryLocation<M>),
     Store(R, MemoryLocation<M>),
     Push(R),
     Pop(R),

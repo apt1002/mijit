@@ -146,7 +146,7 @@ impl Builder {
     fn load(&mut self, dest: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Load(P32, dest, Four(temp, Memory::M)));
+        self.0.push(Load(dest, Four(temp, Memory::M)));
     }
 
     /**
@@ -168,7 +168,7 @@ impl Builder {
     fn load_byte(&mut self, dest: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Load(P32, dest, One(temp, Memory::M)));
+        self.0.push(Load(dest, One(temp, Memory::M)));
     }
 
     /**
