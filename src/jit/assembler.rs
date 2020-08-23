@@ -199,8 +199,8 @@ impl <'a, M: Machine> Lowerer<'a, M> {
             Action::Constant(prec, dest, value) => {
                 self.a.const_(prec, dest, value);
             },
-            Action::Move(prec, dest, src) => {
-                self.a.move_(prec, dest, src);
+            Action::Move(dest, src) => {
+                self.a.move_(P64, dest, src);
             },
             Action::Unary(op, prec, dest, src) => {
                 self.lower_unary_op(op, prec, dest, src);

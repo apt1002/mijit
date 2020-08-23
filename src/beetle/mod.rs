@@ -99,7 +99,7 @@ impl Builder {
     }
 
     fn move_(&mut self, dest: code::R, src: code::R) {
-        self.0.push(Move(P32, dest, src));
+        self.0.push(Move(dest, src));
     }
 
     fn unary(&mut self, op: UnaryOp, dest: code::R, src: code::R) {

@@ -38,6 +38,7 @@ pub enum UnaryOp {
     Abs,
     Negate,
     Not,
+    // TODO: Uxt, Sxt (#12).
 }
 
 /** Binary arithmetic operations. */
@@ -83,7 +84,7 @@ pub enum MemoryLocation<M> {
 #[derive(Debug, Clone)]
 pub enum Action<M, G> {
     Constant(Precision, R, i64),
-    Move(Precision, R, R),
+    Move(R, R),
     Unary(UnaryOp, Precision, R, R),
     Binary(BinaryOp, Precision, R, R, R),
     Division(DivisionOp, Precision, R, R, R, R),
