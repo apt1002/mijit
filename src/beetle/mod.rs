@@ -1,13 +1,11 @@
 use std::num::{Wrapping};
 
-use super::code::{
-    self, TestOp, Precision, MemoryLocation, UnaryOp, BinaryOp,
-};
-use code::Action::*;
-use MemoryLocation::*;
+use super::code::{self, TestOp, Precision, UnaryOp, BinaryOp, Width};
+use Precision::*;
 use UnaryOp::*;
 use BinaryOp::*;
-use Precision::*;
+use Width::*;
+use code::Action::*;
 
 use code::R::{RA, RD, RB, RBP, RSI, RDI as temp};
 
@@ -146,7 +144,7 @@ impl Builder {
     fn load(&mut self, dest: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Load(dest, Four(temp, Memory::M)));
+        self.0.push(Load(dest, (temp, Four), Memory::M));
     }
 
     /**
@@ -157,7 +155,7 @@ impl Builder {
     fn store(&mut self, src: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Store(src, Four(temp, Memory::M)));
+        self.0.push(Store(src, (temp, Four), Memory::M));
     }
 
     /**
@@ -168,7 +166,7 @@ impl Builder {
     fn load_byte(&mut self, dest: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Load(dest, One(temp, Memory::M)));
+        self.0.push(Load(dest, (temp, One), Memory::M));
     }
 
     /**
@@ -179,7 +177,7 @@ impl Builder {
     fn store_byte(&mut self, src: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Store(src, One(temp, Memory::M)));
+        self.0.push(Store(src, (temp, One), Memory::M));
     }
 
     /**

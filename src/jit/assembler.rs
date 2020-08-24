@@ -178,13 +178,13 @@ impl <'a, M: Machine> Lowerer<'a, M> {
         };
     }
 
-    fn lower_memory_location(mloc: code::MemoryLocation<M::Memory>) -> (code::R, x86_64::Width) {
-        use code::MemoryLocation::*;
-        match mloc {
-            One(addr, _m) => (addr, x86_64::Width::U8),
-            Two(addr, _m) => (addr, x86_64::Width::U16),
-            Four(addr, _m) => (addr, x86_64::Width::U32),
-            Eight(addr, _m) => (addr, x86_64::Width::U64),
+    fn lower_width(width: code::Width) -> x86_64::Width {
+        use code::Width::*;
+        match width {
+            One => x86_64::Width::U8,
+            Two => x86_64::Width::U16,
+            Four => x86_64::Width::U32,
+            Eight => x86_64::Width::U64,
         }
     }
 
@@ -219,12 +219,12 @@ impl <'a, M: Machine> Lowerer<'a, M> {
                 let offset = self.global_offset(&global);
                 self.a.store(P64, (R8, offset), src);
             },
-            Action::Load(dest, mloc) => {
-                let (addr, width) = Self::lower_memory_location(mloc);
+            Action::Load(dest, (addr, width), _) => {
+                let width = Self::lower_width(width);
                 self.a.load_narrow(P64, width, dest, (addr, 0));
             },
-            Action::Store(src, mloc) => {
-                let (addr, width) = Self::lower_memory_location(mloc);
+            Action::Store(src, (addr, width), _) => {
+                let width = Self::lower_width(width);
                 self.a.store_narrow(width, (addr, 0), src);
             },
             Action::Push(src) => {

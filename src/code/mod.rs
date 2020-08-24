@@ -34,6 +34,7 @@ pub enum TestOp {
 
 /** Unary arithmetic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum UnaryOp {
     Abs,
     Negate,
@@ -43,6 +44,7 @@ pub enum UnaryOp {
 
 /** Binary arithmetic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum BinaryOp {
     Add,
     Sub,
@@ -61,25 +63,27 @@ pub enum BinaryOp {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum DivisionOp {
     SignedDivMod,
     UnsignedDivMod,
 }
 
-/**
- * Used to specify which bytes to load or store, and what they might alias.
- */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum MemoryLocation<M> {
-    One(R, M),
-    Two(R, M),
-    Four(R, M),
-    Eight(R, M),
+/** The number of bytes transferred by a memory access. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Width {
+    One = 0,
+    Two = 1,
+    Four = 2,
+    Eight = 3,
 }
 
 /**
  * An imperative instruction.
  * The destination register (where applicable) is on the left.
+ * M is the type of memory aliasing classes.
+ * G is the type of global variable names.
  */
 #[derive(Debug, Clone)]
 pub enum Action<M, G> {
@@ -90,8 +94,8 @@ pub enum Action<M, G> {
     Division(DivisionOp, Precision, R, R, R, R),
     LoadGlobal(R, G),
     StoreGlobal(R, G),
-    Load(R, MemoryLocation<M>),
-    Store(R, MemoryLocation<M>),
+    Load(R, (R, Width), M),
+    Store(R, (R, Width), M),
     Push(R),
     Pop(R),
     Debug(R),
