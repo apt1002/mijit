@@ -32,11 +32,11 @@ pub struct History<M: code::Machine> {
     /** The test which must pass in order to execute `fetch`. */
     pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */
-    pub fetch: Vec<Action<M::Memory, M::Global>>,
+    pub fetch: Vec<Action<M::Global>>,
     /** The interface from `fetch` to `retire`. */
     pub convention: Convention,
     /** The code for the unique "retire" transition from this History. */
-    pub retire: Vec<Action<M::Memory, M::Global>>,
+    pub retire: Vec<Action<M::Global>>,
     /** All jump instructions whose target is `retire`. */
     pub retire_labels: Vec<Label>,
 }
@@ -193,7 +193,7 @@ impl<M: Machine> Jit<M> {
         old_index: usize,
         test_op: code::TestOp,
         prec: Precision,
-        actions: Vec<Action<M::Memory, M::Global>>,
+        actions: Vec<Action<M::Global>>,
         new_index: usize,
     ) {
         let mut lo = Lowerer {

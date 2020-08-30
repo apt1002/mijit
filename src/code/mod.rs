@@ -87,13 +87,63 @@ pub enum Width {
 }
 
 /**
+ * Indicates which parts of memory overlap with each other. More precisely,
+ * indicates whether the value loaded from one address can be affected by a
+ * store to another address.
+ *
+ * Every [`Action::Load`] and [`Action::Store`] instruction is annotated with
+ * an AliasMask, which is internally a bitmask. If the AliasMasks of two
+ * memory accesses have any set bits in common, and one of them is a `Store`,
+ * and if the optmizer cannot prove that they access different addresses, then
+ * the optimizer will not reorder the two instructions.
+ *
+ * It is allowed, but unhelpful, for every AliasMask to have all bits set.
+ * This will force all memory accesses to occur in the order they are written.
+ *
+ * If all stores to some address precede all loads from it, then it is
+ * encouraged to give all those memory accesses an AliasMask of zero.
+ */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct AliasMask(pub u32);
+
+impl AliasMask {
+    /** Tests whether `self` and `other` have any bits in common. */
+    pub fn can_alias(&self, other: &Self) -> bool {
+        self.0 & other.0 != 0
+    }
+}
+
+impl std::ops::BitAnd for AliasMask {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        AliasMask(self.0 & rhs.0)
+    }
+}
+
+impl std::ops::BitOr for AliasMask {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        AliasMask(self.0 | rhs.0)
+    }
+}
+
+impl std::ops::BitXor for AliasMask {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        AliasMask(self.0 ^ rhs.0)
+    }
+}
+
+/**
  * An imperative instruction.
  * The destination register (where applicable) is on the left.
- * M is the type of memory aliasing classes.
  * G is the type of global variable names.
  */
 #[derive(Debug, Clone)]
-pub enum Action<M, G> {
+pub enum Action<G> {
     Constant(Precision, R, i64),
     Move(R, R),
     Unary(UnaryOp, Precision, R, R),
@@ -101,48 +151,11 @@ pub enum Action<M, G> {
     Division(DivisionOp, Precision, R, R, R, R),
     LoadGlobal(R, G),
     StoreGlobal(R, G),
-    Load(R, (R, Width), M),
-    Store(R, (R, Width), M),
+    Load(R, (R, Width), AliasMask),
+    Store(R, (R, Width), AliasMask),
     Push(R),
     Pop(R),
     Debug(R),
-}
-
-/** Test whether memories overlap. */
-// TODO: Replace with a bitmask.
-// TODO: Actually use this.
-pub trait Alias: Debug + Clone + Hash + Eq {
-    /**
-     * Tests whether an address in `self` and an address in `other` might refer
-     * to the same storage location. More precisely, tests whether the value
-     * read from one of the addresses can be affected by a write to the other.
-     *
-     * The relation:
-     *  - must be symmetric. `m.can_alias(&n)` must equal `n.can_alias(&m)`.
-     *  - must be reflexive if the memory is mutable. If all writes to an
-     *    address in `m` precede all reads from the same address, then
-     *    `m.can_alias(&m)` can be `false`, otherwise it must be `true`.
-     *  - need not be transitive. It is possible that `m.can_alias(&n1)` and
-     *    `m.can_alias(&n2)` but not `n1.can_alias(&n2)`.
-     *
-     * An implementation of `can_alias()` that always returns `true` is
-     * allowed, but it is unhelpful. The purpose of this method is to enable
-     * the following transformations, which are invalid if `m.can_alias(&n)`:
-     *  - Store, load:
-     *     - Before: store(n); load(m)
-     *     - After: load(m); store(n)
-     *  - Load, store:
-     *     - Before: load(m); store(n)
-     *     - After: store(n); load(m)
-     *  - Store, store:
-     *     - Before: store(n); store(m)
-     *     - After: store(m)
-     *
-     * The default implementation returns `*self == *other`.
-     */
-    fn can_alias(&self, other: &Self) -> bool {
-        *self == *other
-    }
 }
 
 pub trait Machine: Debug {
@@ -151,9 +164,6 @@ pub trait Machine: Debug {
 
     /** A discrete VM storage location, such as a register. */
     type Global: Debug + Clone + Hash + Eq;
-
-    /** A VM storage location with an address. */
-    type Memory: Alias;
 
     /**
      * Defines the transitions of the finite state machine.
@@ -168,7 +178,7 @@ pub trait Machine: Debug {
     fn get_code(&self, state: Self::State) ->
         Vec<(
             (TestOp, Precision),
-            Vec<Action<Self::Memory, Self::Global>>,
+            Vec<Action<Self::Global>>,
             Self::State,
         )>;
 

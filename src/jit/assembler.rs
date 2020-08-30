@@ -193,7 +193,7 @@ impl <'a, M: Machine> Lowerer<'a, M> {
      */
     pub fn lower_action(
         &mut self,
-        action: Action<M::Memory, M::Global>,
+        action: Action<M::Global>,
     ) {
         match action {
             Action::Constant(prec, dest, value) => {

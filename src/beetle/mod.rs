@@ -9,14 +9,6 @@ use code::Action::*;
 
 use code::R::{RA, RD, RB, RBP, RSI, RDI as temp};
 
-pub type Action = code::Action<Memory, Global>;
-
-/** Beetle has only one memory. */
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum Memory {M}
-
-impl code::Alias for Memory {}
-
 /** Beetle's registers. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Global {
@@ -31,6 +23,10 @@ pub enum Global {
     NotAddress,
     Memory0,
 }
+
+pub type Action = code::Action<Global>;
+
+const MEMORY: code::AliasMask = code::AliasMask(0x1);
 
 /** Computes the number of bytes in `n` cells. */
 pub const fn cell_bytes(n: i64) -> i64 { Wrapping(4 * n).0 }
@@ -144,7 +140,7 @@ impl Builder {
     fn load(&mut self, dest: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Load(dest, (temp, Four), Memory::M));
+        self.0.push(Load(dest, (temp, Four), MEMORY));
     }
 
     /**
@@ -155,7 +151,7 @@ impl Builder {
     fn store(&mut self, src: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Store(src, (temp, Four), Memory::M));
+        self.0.push(Store(src, (temp, Four), MEMORY));
     }
 
     /**
@@ -166,7 +162,7 @@ impl Builder {
     fn load_byte(&mut self, dest: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Load(dest, (temp, One), Memory::M));
+        self.0.push(Load(dest, (temp, One), MEMORY));
     }
 
     /**
@@ -177,7 +173,7 @@ impl Builder {
     fn store_byte(&mut self, src: code::R, addr: code::R) {
         assert_ne!(addr, temp);
         self.native_address(temp, addr);
-        self.0.push(Store(src, (temp, One), Memory::M));
+        self.0.push(Store(src, (temp, One), MEMORY));
     }
 
     /**
@@ -217,7 +213,6 @@ pub struct Machine;
 
 impl code::Machine for Machine {
     type State = State;
-    type Memory = Memory;
     type Global = Global;
 
     fn get_code(&self, state: Self::State) -> Vec<((TestOp, Precision), Vec<Action>, Self::State)> {

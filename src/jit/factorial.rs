@@ -10,20 +10,17 @@ pub enum State {Start, Loop, Return}
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Global {N, Result}
 
-impl super::code::Alias for () {}
-
 #[derive(Debug)]
 pub struct Machine;
 
 impl super::code::Machine for Machine {
     type State = State;
     type Global = Global;
-    type Memory = ();
     
     fn get_code(&self, state: Self::State) ->
         Vec<(
             (TestOp, Precision),
-            Vec<Action<Self::Memory, Self::Global>>,
+            Vec<Action<Self::Global>>,
             Self::State,
         )>
     {
