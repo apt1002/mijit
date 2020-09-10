@@ -68,6 +68,7 @@ pub enum BinaryOp {
     Min, // TODO: Unsigned too?
 }
 
+/** Division operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum DivisionOp {

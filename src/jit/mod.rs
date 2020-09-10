@@ -54,7 +54,6 @@ type RunFn = extern "C" fn(
 
 //-----------------------------------------------------------------------------
 
-
 /**
  * The state of the JIT compiler. This includes the memory allocated for the
  * compiled code, the [`Machine`] we're compiling, and all house-keeping data.
