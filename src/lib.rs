@@ -1,3 +1,5 @@
+pub mod util;
+
 pub mod code;
 
 pub mod x86_64;
