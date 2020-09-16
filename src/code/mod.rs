@@ -7,9 +7,10 @@
  * branch-free. More complex control flow can be achieved by driving the finite
  * state machine using values loaded from memory.
  *
- * A virtual machine's storage is restricted to a finite number of global
- * variables, again defined by implementing trait [`Machine`]. More complex
- * data structures can be achieved by loading and storing values in memory.
+ * A virtual machine's storage consists of a number of `Value`s, some of which
+ * are global, meaning that their values are preserved when a trap occurs. More
+ * complex data structures can be achieved by loading and storing values in
+ * memory.
  *
  * Arithmetic operations are 32-bit or 64-bit. 32-bit operations set the upper
  * 32 bits of the destination register to zero.
@@ -20,21 +21,28 @@
 use std::fmt::{Debug};
 use std::hash::{Hash};
 
-pub use super::x86_64::{Register as R, Precision};
+pub use super::x86_64::{Register, Precision};
 
 pub mod clock;
+
+/** A spill slot or register. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub enum Value {
+    Slot(usize),
+    Register(Register),
+}
 
 /** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
     // TODO: These constants should probably be 64-bit.
-    Bits(R, i32, i32),
-    Lt(R, i32),
-    Ge(R, i32),
-    Ult(R, i32),
-    Uge(R, i32),
-    Eq(R, i32),
-    Ne(R, i32),
+    Bits(Value, i32, i32),
+    Lt(Value, i32),
+    Ge(Value, i32),
+    Ult(Value, i32),
+    Uge(Value, i32),
+    Eq(Value, i32),
+    Ne(Value, i32),
     Always,
 }
 
@@ -140,30 +148,27 @@ impl std::ops::BitXor for AliasMask {
 /**
  * An imperative instruction.
  * The destination register (where applicable) is on the left.
- * G is the type of global variable names.
  */
 #[derive(Debug, Clone)]
-pub enum Action<G> {
-    Constant(Precision, R, i64),
-    Move(R, R),
-    Unary(UnaryOp, Precision, R, R),
-    Binary(BinaryOp, Precision, R, R, R),
-    Division(DivisionOp, Precision, R, R, R, R),
-    LoadGlobal(R, G),
-    StoreGlobal(R, G),
-    Load(R, (R, Width), AliasMask),
-    Store(R, (R, Width), AliasMask),
-    Push(R),
-    Pop(R),
-    Debug(R),
+pub enum Action {
+    Constant(Precision, Value, i64),
+    Move(Value, Value),
+    Unary(UnaryOp, Precision, Value, Value),
+    Binary(BinaryOp, Precision, Value, Value, Value),
+    Division(DivisionOp, Precision, Value, Value, Value, Value),
+    Load(Value, (Value, Width), AliasMask),
+    Store(Value, (Value, Width), AliasMask),
+    Push(Value),
+    Pop(Value),
+    Debug(Value),
 }
 
 pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
 
-    /** A discrete VM storage location, such as a register. */
-    type Global: Debug + Clone + Hash + Eq;
+    /** The number of spill slots reserved for the Machine's globals. */
+    fn num_globals(&self) -> usize;
 
     /**
      * Defines the transitions of the finite state machine.
@@ -178,7 +183,7 @@ pub trait Machine: Debug {
     fn get_code(&self, state: Self::State) ->
         Vec<(
             (TestOp, Precision),
-            Vec<Action<Self::Global>>,
+            Vec<Action>,
             Self::State,
         )>;
 

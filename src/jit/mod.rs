@@ -2,7 +2,7 @@ use indexmap::{IndexSet};
 
 use super::{Buffer, code, x86_64};
 use x86_64::*;
-use code::{Action, TestOp, Machine, Precision};
+use code::{Action, TestOp, Machine, Precision, Value};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -25,18 +25,18 @@ use assembler::{Lowerer};
  */
 pub struct Convention {
     /** The Register whose value will be tested next. */
-    pub test_register: code::R,
+    pub test_register: code::Register,
 }
 
-pub struct History<M: code::Machine> {
+pub struct History {
     /** The test which must pass in order to execute `fetch`. */
     pub test: TestOp,
     /** The code for the unique "fetch" transition to this History. */
-    pub fetch: Vec<Action<M::Global>>,
+    pub fetch: Vec<Action>,
     /** The interface from `fetch` to `retire`. */
     pub convention: Convention,
     /** The code for the unique "retire" transition from this History. */
-    pub retire: Vec<Action<M::Global>>,
+    pub retire: Vec<Action>,
     /** All jump instructions whose target is `retire`. */
     pub retire_labels: Vec<Label>,
 }
@@ -52,6 +52,53 @@ type RunFn = extern "C" fn(
     /* current_index */  usize,
 ) -> /* new_index */ usize;
 
+impl Action {
+    /** Call `f` on every Value mentioned in Action. */
+    fn for_each_value(&self, mut f: impl FnMut(Value)) {
+        match *self {
+            Action::Constant(_, dest, _) => {
+                f(dest);
+            },
+            Action::Move(dest, src) => {
+                f(dest);
+                f(src);
+            },
+            Action::Unary(_, _, dest, src) => {
+                f(dest);
+                f(src);
+            },
+            Action::Binary(_, _, dest, src1, src2) => {
+                f(dest);
+                f(src1);
+                f(src2);
+            },
+            Action::Division(_, _, quot, rem, num, den) => {
+                f(quot);
+                f(rem);
+                f(num);
+                f(den);
+            },
+            Action::Load(dest, (addr, _), _) => {
+                f(dest);
+                f(addr);
+            },
+            Action::Store(src, (addr, _), _) => {
+                f(src);
+                f(addr);
+            },
+            Action::Push(src) => {
+                f(src);
+            },
+            Action::Pop(dest) => {
+                f(dest);
+            },
+            Action::Debug(src) => {
+                f(src);
+            },
+        }
+    }
+}
+
 //-----------------------------------------------------------------------------
 
 /**
@@ -62,8 +109,6 @@ pub struct Jit<M: Machine> {
     machine: M,
     /** Numbering of all M::States. */
     states: IndexSet<M::State>,
-    /** Numbering of all M::Globals. */
-    globals: IndexSet<M::Global>,
     /**
      * The locations of the compiled code for all retire transitions,
      * and of all instructions that jump to them.
@@ -85,21 +130,22 @@ pub struct Jit<M: Machine> {
 impl<M: Machine> Jit<M> {
     pub fn new(machine: M, code_size: usize) -> Self {
         // Enumerate the reachable states in FIFO order.
-        // Simultaneously enumerate all globals.
+        // Simultaneously, find the largest used slot number.
         let mut states: IndexSet<M::State> = machine.initial_states().into_iter().collect();
-        let mut globals: IndexSet<M::Global> = IndexSet::new();
+        let mut num_slots = machine.num_globals();
         let mut done = 0;
         while let Some(state) = states.get_index(done) {
             for (_test_op, actions, new_state) in machine.get_code(state.clone()) {
-                let _ = states.insert(new_state);
+                states.insert(new_state);
                 for action in actions {
-                    if let Some(global) = match action {
-                        Action::LoadGlobal(_, global) => Some(global),
-                        Action::StoreGlobal(_, global) => Some(global),
-                        _ => None,
-                    } {
-                        globals.insert(global.clone());
-                    }
+                    action.for_each_value(|v: Value| {
+                        match v {
+                            Value::Register(_) => {},
+                            Value::Slot(index) => {
+                                num_slots = std::cmp::max(num_slots, index + 1);
+                            },
+                        }
+                    });
                 }
             }
             done += 1;
@@ -139,8 +185,9 @@ impl<M: Machine> Jit<M> {
 
         // Construct the Jit.
         let used = a.get_pos();
-        let pool = vec![0; globals.len()];
-        let mut jit = Jit {machine, states, globals, fetch_labels, retire_labels, buffer, used, pool};
+        // TODO: Factor out pool index calculation.
+        let pool = vec![0; num_slots + 1];
+        let mut jit = Jit {machine, states, fetch_labels, retire_labels, buffer, used, pool};
 
         // Construct the root Histories.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
@@ -163,13 +210,12 @@ impl<M: Machine> Jit<M> {
         &self.states
     }
 
-    pub fn globals(&self) -> &IndexSet<M::Global> {
-        &self.globals
-    }
-
-    pub fn global(&mut self, global: &M::Global) -> &mut u64 {
-        let index = self.globals.get_index_of(global).expect("Unknown global");
-        &mut self.pool[index]
+    pub fn slot(&mut self, slot: Value) -> &mut u64 {
+        match slot {
+            Value::Register(_) => panic!("Not a Slot"),
+            // TODO: Factor out pool index calculation.
+            Value::Slot(index) => &mut self.pool[index + 1],
+        }
     }
 
     /**
@@ -193,13 +239,11 @@ impl<M: Machine> Jit<M> {
         old_index: usize,
         test_op: code::TestOp,
         prec: Precision,
-        actions: Vec<Action<M::Global>>,
+        actions: Vec<Action>,
         new_index: usize,
     ) {
         let mut lo = Lowerer {
             a: Assembler::new(&mut self.buffer),
-            machine: &self.machine,
-            globals: &self.globals,
         };
         lo.a.set_pos(self.used);
         let retire_target = lo.a.get_pos(); // Evaluation order.
@@ -215,7 +259,6 @@ impl<M: Machine> Jit<M> {
 
     pub fn execute(mut self, state: M::State) -> (Self, M::State) {
         let index = self.states.get_index_of(&state).expect("invalid state");
-        assert!(self.pool.len() >= self.globals.len());
         let pool = self.pool.as_mut_ptr();
         let (buffer, new_index) = self.buffer.execute(|bytes| {
             // FIXME: assert we are on x86_64 at compile time.
@@ -256,9 +299,9 @@ pub mod tests {
         assert_eq!(jit.states(), &expected);
 
         // Run some "code".
-        *jit.global(&Global::N) = 5;
+        *jit.slot(reg::N) = 5;
         let (mut jit, final_state) = jit.execute(Start);
         assert_eq!(final_state, Return);
-        assert_eq!(*jit.global(&Global::Result), 120);
+        assert_eq!(*jit.slot(reg::RESULT), 120);
     }
 }

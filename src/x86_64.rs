@@ -531,10 +531,9 @@ impl<'a> Assembler<'a> {
 
     /**
      * Move constant to register.
-     * If `imm` is zero, this will assemble the "zero idiom" xor instruction.
-     *
-     * Note that the xor instruction affects the processor flags. If `imm` is
-     * non-zero, the flags will be unaffected.
+     * If `imm` is zero, this will assemble the "zero idiom" xor instruction,
+     * which corrupts the status flags. Use `const_preserving_flags` to avoid
+     * this problem.
      */
     pub fn const_(&mut self, prec: Precision, dest: Register, mut imm: i64) {
         if prec == P32 {
@@ -542,7 +541,19 @@ impl<'a> Assembler<'a> {
         }
         if imm == 0 {
             self.op(Xor, prec, dest, dest);
-        } else if imm as u32 as i64 == imm {
+        } else {
+            self.const_preserving_flags(prec, dest, imm);
+        }
+    }
+
+    /**
+     * Move constant to register.
+     */
+    pub fn const_preserving_flags(&mut self, prec: Precision, dest: Register, mut imm: i64) {
+        if prec == P32 {
+            imm &= 0xFFFFFFFF;
+        }
+        if imm as u32 as i64 == imm {
             self.write_ro_1(0xB840, P32, dest);
             self.write_imm32(imm as i32);
         } else if imm as i32 as i64 == imm {

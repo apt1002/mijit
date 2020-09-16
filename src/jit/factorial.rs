@@ -2,43 +2,46 @@ use super::code::*;
 use Action::*;
 use BinaryOp::*;
 use Precision::*;
-use R::*;
+
+const RA: Value = Value::Register(Register::RA);
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum State {Start, Loop, Return}
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum Global {N, Result}
+pub mod reg {
+    use super::{Value};
+    pub const N: Value = Value::Slot(0);
+    pub const RESULT: Value = Value::Slot(1);
+}
 
 #[derive(Debug)]
 pub struct Machine;
 
 impl super::code::Machine for Machine {
     type State = State;
-    type Global = Global;
+
+    fn num_globals(&self) -> usize { 2 }
     
     fn get_code(&self, state: Self::State) ->
         Vec<(
             (TestOp, Precision),
-            Vec<Action<Self::Global>>,
+            Vec<Action>,
             Self::State,
         )>
     {
         match state {
             State::Start => {vec![
                 ((TestOp::Always, P32), vec![
-                    Constant(P32, RD, 1),
-                    LoadGlobal(RA, Global::N),
+                    Constant(P32, reg::RESULT, 1),
                 ], State::Loop),
             ]},
             State::Loop => {vec![
-                ((TestOp::Eq(RA, 0), P32), vec![
-                    StoreGlobal(RD, Global::Result),
+                ((TestOp::Eq(reg::N, 0), P32), vec![
                 ], State::Return),
-                ((TestOp::Ne(RA, 0), P32), vec![
-                    Binary(Mul, P32, RD, RD, RA),
-                    Constant(P32, RC, 1),
-                    Binary(Sub, P32, RA, RA, RC),
+                ((TestOp::Ne(reg::N, 0), P32), vec![
+                    Binary(Mul, P32, reg::RESULT, reg::RESULT, reg::N),
+                    Constant(P32, RA, 1),
+                    Binary(Sub, P32, reg::N, reg::N, RA),
                 ], State::Loop),
             ]},
             State::Return => {vec![]},
