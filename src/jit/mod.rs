@@ -7,7 +7,7 @@ use Register::*;
 use Precision::*;
 use BinaryOp::*;
 
-mod lowerer;
+pub mod lowerer;
 use lowerer::{Lowerer};
 
 /**
