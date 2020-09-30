@@ -3,7 +3,7 @@ use std::collections::{HashMap};
 
 use crate::util::{RcEq};
 use super::dataflow::{Node};
-use super::pressure::{Pressure};
+use super::pressure::{Life, Pressure};
 
 pub const PARALLELISM: usize = 3;
 
@@ -20,26 +20,33 @@ impl Cycle {
         Cycle {available: PARALLELISM, nodes: Vec::new()}
     }
 
-    fn fits(&self, node: &RcEq<Node>) -> bool {
+    fn fits(&self, node: &Node) -> bool {
         self.available >= node.op.cost()
     }
 }
 
 //-----------------------------------------------------------------------------
 
-/** Usage information about a Node in a WorkList. */
+/** Time is measured in cycles backwards from the end of the Schedule. */
+pub type Time = cmp::Reverse<usize>;
+
+pub const EARLY: Time = cmp::Reverse(usize::MAX);
+pub const LATE: Time = cmp::Reverse(0);
+
+/**
+ * Usage information about a Node in a WorkList. Information is collected
+ * incrementally as references to the Node are processed.
+ */
 struct Usage {
-    /** The number of Nodes which depend on this one. */
+    /** The number of Nodes which depend on the Node. */
     pub num_uses: usize,
-    /** The cycle by which this Node must be available. */
-    pub born_cycle: usize,
-    /** The cycle after which this Node is no longer needed. */
-    pub dies_cycle: usize,
+    /** The lifetime of the result of the Node. */
+    pub life: Life<Time>,
 }
 
 impl Usage {
     pub fn new() -> Self {
-        Usage {num_uses: 1, born_cycle: 0, dies_cycle: usize::MAX}
+        Usage {num_uses: 1, life: Life::new(LATE, EARLY)}
     }
 }
 
@@ -75,17 +82,17 @@ impl WorkList {
 
     /**
      * Add `node` and its unshared dependencies to `schedule`, decrementing
-     * usage counts as we go.
+     * usage counts as we go, such that the result of `node` is valid for at
+     * least `life`.
      */
     pub fn schedule(
         &mut self,
         node: &RcEq<Node>,
-        cycle: usize,
+        life: Life<Time>,
         schedule: &mut Schedule,
     ) {
         let usage = self.infos.get_mut(node).unwrap();
-        usage.born_cycle = std::cmp::max(usage.born_cycle, cycle);
-        usage.dies_cycle = std::cmp::min(usage.dies_cycle, cycle);
+        usage.life |= life;
         assert!(usage.num_uses > 0);
         usage.num_uses -= 1;
         if usage.num_uses > 0 {
@@ -94,19 +101,25 @@ impl WorkList {
             return;
         }
 
-        let cycle = schedule.choose_cycle(node, usage.born_cycle, usage.dies_cycle);
+        // We have all the required info about `node`. Schedule it.
+        schedule.choose_cycle(node, &mut usage.life);
+
+        // Operands of `node` must live until the result is born.
+        let dies = usage.life.born;
 
         // Recursively schedule `node`'s dependencies.
         let mut queue = Vec::new();
         for (o, latency) in node.op.operands() {
-            queue.push((o, cycle + latency));
+            let born = cmp::Reverse(dies.0 + latency);
+            queue.push((o, Life::new(born, dies)));
         }
         for d in node.op.dependencies() {
-            queue.push((d, cycle));
+            queue.push((d, Life::new(dies, dies)));
         }
         // TODO: Sort `queue`.
-        for (i, i_cycle) in queue {
-            self.schedule(i, i_cycle, schedule);
+        for (i, life) in queue {
+            // FIXME: No need to allocate a register for dependencies!
+            self.schedule(i, life, schedule);
         }
     }
 }
@@ -114,10 +127,8 @@ impl WorkList {
 //-----------------------------------------------------------------------------
 
 struct NodeInfo {
-    /** The cycle in which we execute the Node. */
-    pub born_cycle: usize,
-    /** The cycle after which the result of the Node is no longer needed. */
-    pub dies_cycle: usize,
+    /** The lifetime of the result of the Node. */
+    pub life: Life<Time>,
     /** The logical register (if any) which will hold the result. */
     pub register: Option<usize>,
 }
@@ -129,14 +140,14 @@ pub struct Schedule {
     /** NodeInfo for every Node in the schedule. */
     infos: HashMap<RcEq<Node>, NodeInfo>,
     /** Register pressure as a function of time. */
-    pressure: Pressure<RcEq<Node>>,
+    pressure: Pressure<Time, RcEq<Node>>,
 }
 
 impl Schedule {
     /**
      * Compute a Schedule that includes each of `roots` and its dependencies.
      */
-    pub fn new(roots: Vec<(RcEq<Node>, usize)>) -> Self {
+    pub fn new(roots: Vec<(RcEq<Node>, Time)>) -> Self {
         let mut work_list = WorkList::new();
         for &(ref node, _) in &roots {
             work_list.find_dependencies(node);
@@ -144,15 +155,15 @@ impl Schedule {
         let mut schedule = Schedule {
             cycles: Vec::new(),
             infos: HashMap::new(),
-            pressure: Pressure::new(),
+            pressure: Pressure::new(|| LATE),
         };
-        for &(ref node, cycle) in &roots {
-            work_list.schedule(node, cycle, &mut schedule)
+        for &(ref node, time) in &roots {
+            work_list.schedule(node, Life::new(time, time), &mut schedule)
         }
         schedule
     }
 
-    fn fits(&self, node: &RcEq<Node>, cycle: usize) -> bool {
+    fn fits(&self, node: &Node, cycle: usize) -> bool {
         if cycle >= self.cycles.len() {
             return true;
         }
@@ -161,26 +172,26 @@ impl Schedule {
 
     /**
      * Finds a cycle in which `node` can be executed. The chosen cycle will be
-     * as late as possible but no later than `born_cycle`. `node` is stored in
-     * the schedule and its execution resources are deducted.
+     * as late as possible but no later than `life.born`. `life.born` is
+     * set to the chosen cycle. `node` is stored in the schedule and its
+     * execution resources are deducted.
      */
     pub fn choose_cycle(
         &mut self,
         node: &RcEq<Node>,
-        mut born_cycle: usize,
-        dies_cycle: usize,
-    ) -> usize {
-        born_cycle = cmp::max(born_cycle, self.pressure.latest_time_with_unused_register());
-        while !self.fits(node, born_cycle) {
-            born_cycle += 1;
+        life: &mut Life<Time>,
+    ) {
+        life.born = cmp::max(life.born, *self.pressure.latest_time_with_unused_register());
+        while !self.fits(&*node, life.born.0) {
+            life.born.0 += 1;
         }
-        while born_cycle <= self.cycles.len() {
+        while self.cycles.len() <= life.born.0 {
             self.cycles.push(Cycle::new());
         }
-        self.cycles[born_cycle].nodes.push(node.clone());
-        self.cycles[born_cycle].available -= node.op.cost();
+        self.cycles[life.born.0].nodes.push(node.clone());
+        self.cycles[life.born.0].available -= node.op.cost();
         let register = self.pressure
-            .allocate_register(born_cycle, dies_cycle, node.clone())
+            .allocate_register(life.clone(), node.clone())
             .map(|(register, previous_node)| {
                 if let Some(previous_node) = previous_node {
                     // Steal `register` from `previous_node`. Spill the latter.
@@ -190,7 +201,6 @@ impl Schedule {
                 }
                 register
             });
-        self.infos.insert(node.clone(), NodeInfo {born_cycle, dies_cycle, register});
-        born_cycle
+        self.infos.insert(node.clone(), NodeInfo {life: life.clone(), register});
     }
 }
