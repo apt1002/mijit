@@ -5,7 +5,7 @@ use std::hash::{Hash};
 use crate::util::{RcEq};
 
 use super::{code};
-use code::{Value, Precision, UnaryOp, BinaryOp, Width, Action};
+use code::{Value, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
 
 /** The latencies of common instructions, in clock cycles. */
 pub mod latency {
@@ -29,8 +29,8 @@ pub enum Op<R, T> {
     Constant(Precision, i64),
     Unary(UnaryOp, Precision, R),
     Binary(BinaryOp, Precision, R, R),
-    Load((Width, R), Vec<T>),
-    Store((Width, R), R, Vec<T>),
+    Load((Width, R), Vec<T>, AliasMask),
+    Store((Width, R), R, Vec<T>, AliasMask),
     Push(R, Option<T>),
     Pop(Option<T>),
     Debug(R, Option<T>),
@@ -53,8 +53,8 @@ impl<R, T> Op<R, T> {
                 Mul => vec![(x, MUL), (y, MUL)],
                 Lt | Ult | Eq | Max | Min => vec![(x, CMOV), (y, CMOV)],
             },
-            &Load((_, ref addr), _) => vec![(addr, AGU)],
-            &Store((_, ref addr), ref x, _) => vec![(addr, AGU), (x, ALU)],
+            &Load((_, ref addr), _, _) => vec![(addr, AGU)],
+            &Store((_, ref addr), ref x, _, _) => vec![(addr, AGU), (x, ALU)],
             &Push(ref x, _) => vec![(x, ALU)],
             &Debug(ref x, _) => vec![(x, ALU)],
             _ => vec![],
@@ -64,8 +64,8 @@ impl<R, T> Op<R, T> {
     /** Returns all the non-dataflow dependencies of this Op. */
     pub fn dependencies(&self) -> Vec<&T> {
         match self {
-            &Load((_, _), ref ts) => ts.iter().collect(),
-            &Store((_, _), _, ref ts) => ts.iter().collect(),
+            &Load((_, _), ref ts, _) => ts.iter().collect(),
+            &Store((_, _), _, ref ts, _) => ts.iter().collect(),
             &Push(_, ref t) => t.iter().collect(),
             &Pop(ref t) => t.iter().collect(),
             &Debug(_, ref t) => t.iter().collect(),
@@ -206,21 +206,21 @@ impl Simulation {
             Action::Division(_op, _prec, _, _, _, _) => {
                 panic!("FIXME: Don't know how to do division");
             },
-            Action::Load(dest, (addr, width), _alias_mask) => {
+            Action::Load(dest, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
                 let addr = self.lookup(addr);
                 let deps: Vec<_> = self.store.iter().cloned().collect();
-                let node = self.op(Op::Load((width, addr), deps));
+                let node = self.op(Op::Load((width, addr), deps, alias_mask));
                 self.loads.push(node.clone());
                 self.bind(dest, node);
             },
-            Action::Store(src, (addr, width), _alias_mask) => {
+            Action::Store(src, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
                 let src = self.lookup(src);
                 let addr = self.lookup(addr);
                 let mut deps = vec![];
                 std::mem::swap(&mut deps, &mut self.loads);
-                let node = self.op(Op::Store((width, addr), src, deps));
+                let node = self.op(Op::Store((width, addr), src, deps, alias_mask));
                 self.loads.push(node.clone());
                 self.store = Some(node);
             },
