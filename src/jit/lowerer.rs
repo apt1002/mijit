@@ -13,6 +13,7 @@ use ShiftOp::*;
  *  - `RC` is used as temporary workspace.
  *  - `R8` holds the pool base address.
  */
+// TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 12] =
     [RA, RD, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
 

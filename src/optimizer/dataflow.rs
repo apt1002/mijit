@@ -138,9 +138,9 @@ impl Node {
 }
 
 //-----------------------------------------------------------------------------
+
 /**
  * Represents the state of a simulated execution of some [`code::Action`]s.
- * `M` is the type of the virtual machine.
  */
 #[derive(Debug)]
 pub struct Simulation {
@@ -156,6 +156,7 @@ pub struct Simulation {
 
 impl Simulation {
     pub fn new() -> Self {
+        // TODO: Take a list of live values and make Op::Inputs for them.
         Simulation {
             bindings: HashMap::new(),
             store: None,
@@ -172,6 +173,7 @@ impl Simulation {
     /** Returns the `Node` bound to `value`, or a fresh `Input`. */
     pub fn lookup(&mut self, value: Value) -> RcEq<Node> {
         self.bindings.entry(value).or_insert_with(|| {
+            // TODO: Panic.
             RcEq::new(Node::new(Op::Input(value)))
         }).clone()
     }

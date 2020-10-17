@@ -129,9 +129,9 @@ impl WorkList {
 
 struct NodeInfo {
     /** The lifetime of the result of the Node. */
-    pub life: Life<Time>,
+    life: Life<Time>,
     /** The logical register (if any) which will hold the result. */
-    pub register: Option<usize>,
+    register: Option<usize>,
 }
 
 /** An instruction schedule. */

@@ -24,8 +24,10 @@ use lowerer::{Lowerer};
  *    some memory location, and whether it needs to be stored.
  */
 pub struct Convention {
-    /** The Register whose value will be tested next. */
-    pub test_register: code::Register,
+    /** The Value that will be tested next. */
+    pub discriminant: Value,
+    /** The values that are live on entry, including `discriminant`. */
+    pub live_values: Vec<Value>,
 }
 
 pub struct History {
