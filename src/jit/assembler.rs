@@ -7,6 +7,15 @@ use BinaryOp::*;
 use ShiftOp::*;
 
 
+/**
+ * The registers available for allocation. This differs from
+ * `x86_64::ALL_REGISTERS` because:
+ *  - `RC` is used as temporary workspace.
+ *  - `R8` holds the pool base address.
+ */
+pub const ALLOCATABLE_REGISTERS: [Register; 12] =
+    [RA, RD, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
+
 pub struct Lowerer<'a> {
     pub a: Assembler<'a>,
 }
