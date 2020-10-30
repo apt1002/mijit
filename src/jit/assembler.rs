@@ -16,6 +16,9 @@ use ShiftOp::*;
 pub const ALLOCATABLE_REGISTERS: [Register; 12] =
     [RA, RD, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
 
+pub const TEMP: Register = RC;
+pub const TEMP_VALUE: Value = Value::Register(TEMP);
+
 pub struct Lowerer<'a> {
     pub a: Assembler<'a>,
 }
@@ -28,11 +31,11 @@ impl <'a> Lowerer<'a> {
         }
     }
 
-    /** Move `src` to `RC` if `src` is `dest`. */
+    /** Move `src` to `TEMP` if `src` is `dest`. */
     fn move_away_from(&mut self, src: Value, dest: Register) -> Value {
         if src == Value::Register(dest) {
-            self.move_(RC, dest);
-            Value::Register(RC)
+            self.move_(TEMP, dest);
+            TEMP_VALUE
         } else {
             src
         }
@@ -70,7 +73,7 @@ impl <'a> Lowerer<'a> {
     }
 
     /**
-     * If `dest` is a Register, passes it to `callback`, otherwise passes `RC`
+     * If `dest` is a Register, passes it to `callback`, otherwise passes `TEMP`
      * to `callback` then stores it.
      */
     fn dest_to_register(&mut self, dest: Value, callback: impl FnOnce(&mut Lowerer<'a>, Register)) {
@@ -79,8 +82,8 @@ impl <'a> Lowerer<'a> {
                 callback(self, dest);
             },
             Value::Slot(index) => {
-                callback(self, RC);
-                self.store_slot(index, RC);
+                callback(self, TEMP);
+                self.store_slot(index, TEMP);
             },
         }
     }
@@ -123,38 +126,38 @@ impl <'a> Lowerer<'a> {
     ) {
         match test_op {
             TestOp::Bits(discriminant, mask, value) => {
-                self.a.const_(prec, RC, mask as i64);
-                self.value_op(And, prec, RC, discriminant);
-                self.a.const_op(Cmp, prec, RC, value);
+                self.a.const_(prec, TEMP, mask as i64);
+                self.value_op(And, prec, TEMP, discriminant);
+                self.a.const_op(Cmp, prec, TEMP, value);
                 self.a.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Lt(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, RC);
+                let discriminant = self.src_to_register(discriminant, TEMP);
                 self.a.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::L, false, false_label);
             },
             TestOp::Ge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, RC);
+                let discriminant = self.src_to_register(discriminant, TEMP);
                 self.a.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::GE, false, false_label);
             },
             TestOp::Ult(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, RC);
+                let discriminant = self.src_to_register(discriminant, TEMP);
                 self.a.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::B, false, false_label);
             },
             TestOp::Uge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, RC);
+                let discriminant = self.src_to_register(discriminant, TEMP);
                 self.a.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::AE, false, false_label);
             },
             TestOp::Eq(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, RC);
+                let discriminant = self.src_to_register(discriminant, TEMP);
                 self.a.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Ne(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, RC);
+                let discriminant = self.src_to_register(discriminant, TEMP);
                 self.a.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::NZ, false, false_label);
             },
@@ -235,12 +238,13 @@ impl <'a> Lowerer<'a> {
 
     /** Select how to assemble a shift BinaryOp such as `Shl`. */
     fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Value, src1: Value, src2: Value) {
-        let src2 = self.src_to_register(src2, RC);
-        self.move_(RC, src2);
+        let src2 = self.src_to_register(src2, TEMP);
+        self.move_(TEMP, src2);
         match dest {
             Value::Register(dest) => {
                 let src1 = self.src_to_register(src1, dest);
                 self.move_(dest, src1);
+                assert_eq!(TEMP, RC);
                 self.a.shift(op, prec, dest);
             },
             Value::Slot(index) => {
@@ -273,7 +277,7 @@ impl <'a> Lowerer<'a> {
         callback: impl FnOnce(&mut Self, Register, Register),
     ) {
         self.dest_to_register(dest, |l, dest| {
-            let src1 = l.src_to_register(src1, RC);
+            let src1 = l.src_to_register(src1, TEMP);
             l.value_op(Cmp, prec, src1, src2);
             callback(l, dest, src1);
         });
@@ -410,7 +414,7 @@ impl <'a> Lowerer<'a> {
                         }
                     },
                     Value::Slot(index) => {
-                        let src = self.src_to_register(src, RC);
+                        let src = self.src_to_register(src, TEMP);
                         self.store_slot(index, src);
                     },
                 }
@@ -435,20 +439,20 @@ impl <'a> Lowerer<'a> {
                 let width = Self::lower_width(width);
                 match addr {
                     Value::Register(addr) => {
-                        let src = self.src_to_register(src, RC);
+                        let src = self.src_to_register(src, TEMP);
                         self.a.store_narrow(width, (addr, 0), src);
                     },
                     Value::Slot(index) => {
-                        self.load_slot(RC, index);
+                        self.load_slot(TEMP, index);
                         match src {
                             Value::Register(src) => {
-                                self.a.store_narrow(width, (RC, 0), src);
+                                self.a.store_narrow(width, (TEMP, 0), src);
                             },
                             Value::Slot(index) => {
                                 // Not enough reserved registers; push `RA`.
                                 self.a.push(RA);
                                 self.load_slot(RA, index);
-                                self.a.store_narrow(width, (RC, 0), RA);
+                                self.a.store_narrow(width, (TEMP, 0), RA);
                                 self.a.pop(RA);
                             },
                         }
@@ -456,7 +460,7 @@ impl <'a> Lowerer<'a> {
                 }
             },
             Action::Push(src) => {
-                let src = self.src_to_register(src, RC);
+                let src = self.src_to_register(src, TEMP);
                 self.a.push(src);
             },
             Action::Pop(dest) => {
@@ -465,7 +469,7 @@ impl <'a> Lowerer<'a> {
                 });
             },
             Action::Debug(x) => {
-                let x = self.src_to_register(x, RC);
+                let x = self.src_to_register(x, TEMP);
                 self.a.debug(x);
             },
         };
