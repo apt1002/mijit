@@ -2,7 +2,8 @@ use std::{cmp};
 use std::collections::{HashMap};
 
 use crate::util::{RcEq};
-use super::dataflow::{Node};
+use super::super::code::{Value};
+use super::dataflow::{Node, Op};
 use super::pressure::{Life, Pressure};
 
 pub const PARALLELISM: usize = 3;
@@ -137,6 +138,8 @@ struct NodeInfo {
 pub struct Schedule {
     /** The Cycles we're allocating, in reverse order: 0 is the last Cycle. */
     cycles: Vec<Cycle>,
+    /** The Input Nodes, which are notionally at the beginning of time. */
+    inputs: Vec<RcEq<Node>>,
     /** NodeInfo for every Node in the schedule. */
     infos: HashMap<RcEq<Node>, NodeInfo>,
     /** Register pressure as a function of time. */
@@ -154,6 +157,7 @@ impl Schedule {
         }
         let mut schedule = Schedule {
             cycles: Vec::new(),
+            inputs: Vec::new(),
             infos: HashMap::new(),
             pressure: Pressure::new(|| LATE),
         };
@@ -181,15 +185,23 @@ impl Schedule {
         node: &RcEq<Node>,
         life: &mut Life<Time>,
     ) {
-        life.born = cmp::max(life.born, *self.pressure.latest_time_with_unused_register());
-        while !self.fits(&*node, life.born.0) {
-            life.born.0 += 1;
+        match node.op {
+            Op::Input(_) => {
+                life.born = EARLY;
+                self.inputs.push(node.clone());
+            },
+            _ => {
+                life.born = cmp::max(life.born, *self.pressure.latest_time_with_unused_register());
+                while !self.fits(&*node, life.born.0) {
+                    life.born.0 += 1;
+                }
+                while self.cycles.len() <= life.born.0 {
+                    self.cycles.push(Cycle::new());
+                }
+                self.cycles[life.born.0].nodes.push(node.clone());
+                self.cycles[life.born.0].available -= node.op.cost();
+            },
         }
-        while self.cycles.len() <= life.born.0 {
-            self.cycles.push(Cycle::new());
-        }
-        self.cycles[life.born.0].nodes.push(node.clone());
-        self.cycles[life.born.0].available -= node.op.cost();
         let register = self.pressure
             .allocate_register(life.clone(), node.clone())
             .map(|(register, previous_node)| {
@@ -202,5 +214,27 @@ impl Schedule {
                 register
             });
         self.infos.insert(node.clone(), NodeInfo {life: life.clone(), register});
+    }
+
+    /** Yields the Nodes in the order that we've decided to execute them. */
+    pub fn iter<'a>(&'a self) -> impl 'a + Iterator<Item=(RcEq<Node>, Life<Time>, Option<usize>)> {
+        self.cycles.iter().rev().flat_map(|cycle| {
+            cycle.nodes.iter().rev()
+        }).map(move |node| {
+            let info = self.infos.get(node).expect("missing NodeInfo");
+            (node.clone(), info.life, info.register)
+        })
+    }
+
+    /** Returns the Input Nodes. */
+    pub fn inputs<'a>(&'a self) -> impl 'a + Iterator<Item=(Value, Life<Time>, Option<usize>)> {
+        self.inputs.iter().map(move |node| {
+            let info = self.infos.get(node).expect("missing NodeInfo");
+            let value = match node.op {
+                Op::Input(value) => value,
+                _ => panic!("Not an Input"),
+            };
+            (value, info.life, info.register)
+        })
     }
 }
