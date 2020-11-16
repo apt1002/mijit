@@ -155,10 +155,12 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn new() -> Self {
+    pub fn new(live_values: &[Value]) -> Self {
         // TODO: Take a list of live values and make Op::Inputs for them.
         Simulation {
-            bindings: HashMap::new(),
+            bindings: live_values.iter().map(|&value| {
+                (value, RcEq::new(Node::new(Op::Input(value))))
+            }).collect(),
             store: None,
             loads: Vec::new(),
             stack: None,
@@ -172,10 +174,7 @@ impl Simulation {
 
     /** Returns the `Node` bound to `value`, or a fresh `Input`. */
     pub fn lookup(&mut self, value: Value) -> RcEq<Node> {
-        self.bindings.entry(value).or_insert_with(|| {
-            // TODO: Panic.
-            RcEq::new(Node::new(Op::Input(value)))
-        }).clone()
+        self.bindings.get(&value).expect("Read a dead value").clone()
     }
 
     /** Returns a Node representing the result of `op`. */
@@ -184,8 +183,8 @@ impl Simulation {
         RcEq::new(Node::new(op))
     }
 
-    pub fn action(&mut self, action: Action) {
-        match action {
+    pub fn action(&mut self, action: &Action) {
+        match *action {
             Action::Constant(prec, dest, value) => {
                 let node = self.op(Op::Constant(prec, value));
                 self.bind(dest, node);

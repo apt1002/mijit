@@ -1,5 +1,4 @@
 use std::collections::{HashMap};
-use std::collections::hash_map::{Entry};
 
 use crate::util::{RcEq};
 use super::super::jit::{Convention};
@@ -41,8 +40,16 @@ impl Allocation {
         *self.values.get(node).expect("Unknown Node")
     }
 
-    pub fn choose_destination(&mut self, logical_reg: Option<usize>) -> Value {
-        match logical_reg {
+    /**
+     * Allocate a destination Value for the result of `node`. If `register` is
+     * provided, it is the index of a logical register, and the corresponding
+     * physical register will be used. Otherwise, a fresh spill Slot will be
+     * allocated.
+     *  - node - the Node for which to allocate a destination Value.
+     *  - register - the logical register to use, if any.
+     */
+    fn choose_destination(&mut self, node: RcEq<Node>, register: Option<usize>) -> Value {
+        let dest = match register {
             Some(index) => {
                 Value::Register(self.logical_to_physical[index])
             },
@@ -51,16 +58,35 @@ impl Allocation {
                 self.slots_used += 1;
                 Value::Slot(index)
             },
-        }
+        };
+        if let Some(_old) = self.values.insert(node, dest) { panic!("Node used twice"); }
+        dest
     }
 
     /**
      * Append `node` to this Allocation, and decide where to store its results.
+     * Returns `(dest, src)`.
+     *  - node - an Input Node.
+     *  - register - the logical register number, or None if the result
+     *    should be spilled.
+     */
+    pub fn input(&mut self, node: RcEq<Node>, register: Option<usize>) -> (Value, Value) {
+        let dest = self.choose_destination(node.clone(), register);
+        let src = match node.op {
+            Op::Input(src) => src,
+            _ => panic!("Not an Input"),
+        };
+        (dest, src)
+    }
+
+    /**
+     * Append `node` to this Allocation, and decide where to store its results.
+     *  - node - a non-Input Node.
      *  - register - the logical register number, or None if the result
      *    should be spilled.
      */
     pub fn node(&mut self, node: RcEq<Node>, register: Option<usize>) {
-        let dest = self.choose_destination(register);
+        let dest = self.choose_destination(node.clone(), register);
         match node.op {
             Op::Input(_) => {
                 panic!("Inputs should not be in the Schedule");
@@ -104,15 +130,12 @@ impl Allocation {
 
 
 pub fn optimize(
-    _before: Convention,
-    actions: Vec<Action>,
-    after: Convention,
+    before: &Convention,
+    actions: &[Action],
+    after: &Convention,
 ) -> Vec<Action> {
-    // `before` is currently unused. We plan to use it in two places:
-    // - In 1, to assert that we don't read values unless they are live.
-    // - In 3, to choose a logical-to-physical register mapping to avoid moves.
     // 1. Simulation.
-    let mut simulation = Simulation::new();
+    let mut simulation = Simulation::new(&before.live_values);
     for action in actions {
         simulation.action(action);
     }
@@ -122,22 +145,19 @@ pub fn optimize(
     }).collect();
     let schedule = Schedule::new(roots);
     // 3. Match `before`.
-    // TODO.
+    // TODO: choose a logical-to-physical register mapping to avoid moves.
     // 4. Allocation.
     let mut allocation = Allocation::new(ALLOCATABLE_REGISTERS /* TODO: 3. */);
     let mut dest_to_src = HashMap::new();
-    for (src, _, register) in schedule.inputs() {
-        let dest = allocation.choose_destination(register);
-        match dest_to_src.entry(dest) {
-            Entry::Occupied(_) => { panic!("Two Inputs in the same register"); },
-            Entry::Vacant(entry) => { entry.insert(src); },
-        }
+    for (node, _, register) in schedule.inputs() {
+        let (dest, src) = allocation.input(node.clone(), register);
+        if let Some(_old) = dest_to_src.insert(dest, src) { panic!("Two Inputs in the same register"); }
     }
     for (dest, src) in moves(dest_to_src, TEMP_VALUE) {
         allocation.actions.push(Action::Move(dest, src));
     }
     for (node, _, register) in schedule.iter() {
-        allocation.node(node, register);
+        allocation.node(node.clone(), register);
     }
     // 5. Match `after`.
     let dest_to_src: HashMap<_, _> = after.live_values.iter().map(|&dest| {
@@ -157,6 +177,8 @@ pub fn optimize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rand::{self, SeedableRng};
+    use rand::distributions::{Distribution, Uniform};
 
     #[test]
     fn nop() {
@@ -169,8 +191,66 @@ mod tests {
             discriminant: Value::Register(ALLOCATABLE_REGISTERS[0]),
             live_values: vec![],
         };
-        let observed = optimize(before, actions, after);
+        let observed = optimize(&before, &actions, &after);
         let expected: Vec<Action> = vec![];
         assert_eq!(observed.as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn moves() {
+        const NUM_TESTS: usize = 1000;
+        const NUM_MOVES: usize = 5;
+        // We will use these Values.
+        let values = vec![
+            Value::Slot(0),
+            Value::Slot(2),
+            Value::Register(ALLOCATABLE_REGISTERS[8]),
+            Value::Register(ALLOCATABLE_REGISTERS[9]),
+        ];
+        // All our Values are live.
+        let convention = Convention {
+            discriminant: Value::Register(ALLOCATABLE_REGISTERS[0]),
+            live_values: values.clone(),
+        };
+        // Generate random Values from our list.
+        let mut rng = rand::rngs::StdRng::seed_from_u64(0);
+        let mut random_value = || {
+            values[Uniform::new(0, values.len()).sample(&mut rng)].clone()
+        };
+        // Emulator for a subset of Action.
+        let execute = |actions: &[Action]| {
+            let mut state: HashMap<Value, char> = values.iter().enumerate().map(|(i, value)| {
+                (value.clone(), ('A' as usize + i) as u8 as char)
+            }).collect();
+            for action in actions {
+                match action {
+                    &Action::Move(dest, src) => {
+                        let c = *state.get(&src).expect("Missing from state");
+                        state.insert(dest, c);
+                    },
+                    _ => panic!("Don't know how to execute {:#?}", action),
+                }
+            }
+            state
+        };
+        // Generate and test some random code sequences.
+        for _ in 0..NUM_TESTS {
+            let actions: Vec<_> = (0..NUM_MOVES).map(|_| {
+                Action::Move(random_value(), random_value())
+            }).collect();
+            let expected = execute(&actions);
+            let optimized = optimize(&convention, &actions, &convention);
+            let observed_with_temporaries = execute(&optimized);
+            let observed: HashMap<_, _> = values.iter().map(|&value| {
+                let c = *observed_with_temporaries.get(&value).expect("Missing Value");
+                (value, c)
+            }).collect();
+            if expected != observed {
+                println!("actions = {:#?}", actions);
+                println!("expected = {:#?}", expected);
+                println!("observed = {:#?}", observed);
+                panic!("Optimized code does not do the same thing as the original");
+            }
+        }
     }
 }

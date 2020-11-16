@@ -23,6 +23,7 @@ use lowerer::{Lowerer};
  *  - Knowledge about the cache state, e.g. that some value is the value of
  *    some memory location, and whether it needs to be stored.
  */
+#[derive(Debug, Clone)]
 pub struct Convention {
     /** The Value that will be tested next. */
     pub discriminant: Value,

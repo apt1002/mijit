@@ -13,6 +13,7 @@ crate_type = ["rlib", "cdylib"]
 [dependencies]
 memmap = "0.6.2"
 indexmap = "1.4.0"
+rand = "0.7"
 
 [dependencies.iced-x86]
 version = "1.2.0"

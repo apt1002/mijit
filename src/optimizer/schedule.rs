@@ -2,7 +2,6 @@ use std::{cmp};
 use std::collections::{HashMap};
 
 use crate::util::{RcEq};
-use super::super::code::{Value};
 use super::dataflow::{Node, Op};
 use super::pressure::{Life, Pressure};
 
@@ -38,6 +37,7 @@ pub const LATE: Time = cmp::Reverse(0);
  * Usage information about a Node in a WorkList. Information is collected
  * incrementally as references to the Node are processed.
  */
+#[derive(Debug)]
 struct Usage {
     /** The number of Nodes which depend on the Node. */
     pub num_uses: usize,
@@ -162,7 +162,7 @@ impl Schedule {
             pressure: Pressure::new(|| LATE),
         };
         for &(ref node, time) in &roots {
-            work_list.schedule(node, Life::new(time, time), &mut schedule)
+            work_list.schedule(node, Life::new(time, time), &mut schedule);
         }
         schedule
     }
@@ -216,25 +216,21 @@ impl Schedule {
         self.infos.insert(node.clone(), NodeInfo {life: life.clone(), register});
     }
 
+    /** Yields the Input Nodes. */
+    pub fn inputs<'a>(&'a self) -> impl 'a + Iterator<Item=(&'a RcEq<Node>, Life<Time>, Option<usize>)> {
+        self.inputs.iter().map(move |node| {
+            let info = self.infos.get(node).expect("missing NodeInfo");
+            (node, info.life, info.register)
+        })
+    }
+
     /** Yields the Nodes in the order that we've decided to execute them. */
-    pub fn iter<'a>(&'a self) -> impl 'a + Iterator<Item=(RcEq<Node>, Life<Time>, Option<usize>)> {
+    pub fn iter<'a>(&'a self) -> impl 'a + Iterator<Item=(&'a RcEq<Node>, Life<Time>, Option<usize>)> {
         self.cycles.iter().rev().flat_map(|cycle| {
             cycle.nodes.iter().rev()
         }).map(move |node| {
             let info = self.infos.get(node).expect("missing NodeInfo");
-            (node.clone(), info.life, info.register)
-        })
-    }
-
-    /** Returns the Input Nodes. */
-    pub fn inputs<'a>(&'a self) -> impl 'a + Iterator<Item=(Value, Life<Time>, Option<usize>)> {
-        self.inputs.iter().map(move |node| {
-            let info = self.infos.get(node).expect("missing NodeInfo");
-            let value = match node.op {
-                Op::Input(value) => value,
-                _ => panic!("Not an Input"),
-            };
-            (value, info.life, info.register)
+            (node, info.life, info.register)
         })
     }
 }
