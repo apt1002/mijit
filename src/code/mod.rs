@@ -158,7 +158,7 @@ impl std::ops::BitXor for AliasMask {
  * An imperative instruction.
  * The destination register (where applicable) is on the left.
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
     Constant(Precision, Value, i64),
     Move(Value, Value),
