@@ -18,7 +18,7 @@
  * Booleans results are returned as `0` or `-1`.
  */
 
-use std::fmt::{Debug};
+use std::fmt::{self, Debug};
 use std::hash::{Hash};
 
 pub use super::x86_64::{Register, Precision};
@@ -26,10 +26,19 @@ pub use super::x86_64::{Register, Precision};
 pub mod clock;
 
 /** A spill slot or register. */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     Slot(usize),
     Register(Register),
+}
+
+impl Debug for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str(&match self {
+            Value::Slot(n) => format!("Slot({})", n),
+            Value::Register(r) => format!("{:#?}", r),
+        })
+    }
 }
 
 /** Guard conditions used to define control flow. */
