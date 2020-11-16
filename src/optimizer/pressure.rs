@@ -149,7 +149,7 @@ impl<T: Ord, U> Pressure<T, U> {
 
     /**
      * Select a register to hold a value during `life`, and mark it as
-     * unavailable during that interval, used for `use_`.
+     * unavailable during that interval, used at site `use_`.
      *
      * Returns one of the following:
      *
@@ -166,6 +166,7 @@ impl<T: Ord, U> Pressure<T, U> {
             if ri.life.born >= life.dies { Some(cmp::Reverse(&ri.life.born)) } else { None }
         }) {
             // We found one.
+            self.regs[r] = RegInfo {life, use_: Some(use_)};
             return Some((r, None));
         }
         // There wasn't one. Find a register to spill.
