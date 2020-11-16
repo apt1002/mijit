@@ -31,14 +31,31 @@ impl<T> Clone for RcEq<T> {
 
 impl<T> Hash for RcEq<T> {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        std::ptr::hash(self, state);
+        std::ptr::hash(&*self.0, state);
     }
 }
 
 impl<T> PartialEq for RcEq<T> {
     fn eq(&self, other: &Self) -> bool {
-        std::ptr::eq(self, other)
+        std::ptr::eq(&*self.0, &*other.0)
     }
 }
 
 impl<T> Eq for RcEq<T> {}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn rceq() {
+        let payload = String::from("payload");
+        let a = RcEq::new(payload.clone());
+        let b = RcEq::new(payload.clone());
+        assert_ne!(a, b);
+        let c = a.clone();
+        assert_eq!(a, c);
+    }
+}
