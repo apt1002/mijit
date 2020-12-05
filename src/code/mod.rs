@@ -200,3 +200,41 @@ pub trait Machine: Debug {
     /** Returns some States from which all others are reachable. */
     fn initial_states(&self) -> Vec<Self::State>;
 }
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use std::collections::{HashMap};
+
+    /**
+     * An emulator for a subset of Mijit code, useful for testing
+     * automatically-generated code.
+     */
+    pub struct Emulator {
+        values: Vec<Value>,
+    }
+
+    impl Emulator {
+        pub fn new(values: Vec<Value>) -> Self {
+            Emulator {values}
+        }
+
+        pub fn execute(&self, actions: &[Action]) -> HashMap<Value, char> {
+            let mut state: HashMap<Value, char> = self.values.iter().enumerate().map(|(i, value)| {
+                (value.clone(), ('A' as usize + i) as u8 as char)
+            }).collect();
+            for action in actions {
+                match action {
+                    &Action::Move(dest, src) => {
+                        let c = *state.get(&src).expect("Missing from state");
+                        state.insert(dest, c);
+                    },
+                    _ => panic!("Don't know how to execute {:#?}", action),
+                }
+            }
+            state
+        }
+    }
+}

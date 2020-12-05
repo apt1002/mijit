@@ -217,30 +217,15 @@ mod tests {
         let mut random_value = || {
             values[Uniform::new(0, values.len()).sample(&mut rng)].clone()
         };
-        // Emulator for a subset of Action.
-        let execute = |actions: &[Action]| {
-            let mut state: HashMap<Value, char> = values.iter().enumerate().map(|(i, value)| {
-                (value.clone(), ('A' as usize + i) as u8 as char)
-            }).collect();
-            for action in actions {
-                match action {
-                    &Action::Move(dest, src) => {
-                        let c = *state.get(&src).expect("Missing from state");
-                        state.insert(dest, c);
-                    },
-                    _ => panic!("Don't know how to execute {:#?}", action),
-                }
-            }
-            state
-        };
         // Generate and test some random code sequences.
+        let emulator = super::super::code::tests::Emulator::new(values.clone());
         for _ in 0..NUM_TESTS {
             let actions: Vec<_> = (0..NUM_MOVES).map(|_| {
                 Action::Move(random_value(), random_value())
             }).collect();
-            let expected = execute(&actions);
+            let expected = emulator.execute(&actions);
             let optimized = optimize(&convention, &actions, &convention);
-            let observed_with_temporaries = execute(&optimized);
+            let observed_with_temporaries = emulator.execute(&optimized);
             let observed: HashMap<_, _> = values.iter().map(|&value| {
                 let c = *observed_with_temporaries.get(&value).expect("Missing Value");
                 (value, c)
