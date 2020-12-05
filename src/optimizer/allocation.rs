@@ -177,6 +177,9 @@ pub fn optimize(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::{code};
+    use code::{UnaryOp, BinaryOp, Precision};
+    use code::tests::{Emulator};
     use rand::{self, SeedableRng};
     use rand::distributions::{Distribution, Uniform};
 
@@ -218,7 +221,7 @@ mod tests {
             values[Uniform::new(0, values.len()).sample(&mut rng)].clone()
         };
         // Generate and test some random code sequences.
-        let emulator = super::super::code::tests::Emulator::new(values.clone());
+        let emulator = Emulator::new(values.clone());
         for _ in 0..NUM_TESTS {
             let actions: Vec<_> = (0..NUM_MOVES).map(|_| {
                 Action::Move(random_value(), random_value())
@@ -234,6 +237,40 @@ mod tests {
                 println!("actions = {:#?}", actions);
                 println!("expected = {:#?}", expected);
                 println!("observed = {:#?}", observed);
+                panic!("Optimized code does not do the same thing as the original");
+            }
+        }
+    }
+
+    #[test]
+    fn one_ops() {
+        const R0: Value = Value::Register(ALLOCATABLE_REGISTERS[0]);
+        const R1: Value = Value::Register(ALLOCATABLE_REGISTERS[1]);
+        let convention = Convention {
+            discriminant: R0,
+            live_values: vec![R0, R1],
+        };
+        let emulator = Emulator::new(convention.live_values.clone());
+        use Precision::*;
+        for action in &[
+            Action::Constant(P64, R0, 924573497),
+            Action::Unary(UnaryOp::Not, P64, R0, R1),
+            Action::Binary(BinaryOp::Add, P64, R0, R0, R1),
+            // Division(DivisionOp, Precision, Value, Value, Value, Value),
+        ] {
+            let actions = vec![action.clone()];
+            let expected = emulator.execute(&actions);
+            let optimized = optimize(&convention, &actions, &convention);
+            let observed_with_temporaries = emulator.execute(&optimized);
+            let observed: HashMap<_, _> = convention.live_values.iter().map(|&value| {
+                let c = *observed_with_temporaries.get(&value).expect("Missing Value");
+                (value, c)
+            }).collect();
+            if expected != observed {
+                println!("actions = {:#?}", &actions);
+                println!("optimized = {:#?}", &optimized);
+                println!("expected = {:#?}", &expected);
+                println!("observed = {:#?}", &observed);
                 panic!("Optimized code does not do the same thing as the original");
             }
         }

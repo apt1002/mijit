@@ -221,15 +221,27 @@ pub mod tests {
             Emulator {values}
         }
 
-        pub fn execute(&self, actions: &[Action]) -> HashMap<Value, char> {
-            let mut state: HashMap<Value, char> = self.values.iter().enumerate().map(|(i, value)| {
-                (value.clone(), ('A' as usize + i) as u8 as char)
+        pub fn execute(&self, actions: &[Action]) -> HashMap<Value, i64> {
+            let mut state: HashMap<Value, i64> = self.values.iter().enumerate().map(|(i, value)| {
+                (value.clone(), 1000 + i as i64)
             }).collect();
             for action in actions {
                 match action {
+                    &Action::Constant(Precision::P64, dest, imm) => {
+                        state.insert(dest, imm);
+                    },
                     &Action::Move(dest, src) => {
-                        let c = *state.get(&src).expect("Missing from state");
-                        state.insert(dest, c);
+                        let x = *state.get(&src).expect("Missing from state");
+                        state.insert(dest, x);
+                    },
+                    &Action::Unary(UnaryOp::Not, Precision::P64, dest, src) => {
+                        let x = *state.get(&src).expect("Missing from state");
+                        state.insert(dest, !x);
+                    },
+                    &Action::Binary(BinaryOp::Add, Precision::P64, dest, src1, src2) => {
+                        let x = *state.get(&src1).expect("Missing from state");
+                        let y = *state.get(&src2).expect("Missing from state");
+                        state.insert(dest, x + y);
                     },
                     _ => panic!("Don't know how to execute {:#?}", action),
                 }
