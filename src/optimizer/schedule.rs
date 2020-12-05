@@ -244,6 +244,7 @@ impl Schedule {
                     self.cycles.push(Cycle::new());
                 }
                 let mut cycle = &mut self.cycles[life.born.cycle.0];
+                assert!(life.born.instruction.0 <= cycle.nodes.len());
                 cycle.nodes.push(node.clone());
                 life.born.instruction.0 = cycle.nodes.len();
                 cycle.available -= node.op.cost();
