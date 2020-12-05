@@ -2,7 +2,7 @@
  * Data structures for tracking register pressure.
  */
 
-use std::{cmp, mem, ops};
+use std::{cmp, fmt, mem, ops};
 use ops::{BitAnd, BitAndAssign, BitOr, BitOrAssign};
 
 use super::super::jit::lowerer::{ALLOCATABLE_REGISTERS};
@@ -125,12 +125,13 @@ struct RegInfo<T: Ord, U> {
  * A payload of type `U` can be associated with each register. The payload
  * represents the earliest use site of the register.
  */
+#[derive(Debug)]
 pub struct Pressure<T: Ord, U> {
     /** Indexed by register number. */
     regs: Vec<RegInfo<T, U>>,
 }
 
-impl<T: Ord, U> Pressure<T, U> {
+impl<T: Ord + fmt::Debug, U> Pressure<T, U> {
     /** Initially, all registers are free until `end_time()`. */
     pub fn new(end_time: impl Fn() -> T) -> Self {
         Pressure {

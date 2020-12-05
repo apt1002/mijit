@@ -1,4 +1,4 @@
-use std::{cmp};
+use std::{cmp, fmt};
 use std::collections::{HashMap};
 
 use crate::util::{RcEq};
@@ -8,6 +8,7 @@ use super::pressure::{Life, Pressure};
 pub const PARALLELISM: usize = 3;
 
 /** Records all information about one cycle of the schedule. */
+#[derive(Debug)]
 struct Cycle {
     /** Execution resources not yet used in this cycle. */
     pub available: usize,
@@ -27,11 +28,42 @@ impl Cycle {
 
 //-----------------------------------------------------------------------------
 
-/** Time is measured in cycles backwards from the end of the Schedule. */
-pub type Time = cmp::Reverse<usize>;
+/**
+ * Time is measured in cycles backwards from the end of the Schedule, and
+ * instructions backwards within a cycle.
+ */
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Time {
+    cycle: cmp::Reverse<usize>,
+    instruction: cmp::Reverse<usize>,
+}
 
-pub const EARLY: Time = cmp::Reverse(usize::MAX);
-pub const LATE: Time = cmp::Reverse(0);
+impl fmt::Debug for Time {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.debug_tuple("Time")
+            .field(&self.cycle)
+            .field(&self.instruction)
+            .finish()
+    }
+}
+
+impl std::ops::Sub<usize> for Time {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        if rhs == 0 {
+            self
+        } else {
+            Time {
+                cycle: cmp::Reverse(self.cycle.0 + rhs),
+                instruction: cmp::Reverse(0),
+            }
+        }
+    }
+}
+
+pub const EARLY: Time = Time {cycle: cmp::Reverse(usize::MAX), instruction: cmp::Reverse(0)};
+pub const LATE: Time = Time {cycle: cmp::Reverse(0), instruction: cmp::Reverse(0)};
 
 /**
  * Usage information about a Node in a WorkList. Information is collected
@@ -52,6 +84,7 @@ impl Usage {
 }
 
 /** Usage information about Nodes in a WorkList. */
+#[derive(Debug)]
 struct WorkList {
     /** Usage for every Node on which any of the `roots` depends. */
     pub infos: HashMap<RcEq<Node>, Usage>,
@@ -111,7 +144,7 @@ impl WorkList {
         // Recursively schedule `node`'s dependencies.
         let mut queue = Vec::new();
         for (o, latency) in node.op.operands() {
-            let born = cmp::Reverse(dies.0 + latency);
+            let born = dies - latency;
             queue.push((o, Life::new(born, dies)));
         }
         for d in node.op.dependencies() {
@@ -127,6 +160,7 @@ impl WorkList {
 
 //-----------------------------------------------------------------------------
 
+#[derive(Debug)]
 struct NodeInfo {
     /** The lifetime of the result of the Node. */
     life: Life<Time>,
@@ -144,6 +178,16 @@ pub struct Schedule {
     infos: HashMap<RcEq<Node>, NodeInfo>,
     /** Register pressure as a function of time. */
     pressure: Pressure<Time, RcEq<Node>>,
+}
+
+impl fmt::Debug for Schedule {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.debug_struct("Schedule")
+            .field("cycles", &self.cycles)
+            .field("inputs", &self.inputs)
+            .field("infos", &self.infos)
+            .finish()
+    }
 }
 
 impl Schedule {
@@ -176,9 +220,10 @@ impl Schedule {
 
     /**
      * Finds a cycle in which `node` can be executed. The chosen cycle will be
-     * as late as possible but no later than `life.born`. `life.born` is
-     * set to the chosen cycle. `node` is stored in the schedule and its
-     * execution resources are deducted.
+     * as late as possible but no later than `life.born`. `node` is stored in
+     * the Schedule and its execution resources are deducted. `life.born` is
+     * set to the Time just before `node` in the Schedule; `life` will
+     * therefore contain `node`.
      */
     pub fn choose_cycle(
         &mut self,
@@ -192,14 +237,16 @@ impl Schedule {
             },
             _ => {
                 life.born = cmp::max(life.born, *self.pressure.latest_time_with_unused_register());
-                while !self.fits(&*node, life.born.0) {
-                    life.born.0 += 1;
+                while !self.fits(&*node, life.born.cycle.0) {
+                    life.born.cycle.0 += 1;
                 }
-                while self.cycles.len() <= life.born.0 {
+                while self.cycles.len() <= life.born.cycle.0 {
                     self.cycles.push(Cycle::new());
                 }
-                self.cycles[life.born.0].nodes.push(node.clone());
-                self.cycles[life.born.0].available -= node.op.cost();
+                let mut cycle = &mut self.cycles[life.born.cycle.0];
+                cycle.nodes.push(node.clone());
+                life.born.instruction.0 = cycle.nodes.len();
+                cycle.available -= node.op.cost();
             },
         }
         let register = self.pressure
