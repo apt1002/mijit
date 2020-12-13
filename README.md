@@ -40,7 +40,7 @@ not yet have C bindings. There is one back-end, for
 x86_64. Other 64-bit targets are planned, but the
 portable abstraction has not been designed yet.
 It can run some trivial programs, but the generated
-code is poor. The optimizer is still just a collection
+code is poor. The optimizer is still mostly a collection
 of ideas.
 
 Building
@@ -53,6 +53,10 @@ Building
 Running
 -------
 
+Mijit is primarily a library. However, it does provide
+some executable tests.
+
 ```
+    $ cargo test
     $ LD_LIBRARY_PATH=target/debug ./main
 ```
