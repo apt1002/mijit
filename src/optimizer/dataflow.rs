@@ -4,8 +4,7 @@ use std::fmt::{Debug};
 use std::hash::{Hash};
 use crate::util::{RcEq};
 
-use super::{code};
-use code::{Value, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
+use super::code::{Value, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
 
 /** The latencies of common instructions, in clock cycles. */
 pub mod latency {
@@ -140,7 +139,7 @@ impl Node {
 //-----------------------------------------------------------------------------
 
 /**
- * Represents the state of a simulated execution of some [`code::Action`]s.
+ * Represents the state of a simulated execution of some [`Action`]s.
  */
 #[derive(Debug)]
 pub struct Simulation {

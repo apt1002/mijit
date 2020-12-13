@@ -5,6 +5,7 @@ use crate::util::{RcEq};
 use super::dataflow::{Node, Op};
 use super::pressure::{Life, Pressure};
 
+// TODO: Move to architecture abstraction layer.
 pub const PARALLELISM: usize = 3;
 
 /** Records all information about one cycle of the schedule. */
