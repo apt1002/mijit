@@ -78,12 +78,10 @@ mod tests {
     #[test]
     fn nop() {
         let before = Convention {
-            discriminant: Value::Register(ALLOCATABLE_REGISTERS[0]),
             live_values: vec![],
         };
         let actions = vec![];
         let after = Convention {
-            discriminant: Value::Register(ALLOCATABLE_REGISTERS[0]),
             live_values: vec![],
         };
         let observed = optimize(&before, &actions, &after);
@@ -104,7 +102,6 @@ mod tests {
         ];
         // All our Values are live.
         let convention = Convention {
-            discriminant: Value::Register(ALLOCATABLE_REGISTERS[0]),
             live_values: values.clone(),
         };
         // Generate random Values from our list.
@@ -139,7 +136,6 @@ mod tests {
         const R0: Value = Value::Register(ALLOCATABLE_REGISTERS[0]);
         const R1: Value = Value::Register(ALLOCATABLE_REGISTERS[1]);
         let convention = Convention {
-            discriminant: R0,
             live_values: vec![R0, R1],
         };
         let emulator = Emulator::new(convention.live_values.clone());

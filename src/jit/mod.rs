@@ -26,7 +26,7 @@ use lowerer::{Lowerer};
 #[derive(Debug, Clone)]
 pub struct Convention {
     /** The Value that will be tested next. */
-    pub discriminant: Value,
+    // pub discriminant: Value,
     /** The values that are live on entry, including `discriminant`. */
     pub live_values: Vec<Value>,
 }
@@ -153,6 +153,9 @@ impl<M: Machine> Jit<M> {
             }
             done += 1;
         }
+        let _convention = Convention {
+            live_values: (0..num_slots).map(|i| Value::Slot(i)).collect(),
+        };
 
         // Assemble the function prologue.
         let mut fetch_labels: Vec<Label> = (0..states.len()).map(|_| Label::new(None)).collect();
