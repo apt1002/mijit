@@ -1,6 +1,6 @@
 use indexmap::{IndexSet};
 
-use super::{Buffer, code, x86_64};
+use super::{Buffer, code, optimizer, x86_64};
 use x86_64::*;
 use code::{Action, TestOp, Machine, Precision, Value};
 use Register::*;
@@ -113,10 +113,15 @@ impl Action {
  * The state of the JIT compiler. This includes the memory allocated for the
  * compiled code, the [`Machine`] we're compiling, and all house-keeping data.
  */
+// TODO: Replace `convention`, `fetch_labels`, `retire_labels` with a Vec
+// of Histories.
 pub struct Jit<M: Machine> {
     machine: M,
     /** Numbering of all M::States. */
     states: IndexSet<M::State>,
+    /** The Convention used at every Label. */
+    // TODO: One Convention per History.
+    convention: Convention,
     /**
      * The locations of the compiled code for all retire transitions,
      * and of all instructions that jump to them.
@@ -158,7 +163,7 @@ impl<M: Machine> Jit<M> {
             }
             done += 1;
         }
-        let _convention = Convention {
+        let convention = Convention {
             live_values: (0..num_slots).map(|i| Value::Slot(i)).collect(),
             slots_used: num_slots,
         };
@@ -199,7 +204,7 @@ impl<M: Machine> Jit<M> {
         let used = a.get_pos();
         // TODO: Factor out pool index calculation.
         let pool = vec![0; num_slots + 1 + 1000]; // FIXME: replace "1000" by dynamically-calculated value.
-        let mut jit = Jit {machine, states, fetch_labels, retire_labels, buffer, used, pool};
+        let mut jit = Jit {machine, states, convention, fetch_labels, retire_labels, buffer, used, pool};
 
         // Construct the root Histories.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
@@ -254,6 +259,7 @@ impl<M: Machine> Jit<M> {
         actions: Vec<Action>,
         new_index: usize,
     ) {
+        let actions = optimizer::optimize(&self.convention, &actions, &self.convention);
         let mut lo = Lowerer {
             a: Assembler::new(&mut self.buffer),
         };
