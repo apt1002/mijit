@@ -267,7 +267,7 @@ impl Schedule {
         assert_ne!(latest, EARLY);
         life.born = cmp::min(life.born, latest);
         while !self.fits(&*node, life.born.cycle.0) {
-            life.born.cycle.0 += 1;
+            life.born = life.born - 1;
         }
         while self.cycles.len() <= life.born.cycle.0 {
             self.cycles.push(Cycle::new());
