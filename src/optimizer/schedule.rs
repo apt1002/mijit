@@ -88,12 +88,14 @@ impl Usage {
 #[derive(Debug)]
 struct WorkList {
     /** Usage for every Node on which any of the `roots` depends. */
+    // TODO: Rename infos → usages
     pub infos: HashMap<RcEq<Node>, Usage>,
+    pub inputs: Vec<RcEq<Node>>,
 }
 
 impl WorkList {
     pub fn new() -> Self {
-        WorkList {infos: HashMap::new()}
+        WorkList {infos: HashMap::new(), inputs: Vec::new()}
     }
 
     /**
@@ -137,7 +139,12 @@ impl WorkList {
         }
 
         // We have all the required info about `node`. Schedule it.
+        if let Op::Input(_) = node.op {
+            self.inputs.push(node.clone());
+            return;
+        }
         schedule.choose_cycle(node, &mut usage.life);
+        schedule.choose_register(node, &usage.life);
 
         // Operands of `node` must live until the result is born.
         let dies = usage.life.born;
@@ -209,6 +216,12 @@ impl Schedule {
         for &(ref node, time) in &roots {
             work_list.schedule(node, Life::new(time, time), &mut schedule);
         }
+        for node in &work_list.inputs {
+            let usage = work_list.infos.get_mut(&node).expect("missing Usage");
+            usage.life.born = EARLY;
+            schedule.choose_register(node, &usage.life);
+            schedule.inputs.push(node.clone());
+        }
         schedule
     }
 
@@ -217,6 +230,25 @@ impl Schedule {
             return true;
         }
         self.cycles[cycle].fits(node)
+    }
+
+    pub fn choose_register(
+        &mut self,
+        node: &RcEq<Node>,
+        life: &Life<Time>,
+    ) {
+        let register = self.pressure
+            .allocate_register(life.clone(), node.clone())
+            .map(|(register, previous_node)| {
+                if let Some(previous_node) = previous_node {
+                    // Steal `register` from `previous_node`. Spill the latter.
+                    let mut info = self.infos.get_mut(&previous_node).expect("missing NodeInfo");
+                    assert_eq!(info.register, Some(register));
+                    info.register = None;
+                }
+                register
+            });
+        self.infos.insert(node.clone(), NodeInfo {life: life.clone(), register});
     }
 
     /**
@@ -231,38 +263,20 @@ impl Schedule {
         node: &RcEq<Node>,
         life: &mut Life<Time>,
     ) {
-        match node.op {
-            Op::Input(_) => {
-                life.born = EARLY;
-                self.inputs.push(node.clone());
-            },
-            _ => {
-                life.born = cmp::max(life.born, *self.pressure.latest_time_with_unused_register());
-                while !self.fits(&*node, life.born.cycle.0) {
-                    life.born.cycle.0 += 1;
-                }
-                while self.cycles.len() <= life.born.cycle.0 {
-                    self.cycles.push(Cycle::new());
-                }
-                let mut cycle = &mut self.cycles[life.born.cycle.0];
-                assert!(life.born.instruction.0 <= cycle.nodes.len());
-                cycle.nodes.push(node.clone());
-                life.born.instruction.0 = cycle.nodes.len();
-                cycle.available -= node.op.cost();
-            },
+        let latest = *self.pressure.latest_time_with_unused_register();
+        assert_ne!(latest, EARLY);
+        life.born = cmp::min(life.born, latest);
+        while !self.fits(&*node, life.born.cycle.0) {
+            life.born.cycle.0 += 1;
         }
-        let register = self.pressure
-            .allocate_register(life.clone(), node.clone())
-            .map(|(register, previous_node)| {
-                if let Some(previous_node) = previous_node {
-                    // Steal `register` from `previous_node`. Spill the latter.
-                    let mut info = self.infos.get_mut(&previous_node).expect("missing NodeInfo");
-                    assert_eq!(info.register, Some(register));
-                    info.register = None;
-                }
-                register
-            });
-        self.infos.insert(node.clone(), NodeInfo {life: life.clone(), register});
+        while self.cycles.len() <= life.born.cycle.0 {
+            self.cycles.push(Cycle::new());
+        }
+        let mut cycle = &mut self.cycles[life.born.cycle.0];
+        assert!(life.born.instruction.0 <= cycle.nodes.len());
+        cycle.nodes.push(node.clone());
+        life.born.instruction.0 = cycle.nodes.len();
+        cycle.available -= node.op.cost();
     }
 
     /** Yields the Input Nodes. */
@@ -281,5 +295,31 @@ impl Schedule {
             let info = self.infos.get(node).expect("missing NodeInfo");
             (node, info.life, info.register)
         })
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    pub fn time_ord() {
+        const TIMES: [Time; 5] = [
+            EARLY,
+            Time {cycle: cmp::Reverse(2), instruction: cmp::Reverse(2)},
+            Time {cycle: cmp::Reverse(2), instruction: cmp::Reverse(0)},
+            Time {cycle: cmp::Reverse(0), instruction: cmp::Reverse(2)},
+            LATE,
+        ];
+        for i in 0..(TIMES.len()) {
+            for j in 0..(TIMES.len()) {
+                let expected = i <= j;
+                let observed = TIMES[i] <= TIMES[j];
+                if expected != observed {
+                    println!("i = {:#?}, j = {:#?}, expected = {:#?}, observed = {:#?}", i, j, expected, observed);
+                    panic!("expected != observed");
+                }
+            }
+        }
     }
 }
