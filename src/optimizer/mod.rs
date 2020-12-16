@@ -32,9 +32,11 @@ pub fn optimize(
         simulation.action(action);
     }
     // 2. Schedule.
-    let roots: Vec<_> = after.live_values.iter().map(|&value| {
-        (simulation.lookup(value), LATE)
-    }).collect();
+    let roots: Vec<_> = after.live_values.iter()
+        .map(|&value| simulation.lookup(value))
+        .chain(simulation.implicit_dependencies())
+        .map(|node| (node, LATE))
+        .collect();
     let schedule = Schedule::new(roots);
     // 3. Match `before`.
     // TODO: choose a logical-to-physical register mapping to avoid moves.

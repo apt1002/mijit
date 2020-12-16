@@ -172,7 +172,7 @@ impl Simulation {
     }
 
     /** Returns the `Node` bound to `value`, or a fresh `Input`. */
-    pub fn lookup(&mut self, value: Value) -> RcEq<Node> {
+    pub fn lookup(&self, value: Value) -> RcEq<Node> {
         self.bindings.get(&value).expect("Read a dead value").clone()
     }
 
@@ -240,5 +240,20 @@ impl Simulation {
                 self.stack = Some(node);
             },
         };
+    }
+
+    /**
+     * Returns the [`Node`]s that do not compute a result but which must
+     * nonetheless be executed. This includes stores and stack operations.
+     */
+    pub fn implicit_dependencies(&self) -> Vec<RcEq<Node>> {
+        let mut ret = Vec::new();
+        if let Some(ref node) = self.store {
+            ret.push(node.clone());
+        }
+        if let Some(ref node) = self.stack {
+            ret.push(node.clone());
+        }
+        ret
     }
 }
