@@ -21,9 +21,9 @@ pub struct Allocation {
 }
 
 impl Allocation {
-    pub fn new(logical_to_physical: [Register; ALLOCATABLE_REGISTERS.len()]) -> Self {
+    pub fn new(logical_to_physical: [Register; ALLOCATABLE_REGISTERS.len()], slots_used: usize) -> Self {
         Allocation {
-            slots_used: 0,
+            slots_used,
             actions: Vec::new(),
             values: HashMap::new(),
             logical_to_physical: logical_to_physical,

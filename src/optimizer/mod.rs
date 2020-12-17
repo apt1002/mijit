@@ -41,7 +41,8 @@ pub fn optimize(
     // 3. Match `before`.
     // TODO: choose a logical-to-physical register mapping to avoid moves.
     // 4. Allocation.
-    let mut allocation = Allocation::new(ALLOCATABLE_REGISTERS /* TODO: 3. */);
+    let slots_used = std::cmp::max(before.slots_used, after.slots_used);
+    let mut allocation = Allocation::new(ALLOCATABLE_REGISTERS /* TODO: 3. */, slots_used);
     let mut dest_to_src = HashMap::new();
     for (node, _, register) in schedule.inputs() {
         let (dest, src) = allocation.input(node.clone(), register);
@@ -81,10 +82,12 @@ mod tests {
     fn nop() {
         let before = Convention {
             live_values: vec![],
+            slots_used: 0,
         };
         let actions = vec![];
         let after = Convention {
             live_values: vec![],
+            slots_used: 0,
         };
         let observed = optimize(&before, &actions, &after);
         let expected: Vec<Action> = vec![];
@@ -105,6 +108,7 @@ mod tests {
         // All our Values are live.
         let convention = Convention {
             live_values: values.clone(),
+            slots_used: 3,
         };
         // Generate random Values from our list.
         let mut rng = rand::rngs::StdRng::seed_from_u64(0);
@@ -139,6 +143,7 @@ mod tests {
         const R1: Value = Value::Register(ALLOCATABLE_REGISTERS[1]);
         let convention = Convention {
             live_values: vec![R0, R1],
+            slots_used: 0,
         };
         let emulator = Emulator::new(convention.live_values.clone());
         use Precision::*;

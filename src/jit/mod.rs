@@ -29,6 +29,11 @@ pub struct Convention {
     // pub discriminant: Value,
     /** The values that are live on entry, including `discriminant`. */
     pub live_values: Vec<Value>,
+    /**
+     * The number of pool slots used by the Convention. We allocate them
+     * sequentially.
+     */
+    pub slots_used: usize,
 }
 
 pub struct History {
@@ -155,6 +160,7 @@ impl<M: Machine> Jit<M> {
         }
         let _convention = Convention {
             live_values: (0..num_slots).map(|i| Value::Slot(i)).collect(),
+            slots_used: num_slots,
         };
 
         // Assemble the function prologue.
@@ -192,7 +198,7 @@ impl<M: Machine> Jit<M> {
         // Construct the Jit.
         let used = a.get_pos();
         // TODO: Factor out pool index calculation.
-        let pool = vec![0; num_slots + 1];
+        let pool = vec![0; num_slots + 1 + 1000]; // FIXME: replace "1000" by dynamically-calculated value.
         let mut jit = Jit {machine, states, fetch_labels, retire_labels, buffer, used, pool};
 
         // Construct the root Histories.
