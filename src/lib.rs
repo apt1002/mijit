@@ -1,8 +1,10 @@
 pub mod util;
 
+pub mod x86_64;
+
 pub mod code;
 
-pub mod x86_64;
+pub mod optimizer;
 
 pub mod jit;
 

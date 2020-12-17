@@ -23,6 +23,7 @@ use std::hash::{Hash};
 
 pub use super::x86_64::{Register, Precision};
 
+// Not currently used. Planned for #11.
 pub mod clock;
 
 /** A spill slot or register. */
@@ -198,4 +199,54 @@ pub trait Machine: Debug {
 
     /** Returns some States from which all others are reachable. */
     fn initial_states(&self) -> Vec<Self::State>;
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+    use std::collections::{HashMap};
+
+    /**
+     * An emulator for a subset of Mijit code, useful for testing
+     * automatically-generated code.
+     */
+    pub struct Emulator {
+        values: Vec<Value>,
+    }
+
+    impl Emulator {
+        pub fn new(values: Vec<Value>) -> Self {
+            Emulator {values}
+        }
+
+        pub fn execute(&self, actions: &[Action]) -> HashMap<Value, i64> {
+            let mut state: HashMap<Value, i64> = self.values.iter().enumerate().map(|(i, value)| {
+                (value.clone(), 1000 + i as i64)
+            }).collect();
+            for action in actions {
+                match action {
+                    &Action::Constant(Precision::P64, dest, imm) => {
+                        state.insert(dest, imm);
+                    },
+                    &Action::Move(dest, src) => {
+                        let x = *state.get(&src).expect("Missing from state");
+                        state.insert(dest, x);
+                    },
+                    &Action::Unary(UnaryOp::Not, Precision::P64, dest, src) => {
+                        let x = *state.get(&src).expect("Missing from state");
+                        state.insert(dest, !x);
+                    },
+                    &Action::Binary(BinaryOp::Add, Precision::P64, dest, src1, src2) => {
+                        let x = *state.get(&src1).expect("Missing from state");
+                        let y = *state.get(&src2).expect("Missing from state");
+                        state.insert(dest, x + y);
+                    },
+                    _ => panic!("Don't know how to execute {:#?}", action),
+                }
+            }
+            state
+        }
+    }
 }
