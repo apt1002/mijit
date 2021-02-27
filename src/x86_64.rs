@@ -31,7 +31,7 @@ pub enum Register {
     RC = 1,
     RD = 2,
     RB = 3,
-    // SP is not a general-purpose register.
+    RSP = 4,
     RBP = 5,
     RSI = 6,
     RDI = 7,
@@ -39,7 +39,7 @@ pub enum Register {
     R9 = 9,
     R10 = 10,
     R11 = 11,
-    // R12 is not a general-purpose register.
+    R12 = 12,
     R13 = 13,
     R14 = 14,
     R15 = 15,
@@ -71,14 +71,14 @@ impl Register {
     }
 }
 
-pub const ALL_REGISTERS: [Register; 14] =
-    [RA, RC, RD, RB, RBP, RSI, RDI, R8, R9, R10, R11, R13, R14, R15];
+pub const ALL_REGISTERS: [Register; 16] =
+    [RA, RC, RD, RB, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
 
 /**
  * In the System V amd64 calling convention, these registers must be preserved
- * by subroutines.
+ * by subroutines, as must `RSP`.
  */
-pub const CALLEE_SAVES: [Register; 5] = [RB, RBP, R13, R14, R15];
+pub const CALLEE_SAVES: [Register; 6] = [RB, RBP, R12, R13, R14, R15];
 
 /**
  * In the System V amd64 calling convention, these registers may be
@@ -510,6 +510,21 @@ impl<'a> Assembler<'a> {
         self.write(opcode, 4);
     }
 
+    /**
+     * If `rm` is `RSP` or `R12`, writes the byte `0x24`, otherwise does
+     * nothing.
+     *
+     * This is necessary after a ModR/M byte if `rm` is used as a memory
+     * operand, because the bit pattern 100 in the `rm` field indicates the
+     * presence of a SIB byte. `0x24` is a SIB byte with 100 in the `index`
+     * field, indicating no index, and 100 in the `base` field, matching `rm`.
+     */
+    pub fn write_sib_fix(&mut self, rm: Register) {
+        if (rm as usize) & 7 == 4 {
+            self.write_byte(0x24);
+        }
+    }
+
     // Instructions.
 
     /** Move register to register. */
@@ -520,12 +535,14 @@ impl<'a> Assembler<'a> {
     /** Move memory to register. */
     pub fn load(&mut self, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_rom_2(0x808B40, prec, src.0, dest);
+        self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
     /** Move register to memory. */
     pub fn store(&mut self, prec: Precision, dest: (Register, i32), src: Register) {
         self.write_rom_2(0x808940, prec, dest.0, src);
+        self.write_sib_fix(dest.0);
         self.write_imm32(dest.1);
     }
 
@@ -579,6 +596,7 @@ impl<'a> Assembler<'a> {
     /** Op a memory location to a register. */
     pub fn load_op(&mut self, op: BinaryOp, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_rom_2(op.reg_rm(false), prec, src.0, dest);
+        self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
@@ -608,6 +626,7 @@ impl<'a> Assembler<'a> {
     /** Multiply register by memory. */
     pub fn load_mul(&mut self, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_room_2(0x80AF0F40, prec, src.0, dest);
+        self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
@@ -619,6 +638,7 @@ impl<'a> Assembler<'a> {
     /** Unsigned long divide (D, A) by memory. Quotient in A, remainder in D. */
     pub fn load_udiv(&mut self, prec: Precision, src: (Register, i32)) {
         self.write_rom_1(0xB0F740, prec, src.0);
+        self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
@@ -630,6 +650,7 @@ impl<'a> Assembler<'a> {
     /** Conditional load. */
     pub fn load_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_room_2(cc.load_if(is_true), prec, src.0, dest);
+        self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
@@ -711,24 +732,31 @@ impl<'a> Assembler<'a> {
         match type_ {
             U8 => {
                 self.write_room_2(0x80B60F40, prec, src.0, dest);
+                self.write_sib_fix(src.0);
             }
             S8 => {
                 self.write_room_2(0x80BE0F40, prec, src.0, dest);
+                self.write_sib_fix(src.0);
             }
             U16 => {
                 self.write_room_2(0x80B70F40, prec, src.0, dest);
+                self.write_sib_fix(src.0);
             }
             S16 => {
                 self.write_room_2(0x80BF0F40, prec, src.0, dest);
+                self.write_sib_fix(src.0);
             }
             U32 => {
                 self.write_rom_2(0x808B40, P32, src.0, dest);
+                self.write_sib_fix(src.0);
             }
             S32 => {
                 self.write_rom_2(0x806340, prec, src.0, dest);
+                self.write_sib_fix(src.0);
             }
             U64 | S64 => {
                 self.write_rom_2(0x808B40, prec, src.0, dest);
+                self.write_sib_fix(src.0);
             }
         }
         self.write_imm32(src.1);
@@ -739,16 +767,20 @@ impl<'a> Assembler<'a> {
         match type_ {
             U8 | S8 => {
                 self.write_rom_2(0x808840, P32, dest.0, src);
+                self.write_sib_fix(dest.0);
             }
             U16 | S16 => {
                 self.write_byte(0x66);
                 self.write_rom_2(0x808940, P32, dest.0, src);
+                self.write_sib_fix(dest.0);
             }
             U32 | S32 => {
                 self.write_rom_2(0x808940, P32, dest.0, src);
+                self.write_sib_fix(dest.0);
             }
             U64 | S64 => {
                 self.write_rom_2(0x808940, P64, dest.0, src);
+                self.write_sib_fix(dest.0);
             }
         }
         self.write_imm32(dest.1);
@@ -851,6 +883,7 @@ pub mod tests {
             "mov ecx,ecx",
             "mov edx,edx",
             "mov ebx,ebx",
+            "mov esp,esp",
             "mov ebp,ebp",
             "mov esi,esi",
             "mov edi,edi",
@@ -858,6 +891,7 @@ pub mod tests {
             "mov r9d,r9d",
             "mov r10d,r10d",
             "mov r11d,r11d",
+            "mov r12d,r12d",
             "mov r13d,r13d",
             "mov r14d,r14d",
             "mov r15d,r15d",
@@ -923,16 +957,22 @@ pub mod tests {
         for &p in &ALL_PRECISIONS {
             a.move_(p, R10, R9);
             a.store(p, (R8, DISP), R10);
+            a.store(p, (R12, DISP), R10);
             a.load(p, R11, (R8, DISP));
+            a.load(p, R11, (R12, DISP));
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "mov r10d,r9d",
             "mov [r8+12345678h],r10d",
+            "mov [r12+12345678h],r10d",
             "mov r11d,[r8+12345678h]",
+            "mov r11d,[r12+12345678h]",
             "mov r10,r9",
             "mov [r8+12345678h],r10",
-            "mov r11,[r8+12345678h]"
+            "mov [r12+12345678h],r10",
+            "mov r11,[r8+12345678h]",
+            "mov r11,[r12+12345678h]",
         ]).unwrap();
     }
 
@@ -966,15 +1006,18 @@ pub mod tests {
             a.op(Add, p, R10, R9);
             a.const_op(Add, p, R10, IMM);
             a.load_op(Add, p, R9, (R8, DISP));
+            a.load_op(Add, p, R9, (R12, DISP));
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "add r10d,r9d",
             "add r10d,76543210h",
             "add r9d,[r8+12345678h]",
+            "add r9d,[r12+12345678h]",
             "add r10,r9",
             "add r10,76543210h",
             "add r9,[r8+12345678h]",
+            "add r9,[r12+12345678h]",
         ]).unwrap();
     }
 
@@ -1025,15 +1068,18 @@ pub mod tests {
             a.mul(p, R8, R9);
             a.const_mul(p, R10, R11, IMM);
             a.load_mul(p, R13, (R14, DISP));
+            a.load_mul(p, R13, (R12, DISP));
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "imul r8d,r9d",
             "imul r10d,r11d,76543210h",
             "imul r13d,[r14+12345678h]",
+            "imul r13d,[r12+12345678h]",
             "imul r8,r9",
             "imul r10,r11,76543210h",
             "imul r13,[r14+12345678h]",
+            "imul r13,[r12+12345678h]",
         ]).unwrap();
     }
 
@@ -1045,13 +1091,16 @@ pub mod tests {
         for &p in &ALL_PRECISIONS {
             a.udiv(p, R8);
             a.load_udiv(p, (R14, DISP));
+            a.load_udiv(p, (R12, DISP));
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "div r8d",
             "div dword [r14+12345678h]",
+            "div dword [r12+12345678h]",
             "div r8",
             "div qword [r14+12345678h]",
+            "div qword [r12+12345678h]",
         ]).unwrap();
     }
 
@@ -1115,6 +1164,7 @@ pub mod tests {
             a.move_if(G, false, p, R10, R11);
             a.load_if(G, true, p, RBP, (R13, DISP));
             a.load_if(G, false, p, R14, (R15, DISP));
+            a.load_if(G, false, p, R14, (R12, DISP));
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
@@ -1122,10 +1172,12 @@ pub mod tests {
             "cmovle r10d,r11d",
             "cmovg ebp,[r13+12345678h]",
             "cmovle r14d,[r15+12345678h]",
+            "cmovle r14d,[r12+12345678h]",
             "cmovg r8,r9",
             "cmovle r10,r11",
             "cmovg rbp,[r13+12345678h]",
             "cmovle r14,[r15+12345678h]",
+            "cmovle r14,[r12+12345678h]",
         ]).unwrap();
     }
 
@@ -1183,44 +1235,78 @@ pub mod tests {
         for &p in &ALL_PRECISIONS {
             for &w in &ALL_WIDTHS {
                 a.load_narrow(p, w, R9, (R8, DISP));
+                a.load_narrow(p, w, R9, (R12, DISP));
                 a.store_narrow(w, (R8, DISP), R9);
+                a.store_narrow(w, (R12, DISP), R9);
             }
         }
         let len = a.get_pos();
         disassemble(&code_bytes[..len], vec![
             "movzx r9d,byte [r8+12345678h]",
+            "movzx r9d,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",
+            "mov [r12+12345678h],r9b",
             "movsx r9d,byte [r8+12345678h]",
+            "movsx r9d,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",
+            "mov [r12+12345678h],r9b",
             "movzx r9d,word [r8+12345678h]",
+            "movzx r9d,word [r12+12345678h]",
             "mov [r8+12345678h],r9w",
+            "mov [r12+12345678h],r9w",
             "movsx r9d,word [r8+12345678h]",
+            "movsx r9d,word [r12+12345678h]",
             "mov [r8+12345678h],r9w",
+            "mov [r12+12345678h],r9w",
             "mov r9d,[r8+12345678h]",
+            "mov r9d,[r12+12345678h]",
             "mov [r8+12345678h],r9d",
+            "mov [r12+12345678h],r9d",
             "movsxd r9d,[r8+12345678h]",
+            "movsxd r9d,[r12+12345678h]",
             "mov [r8+12345678h],r9d",
+            "mov [r12+12345678h],r9d",
             "mov r9d,[r8+12345678h]",
+            "mov r9d,[r12+12345678h]",
             "mov [r8+12345678h],r9",
+            "mov [r12+12345678h],r9",
             "mov r9d,[r8+12345678h]",
+            "mov r9d,[r12+12345678h]",
             "mov [r8+12345678h],r9",
+            "mov [r12+12345678h],r9",
             
             "movzx r9,byte [r8+12345678h]",
+            "movzx r9,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",
+            "mov [r12+12345678h],r9b",
             "movsx r9,byte [r8+12345678h]",
+            "movsx r9,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",
+            "mov [r12+12345678h],r9b",
             "movzx r9,word [r8+12345678h]",
+            "movzx r9,word [r12+12345678h]",
             "mov [r8+12345678h],r9w",
+            "mov [r12+12345678h],r9w",
             "movsx r9,word [r8+12345678h]",
+            "movsx r9,word [r12+12345678h]",
             "mov [r8+12345678h],r9w",
+            "mov [r12+12345678h],r9w",
             "mov r9d,[r8+12345678h]",
+            "mov r9d,[r12+12345678h]",
             "mov [r8+12345678h],r9d",
+            "mov [r12+12345678h],r9d",
             "movsxd r9,[r8+12345678h]",
+            "movsxd r9,[r12+12345678h]",
             "mov [r8+12345678h],r9d",
+            "mov [r12+12345678h],r9d",
             "mov r9,[r8+12345678h]",
+            "mov r9,[r12+12345678h]",
             "mov [r8+12345678h],r9",
+            "mov [r12+12345678h],r9",
             "mov r9,[r8+12345678h]",
+            "mov r9,[r12+12345678h]",
             "mov [r8+12345678h],r9",
+            "mov [r12+12345678h],r9",
         ]).unwrap();
     }
 
