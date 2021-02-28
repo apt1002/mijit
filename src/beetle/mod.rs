@@ -1,19 +1,15 @@
 use std::num::{Wrapping};
 
-use super::code::{self, TestOp, Precision, UnaryOp, BinaryOp, Width, Action, Value};
+use super::code::{self, TestOp, Precision, UnaryOp, BinaryOp, Width, Action, Value, Register};
 use Precision::*;
 use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
 use Action::*;
 use Value::*;
+use Register::{RA, RD, RB, RBP, RSI};
 
-const RA: Value = Register(code::Register::RA);
-const RD: Value = Register(code::Register::RD);
-const RB: Value = Register(code::Register::RB);
-const RBP: Value = Register(code::Register::RBP);
-const RSI: Value = Register(code::Register::RSI);
-const TEMP: Value = Register(code::Register::RDI);
+const TEMP: Register = code::Register::RDI;
 
 /** Beetle's registers. */
 pub mod reg {
@@ -88,6 +84,10 @@ fn build(
 }
 
 
+trait IntoValue: Copy + Into<Value> {}
+
+impl<T: Copy + Into<Value>> IntoValue for T {}
+
 /**
  * A utility for generating action routines.
  *
@@ -103,37 +103,42 @@ impl Builder {
         Builder(Vec::new())
     }
 
-    fn const_(&mut self, dest: Value, constant: i64) {
-        self.0.push(Constant(P32, dest, constant));
+    fn const_(&mut self, dest: impl IntoValue, constant: i64) {
+        self.0.push(Constant(P32, dest.into(), constant));
     }
 
-    fn move_(&mut self, dest: Value, src: Value) {
-        self.0.push(Move(dest, src));
+    fn move_(&mut self, dest: impl IntoValue, src: impl IntoValue) {
+        self.0.push(Move(dest.into(), src.into()));
     }
 
-    fn unary(&mut self, op: UnaryOp, dest: Value, src: Value) {
-        self.0.push(Unary(op, P32, dest, src));
+    fn unary(&mut self, op: UnaryOp, dest: impl IntoValue, src: impl IntoValue) {
+        self.0.push(Unary(op, P32, dest.into(), src.into()));
     }
 
-    fn binary(&mut self, op: BinaryOp, dest: Value, src1: Value, src2: Value) {
-        self.0.push(Binary(op, P32, dest, src1, src2));
+    /**
+     * Apply 32-bit `op` to `src1` and `src2`, writing `dest`.
+     * `TEMP` is corrupted.
+     */
+    fn binary(&mut self, op: BinaryOp, dest: impl IntoValue, src1: impl IntoValue, src2: impl IntoValue) {
+        self.0.push(Binary(op, P32, TEMP, src1.into(), src2.into()));
+        self.move_(dest, TEMP);
     }
 
     /**
      * Apply 32-bit `op` to `src` and `constant`, writing `dest`.
      * `TEMP` is corrupted.
      */
-    fn const_binary(&mut self, op: BinaryOp, dest: Value, src: Value, constant: i64) {
-        assert_ne!(src, TEMP);
+    fn const_binary(&mut self, op: BinaryOp, dest: impl IntoValue, src: impl IntoValue, constant: i64) {
+        assert_ne!(src.into(), TEMP.into());
         self.const_(TEMP, constant);
-        self.0.push(Binary(op, P32, dest, src, TEMP));
+        self.binary(op, dest, src, TEMP);
     }
 
     /**
      * Compute the native address corresponding to `addr`.
      */
-    fn native_address(&mut self, dest: Value, addr: Value) {
-        self.0.push(Binary(Add, P64, dest, reg::MEMORY, addr));
+    fn native_address(&mut self, dest: Register, addr: impl IntoValue) {
+        self.0.push(Binary(Add, P64, dest, reg::MEMORY, addr.into()));
     }
 
     /**
@@ -141,9 +146,9 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn load(&mut self, dest: Value, addr: Value) {
+    fn load(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
         self.native_address(TEMP, addr);
-        self.0.push(Load(dest, (TEMP, Four), MEMORY));
+        self.0.push(Load(dest.into(), (TEMP.into(), Four), MEMORY.into()));
     }
 
     /**
@@ -151,10 +156,10 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn store(&mut self, src: Value, addr: Value) {
-        assert_ne!(src, TEMP);
+    fn store(&mut self, src: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src, (TEMP, Four), MEMORY));
+        self.0.push(Store(src.into(), (TEMP.into(), Four), MEMORY.into()));
     }
 
     /**
@@ -162,9 +167,9 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn load_byte(&mut self, dest: Value, addr: Value) {
+    fn load_byte(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
         self.native_address(TEMP, addr);
-        self.0.push(Load(dest, (TEMP, One), MEMORY));
+        self.0.push(Load(dest.into(), (TEMP.into(), One), MEMORY.into()));
     }
 
     /**
@@ -172,36 +177,39 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn store_byte(&mut self, src: Value, addr: Value) {
-        assert_ne!(src, TEMP);
+    fn store_byte(&mut self, src: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src, (TEMP, One), MEMORY));
+        self.0.push(Store(src.into(), (TEMP.into(), One), MEMORY.into()));
     }
 
     /**
      * `load()` `dest` from `addr`, then increment `addr`.
      * `TEMP` is corrupted.
      */
-    fn pop(&mut self, dest: Value, addr: Value) {
-        assert_ne!(dest, addr);
+    fn pop(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(dest.into(), addr.into());
+        assert_ne!(dest.into(), TEMP.into());
         self.load(dest, addr);
-        self.const_binary(Add, addr, addr, cell_bytes(1));
+        self.const_binary(Add, TEMP, addr, cell_bytes(1));
+        self.move_(addr, TEMP);
     }
 
     /**
      * Decrement `addr` by `cell_bytes(1)`, then `store()` `src` at `addr`.
      * `TEMP` is corrupted.
      */
-    fn push(&mut self, src: Value, addr: Value) {
-        assert_ne!(src, TEMP);
-        assert_ne!(src, addr);
-        self.const_binary(Sub, addr, addr, cell_bytes(1));
-        self.store(src, addr);
+    fn push(&mut self, src: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(src.into(), TEMP.into());
+        assert_ne!(src.into(), addr.into());
+        self.const_binary(Sub, TEMP, addr, cell_bytes(1));
+        self.move_(addr, TEMP);
+        self.store(src, TEMP);
     }
 
     #[allow(dead_code)]
-    fn debug(&mut self, x: Value) {
-        self.0.push(Debug(x));
+    fn debug(&mut self, x: impl IntoValue) {
+        self.0.push(Debug(x.into()));
     }
 }
 
@@ -222,7 +230,8 @@ impl code::Machine for Machine {
             State::Root => {vec![
                 build(TestOp::Always, |b| {
                     b.move_(S_A, reg::A);
-                    b.const_binary(Asr, reg::A, reg::A, 8);
+                    b.const_binary(Asr, RA, reg::A, 8);
+                    b.move_(reg::A, RA);
                 }, State::Dispatch),
             ]},
             State::Next => {vec![
@@ -365,11 +374,11 @@ impl code::Machine for Machine {
                 build(TestOp::Ge(LOOP_FLAG, 0), |_| {}, State::Branchi),
             ]},
             State::Ploopi => {vec![
-                build(TestOp::Ge(RD, 0), |b| {
+                build(TestOp::Ge(RD.into(), 0), |b| {
                     b.unary(Not, LOOP_NEW, LOOP_NEW);
                     b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
                 }, State::Ploopip),
-                build(TestOp::Lt(RD, 0), |b| {
+                build(TestOp::Lt(RD.into(), 0), |b| {
                     b.unary(Not, LOOP_OLD, LOOP_OLD);
                     b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
                 }, State::Ploopim),

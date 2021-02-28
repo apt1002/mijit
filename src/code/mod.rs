@@ -42,6 +42,12 @@ impl Debug for Value {
     }
 }
 
+impl From<Register> for Value {
+    fn from(v: Register) -> Self {
+        Value::Register(v)
+    }
+}
+
 /** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
@@ -164,7 +170,7 @@ pub enum Action {
     Constant(Precision, Value, i64),
     Move(Value, Value),
     Unary(UnaryOp, Precision, Value, Value),
-    Binary(BinaryOp, Precision, Value, Value, Value),
+    Binary(BinaryOp, Precision, Register, Value, Value),
     Division(DivisionOp, Precision, Value, Value, Value, Value),
     Load(Value, (Value, Width), AliasMask),
     Store(Value, (Value, Width), AliasMask),
@@ -241,7 +247,7 @@ pub mod tests {
                     &Action::Binary(BinaryOp::Add, Precision::P64, dest, src1, src2) => {
                         let x = *state.get(&src1).expect("Missing from state");
                         let y = *state.get(&src2).expect("Missing from state");
-                        state.insert(dest, x + y);
+                        state.insert(dest.into(), x + y);
                     },
                     _ => panic!("Don't know how to execute {:#?}", action),
                 }

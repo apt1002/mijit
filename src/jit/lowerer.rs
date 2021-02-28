@@ -205,23 +205,21 @@ impl <'a> Lowerer<'a> {
     /** Select how to assemble an asymmetric BinaryOp such as `Sub`. */
     fn asymmetric_binary(
         &mut self,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
         callback: impl FnOnce(&mut Self, Register, Value),
     ) {
-        self.dest_to_register(dest, |l, dest| {
-            let src2 = l.move_away_from(src2, dest);
-            let src1 = l.src_to_register(src1, dest);
-            l.move_(dest, src1);
-            callback(l, dest, src2);
-        });
+        let src2 = self.move_away_from(src2, dest);
+        let src1 = self.src_to_register(src1, dest);
+        self.move_(dest, src1);
+        callback(self, dest, src2);
     }
 
     /** Select how to assemble a symmetric BinaryOp such as `Add`. */
     fn symmetric_binary(
         &mut self,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
         callback: impl FnOnce(&mut Self, Register, Value),
@@ -229,7 +227,7 @@ impl <'a> Lowerer<'a> {
         if let Value::Slot(_) = src1 {
             // We get better code if `src1` is not a Slot, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
-        } else if src2 == dest {
+        } else if src2 == Value::Register(dest) {
             // We get better code if `src1` is `dest`, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
         } else {
@@ -238,50 +236,27 @@ impl <'a> Lowerer<'a> {
     }
 
     /** Select how to assemble a shift BinaryOp such as `Shl`. */
-    fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Value, src1: Value, src2: Value) {
+    fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Register, src1: Value, src2: Value) {
         let src2 = self.src_to_register(src2, TEMP);
         self.move_(TEMP, src2);
-        match dest {
-            Value::Register(dest) => {
-                let src1 = self.src_to_register(src1, dest);
-                self.move_(dest, src1);
-                assert_eq!(TEMP, RC);
-                self.a.shift(op, prec, dest);
-            },
-            Value::Slot(index) => {
-                // Not enough reserved registers; push `src1`, or maybe `RA`.
-                let src1 = match src1 {
-                    Value::Register(src1) => {
-                        self.a.push(src1);
-                        src1
-                    },
-                    Value::Slot(index) => {
-                        self.a.push(RA);
-                        self.load_slot(RA, index);
-                        RA
-                    },
-                };
-                self.a.shift(op, prec, src1);
-                self.store_slot(index, src1);
-                self.a.pop(src1);
-            },
-        }
+        let src1 = self.src_to_register(src1, dest);
+        self.move_(dest, src1);
+        assert_eq!(TEMP, RC);
+        self.a.shift(op, prec, dest);
     }
 
     /** Select how to assemble a conditional BinaryOp such as `Lt` or `Max`. */
     fn compare_binary(
         &mut self,
         prec: Precision,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
         callback: impl FnOnce(&mut Self, Register, Register),
     ) {
-        self.dest_to_register(dest, |l, dest| {
-            let src1 = l.src_to_register(src1, TEMP);
-            l.value_op(Cmp, prec, src1, src2);
-            callback(l, dest, src1);
-        });
+        let src1 = self.src_to_register(src1, TEMP);
+        self.value_op(Cmp, prec, src1, src2);
+        callback(self, dest, src1);
     }
 
     /**
@@ -291,7 +266,7 @@ impl <'a> Lowerer<'a> {
         &mut self,
         binary_op: code::BinaryOp,
         prec: Precision,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
     ) {
