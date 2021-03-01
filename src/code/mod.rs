@@ -168,8 +168,8 @@ impl std::ops::BitXor for AliasMask {
  */
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
-    Constant(Precision, Value, i64),
     Move(Value, Value),
+    Constant(Precision, Register, i64),
     Unary(UnaryOp, Precision, Register, Value),
     Binary(BinaryOp, Precision, Register, Value, Value),
     Load(Value, (Value, Width), AliasMask),
@@ -233,12 +233,12 @@ pub mod tests {
             }).collect();
             for action in actions {
                 match action {
-                    &Action::Constant(Precision::P64, dest, imm) => {
-                        state.insert(dest, imm);
-                    },
                     &Action::Move(dest, src) => {
                         let x = *state.get(&src).expect("Missing from state");
                         state.insert(dest, x);
+                    },
+                    &Action::Constant(Precision::P64, dest, imm) => {
+                        state.insert(dest.into(), imm);
                     },
                     &Action::Unary(UnaryOp::Not, Precision::P64, dest, src) => {
                         let x = *state.get(&src).expect("Missing from state");

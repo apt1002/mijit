@@ -31,7 +31,8 @@ impl super::code::Machine for Machine {
         match state {
             State::Start => {vec![
                 ((TestOp::Always, P32), vec![
-                    Constant(P32, reg::RESULT, 1),
+                    Constant(P32, RA, 1),
+                    Move(reg::RESULT, RA.into()),
                 ], State::Loop),
             ]},
             State::Loop => {vec![

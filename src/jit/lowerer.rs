@@ -363,11 +363,6 @@ impl <'a> Lowerer<'a> {
         action: Action,
     ) {
         match action {
-            Action::Constant(prec, dest, value) => {
-                self.dest_to_register(dest, |l: &mut Self, dest: Register| {
-                    l.a.const_(prec, dest, value);
-                });
-            },
             Action::Move(dest, src) => {
                 // `dest_to_register()` would generate less efficient code.
                 match dest {
@@ -388,6 +383,9 @@ impl <'a> Lowerer<'a> {
                         self.store_slot(index, src);
                     },
                 }
+            },
+            Action::Constant(prec, dest, value) => {
+                self.a.const_(prec, dest, value);
             },
             Action::Unary(op, prec, dest, src) => {
                 self.lower_unary_op(op, prec, dest, src);

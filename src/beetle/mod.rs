@@ -122,12 +122,13 @@ impl Builder {
         Builder(Vec::new())
     }
 
-    fn const_(&mut self, dest: impl IntoValue, constant: i64) {
-        self.0.push(Constant(P32, dest.into(), constant));
-    }
-
     fn move_(&mut self, dest: impl IntoValue, src: impl IntoValue) {
         self.0.push(Move(dest.into(), src.into()));
+    }
+
+    fn const_(&mut self, dest: impl IntoValue, constant: i64) {
+        self.0.push(Constant(P32, TEMP, constant));
+        self.move_(dest, TEMP);
     }
 
     /**
@@ -154,7 +155,7 @@ impl Builder {
      */
     fn const_binary(&mut self, op: BinaryOp, dest: impl IntoValue, src: impl IntoValue, constant: i64) {
         assert_ne!(src.into(), TEMP.into());
-        self.const_(TEMP, constant);
+        self.0.push(Constant(P32, TEMP, constant));
         self.binary(op, dest, src, TEMP);
     }
 

@@ -64,13 +64,11 @@ impl Action {
     /** Call `f` on every Value mentioned in Action. */
     fn for_each_value(&self, mut f: impl FnMut(Value)) {
         match *self {
-            Action::Constant(_, dest, _) => {
-                f(dest);
-            },
             Action::Move(dest, src) => {
                 f(dest);
                 f(src);
             },
+            Action::Constant(_, _, _) => {},
             Action::Unary(_, _, _, src) => {
                 f(src);
             },

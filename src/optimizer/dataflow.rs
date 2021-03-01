@@ -184,12 +184,12 @@ impl Simulation {
 
     pub fn action(&mut self, action: &Action) {
         match *action {
-            Action::Constant(prec, dest, value) => {
-                let node = self.op(Op::Constant(prec, value));
-                self.bind(dest, node);
-            },
             Action::Move(dest, src) => {
                 let node = self.lookup(src);
+                self.bind(dest, node);
+            },
+            Action::Constant(prec, dest, value) => {
+                let node = self.op(Op::Constant(prec, value));
                 self.bind(dest, node);
             },
             Action::Unary(op, prec, dest, src) => {
