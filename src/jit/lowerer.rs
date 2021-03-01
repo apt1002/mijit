@@ -173,31 +173,25 @@ impl <'a> Lowerer<'a> {
         &mut self,
         unary_op: code::UnaryOp,
         prec: Precision,
-        dest: Value,
+        dest: Register,
         src: Value,
     ) {
         match unary_op {
             code::UnaryOp::Abs => {
-                self.dest_to_register(dest, |l, dest| {
-                    let src = l.move_away_from(src, dest);
-                    l.a.const_(prec, dest, 0);
-                    l.value_op(Sub, prec, dest, src);
-                    l.value_move_if(Condition::L, true, prec, dest, src);
-                });
+                let src = self.move_away_from(src, dest);
+                self.a.const_(prec, dest, 0);
+                self.value_op(Sub, prec, dest, src);
+                self.value_move_if(Condition::L, true, prec, dest, src);
             },
             code::UnaryOp::Negate => {
-                self.dest_to_register(dest, |l, dest| {
-                    let src = l.move_away_from(src, dest);
-                    l.a.const_(prec, dest, 0);
-                    l.value_op(Sub, prec, dest, src);
-                });
+                let src = self.move_away_from(src, dest);
+                self.a.const_(prec, dest, 0);
+                self.value_op(Sub, prec, dest, src);
             },
             code::UnaryOp::Not => {
-                self.dest_to_register(dest, |l, dest| {
-                    let src = l.src_to_register(src, dest);
-                    l.move_(dest, src);
-                    l.a.const_op(Xor, prec, dest, -1);
-                });
+                let src = self.src_to_register(src, dest);
+                self.move_(dest, src);
+                self.a.const_op(Xor, prec, dest, -1);
             },
         };
     }

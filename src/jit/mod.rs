@@ -2,7 +2,7 @@ use indexmap::{IndexSet};
 
 use super::{Buffer, code, /*optimizer,*/ x86_64};
 use x86_64::*;
-use code::{Action, TestOp, Machine, Precision, Value};
+use code::{Action, TestOp, Machine, Precision, Value, IntoValue};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -71,8 +71,7 @@ impl Action {
                 f(dest);
                 f(src);
             },
-            Action::Unary(_, _, dest, src) => {
-                f(dest);
+            Action::Unary(_, _, _, src) => {
                 f(src);
             },
             Action::Binary(_, _, _, src1, src2) => {
@@ -226,8 +225,8 @@ impl<M: Machine> Jit<M> {
         &self.states
     }
 
-    pub fn slot(&mut self, slot: Value) -> &mut u64 {
-        match slot {
+    pub fn slot(&mut self, slot: impl IntoValue) -> &mut u64 {
+        match slot.into() {
             Value::Register(_) => panic!("Not a Slot"),
             // TODO: Factor out pool index calculation.
             Value::Slot(index) => &mut self.pool[index + 1],
