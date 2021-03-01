@@ -395,9 +395,6 @@ impl <'a> Lowerer<'a> {
             Action::Binary(op, prec, dest, src1, src2) => {
                 self.lower_binary_op(op, prec, dest, src1, src2);
             },
-            Action::Division(_op, _prec, _, _, _, _) => {
-                panic!("FIXME: Don't know how to assemble div");
-            },
             Action::Load(dest, (addr, width), _) => {
                 let width = Self::lower_width(width);
                 self.dest_to_register(dest, |l, dest| {

@@ -151,7 +151,6 @@ mod tests {
             Action::Constant(P64, R0, 924573497),
             Action::Unary(UnaryOp::Not, P64, R0, R1),
             Action::Binary(BinaryOp::Add, P64, R0, R0, R1),
-            // Division(DivisionOp, Precision, Value, Value, Value, Value),
         ] {
             let actions = vec![action.clone()];
             let expected = emulator.execute(&actions);

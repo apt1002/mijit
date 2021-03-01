@@ -78,12 +78,6 @@ impl Action {
                 f(src1);
                 f(src2);
             },
-            Action::Division(_, _, quot, rem, num, den) => {
-                f(quot);
-                f(rem);
-                f(num);
-                f(den);
-            },
             Action::Load(dest, (addr, _), _) => {
                 f(dest);
                 f(addr);

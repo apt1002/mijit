@@ -101,14 +101,6 @@ pub enum BinaryOp {
     Min, // TODO: Unsigned too?
 }
 
-/** Division operations. */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum DivisionOp {
-    SignedDivMod,
-    UnsignedDivMod,
-}
-
 /** The number of bytes transferred by a memory access. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(u8)]
@@ -180,7 +172,6 @@ pub enum Action {
     Move(Value, Value),
     Unary(UnaryOp, Precision, Register, Value),
     Binary(BinaryOp, Precision, Register, Value, Value),
-    Division(DivisionOp, Precision, Value, Value, Value, Value),
     Load(Value, (Value, Width), AliasMask),
     Store(Value, (Value, Width), AliasMask),
     Push(Value),

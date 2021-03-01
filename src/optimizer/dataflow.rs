@@ -203,9 +203,6 @@ impl Simulation {
                 let node = self.op(Op::Binary(op, prec, src1, src2));
                 self.bind(dest, node);
             },
-            Action::Division(_op, _prec, _, _, _, _) => {
-                panic!("FIXME: Don't know how to do division");
-            },
             Action::Load(dest, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
                 let addr = self.lookup(addr);
