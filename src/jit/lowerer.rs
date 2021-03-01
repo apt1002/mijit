@@ -54,7 +54,6 @@ impl <'a> Lowerer<'a> {
     }
 
     /** Store `src` into slot `index`. */
-    // TODO: Do we need `prec`?
     fn store_slot(&mut self, index: usize, src: Register) {
         self.a.store(P64, (R8, self.slot_offset(index)), src);
     }
