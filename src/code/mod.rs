@@ -42,6 +42,21 @@ impl Debug for Value {
     }
 }
 
+impl From<Register> for Value {
+    fn from(v: Register) -> Self {
+        Value::Register(v)
+    }
+}
+
+
+/**
+ * "impl IntoValue" is useful as the type of function arguments. It accepts
+ * both Registers and Values.
+ */
+pub trait IntoValue: Copy + Into<Value> {}
+
+impl<T: Copy + Into<Value>> IntoValue for T {}
+
 /** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
@@ -84,14 +99,6 @@ pub enum BinaryOp {
     Eq,
     Max, // TODO: Unsigned too?
     Min, // TODO: Unsigned too?
-}
-
-/** Division operations. */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum DivisionOp {
-    SignedDivMod,
-    UnsignedDivMod,
 }
 
 /** The number of bytes transferred by a memory access. */
@@ -161,13 +168,12 @@ impl std::ops::BitXor for AliasMask {
  */
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
-    Constant(Precision, Value, i64),
     Move(Value, Value),
-    Unary(UnaryOp, Precision, Value, Value),
-    Binary(BinaryOp, Precision, Value, Value, Value),
-    Division(DivisionOp, Precision, Value, Value, Value, Value),
-    Load(Value, (Value, Width), AliasMask),
-    Store(Value, (Value, Width), AliasMask),
+    Constant(Precision, Register, i64),
+    Unary(UnaryOp, Precision, Register, Value),
+    Binary(BinaryOp, Precision, Register, Value, Value),
+    Load(Register, (Value, Width), AliasMask),
+    Store(Value, (Register, Width), AliasMask),
     Push(Value),
     Pop(Value),
     Debug(Value),
@@ -227,21 +233,21 @@ pub mod tests {
             }).collect();
             for action in actions {
                 match action {
-                    &Action::Constant(Precision::P64, dest, imm) => {
-                        state.insert(dest, imm);
-                    },
                     &Action::Move(dest, src) => {
                         let x = *state.get(&src).expect("Missing from state");
                         state.insert(dest, x);
                     },
+                    &Action::Constant(Precision::P64, dest, imm) => {
+                        state.insert(dest.into(), imm);
+                    },
                     &Action::Unary(UnaryOp::Not, Precision::P64, dest, src) => {
                         let x = *state.get(&src).expect("Missing from state");
-                        state.insert(dest, !x);
+                        state.insert(dest.into(), !x);
                     },
                     &Action::Binary(BinaryOp::Add, Precision::P64, dest, src1, src2) => {
                         let x = *state.get(&src1).expect("Missing from state");
                         let y = *state.get(&src2).expect("Missing from state");
-                        state.insert(dest, x + y);
+                        state.insert(dest.into(), x + y);
                     },
                     _ => panic!("Don't know how to execute {:#?}", action),
                 }

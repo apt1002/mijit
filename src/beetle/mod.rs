@@ -1,44 +1,56 @@
 use std::num::{Wrapping};
 
-use super::code::{self, TestOp, Precision, UnaryOp, BinaryOp, Width, Action, Value};
+use super::code::{
+    self, TestOp, Precision, UnaryOp, BinaryOp, Width,
+    Action, Value, IntoValue, Register,
+};
 use Precision::*;
 use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
 use Action::*;
-use Value::*;
+use Register::{RA, RD, RB, RBP, RSI};
 
-const RA: Value = Register(code::Register::RA);
-const RD: Value = Register(code::Register::RD);
-const RB: Value = Register(code::Register::RB);
-const RBP: Value = Register(code::Register::RBP);
-const RSI: Value = Register(code::Register::RSI);
-const TEMP: Value = Register(code::Register::RDI);
+const TEMP: Register = code::Register::RDI;
 
-/** Beetle's registers. */
-pub mod reg {
-    use super::{Value, Slot};
-    pub const EP: Value = Slot(0);
-    pub const A: Value = Slot(1);
-    pub const SP: Value = Slot(2);
-    pub const RP: Value = Slot(3);
-    pub const S0: Value = Slot(4);
-    pub const R0: Value = Slot(5);
-    pub const THROW: Value = Slot(6);
-    pub const BAD: Value = Slot(7);
-    pub const NOT_ADDRESS: Value = Slot(8);
-    pub const MEMORY: Value = Slot(9);
+/** Beetle's registers and other globals. */
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum Global {
+    BEP = 0,
+    BA = 1,
+    BSP = 2,
+    BRP = 3,
+    BS0 = 4,
+    BR0 = 5,
+    BThrow = 6,
+    BBad = 7,
+    BNotAddress = 8,
+    BMemory = 9,
+    Opcode = 10,
+    Stack0 = 11,
+    Stack1 = 12,
+    LoopFlag = 13,
+    LoopStep = 14,
+    LoopNew = 15,
+    LoopOld = 16,
 }
 
-const NUM_REGISTERS: usize = 10;
+impl From<Global> for Value {
+    fn from(r: Global) -> Self {
+        Value::Slot(r as usize)
+    }
+}
 
-const S_A: Value = Slot(NUM_REGISTERS + 0);
-const STACK_0: Value = Slot(NUM_REGISTERS + 1);
-const STACK_1: Value = Slot(NUM_REGISTERS + 2);
-const LOOP_FLAG: Value = Slot(NUM_REGISTERS + 3);
-const LOOP_STEP: Value = Slot(NUM_REGISTERS + 4);
-const LOOP_NEW: Value = Slot(NUM_REGISTERS + 5);
-const LOOP_OLD: Value = Slot(NUM_REGISTERS + 6);
+use Global::*;
+
+/** Beetle's registers. Only these values are live in State::Root. */
+pub const ALL_REGISTERS: [Global; 10] = [
+    BEP, BA, BSP, BRP, BS0, BR0,
+    BThrow, BBad, BNotAddress, BMemory,
+];
+
+const NUM_GLOBALS: usize = 17;
 
 /** Beetle's address space is unified, so we always use the same AliasMask. */
 const MEMORY: code::AliasMask = code::AliasMask(0x1);
@@ -76,6 +88,14 @@ pub enum State {
 
 //-----------------------------------------------------------------------------
 
+fn opcode(c: u8) -> TestOp { TestOp::Bits(Opcode.into(), 0xFF, c as i32) }
+fn lt(v: impl IntoValue, c: i32) -> TestOp { TestOp::Lt(v.into(), c) }
+fn ge(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ge(v.into(), c) }
+fn ult(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ult(v.into(), c) }
+fn uge(v: impl IntoValue, c: i32) -> TestOp { TestOp::Uge(v.into(), c) }
+fn eq(v: impl IntoValue, c: i32) -> TestOp { TestOp::Eq(v.into(), c) }
+fn ne(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ne(v.into(), c) }
+
 /** Build a case, in the form that `Beetle::get_code()` returns. */
 fn build(
     test_op: TestOp,
@@ -86,7 +106,6 @@ fn build(
     callback(&mut b);
     ((test_op, P32), b.0, state)
 }
-
 
 /**
  * A utility for generating action routines.
@@ -103,37 +122,48 @@ impl Builder {
         Builder(Vec::new())
     }
 
-    fn const_(&mut self, dest: Value, constant: i64) {
-        self.0.push(Constant(P32, dest, constant));
+    fn move_(&mut self, dest: impl IntoValue, src: impl IntoValue) {
+        self.0.push(Move(dest.into(), src.into()));
     }
 
-    fn move_(&mut self, dest: Value, src: Value) {
-        self.0.push(Move(dest, src));
+    fn const_(&mut self, dest: impl IntoValue, constant: i64) {
+        self.0.push(Constant(P32, TEMP, constant));
+        self.move_(dest, TEMP);
     }
 
-    fn unary(&mut self, op: UnaryOp, dest: Value, src: Value) {
-        self.0.push(Unary(op, P32, dest, src));
+    /**
+     * Apply 32-bit `op` to `src`, writing `dest`.
+     * `TEMP` is corrupted.
+     */
+    fn unary(&mut self, op: UnaryOp, dest: impl IntoValue, src: impl IntoValue) {
+        self.0.push(Unary(op, P32, TEMP, src.into()));
+        self.move_(dest, TEMP);
     }
 
-    fn binary(&mut self, op: BinaryOp, dest: Value, src1: Value, src2: Value) {
-        self.0.push(Binary(op, P32, dest, src1, src2));
+    /**
+     * Apply 32-bit `op` to `src1` and `src2`, writing `dest`.
+     * `TEMP` is corrupted.
+     */
+    fn binary(&mut self, op: BinaryOp, dest: impl IntoValue, src1: impl IntoValue, src2: impl IntoValue) {
+        self.0.push(Binary(op, P32, TEMP, src1.into(), src2.into()));
+        self.move_(dest, TEMP);
     }
 
     /**
      * Apply 32-bit `op` to `src` and `constant`, writing `dest`.
      * `TEMP` is corrupted.
      */
-    fn const_binary(&mut self, op: BinaryOp, dest: Value, src: Value, constant: i64) {
-        assert_ne!(src, TEMP);
-        self.const_(TEMP, constant);
-        self.0.push(Binary(op, P32, dest, src, TEMP));
+    fn const_binary(&mut self, op: BinaryOp, dest: impl IntoValue, src: impl IntoValue, constant: i64) {
+        assert_ne!(src.into(), TEMP.into());
+        self.0.push(Constant(P32, TEMP, constant));
+        self.binary(op, dest, src, TEMP);
     }
 
     /**
      * Compute the native address corresponding to `addr`.
      */
-    fn native_address(&mut self, dest: Value, addr: Value) {
-        self.0.push(Binary(Add, P64, dest, reg::MEMORY, addr));
+    fn native_address(&mut self, dest: Register, addr: impl IntoValue) {
+        self.0.push(Binary(Add, P64, dest, BMemory.into(), addr.into()));
     }
 
     /**
@@ -141,9 +171,10 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn load(&mut self, dest: Value, addr: Value) {
+    fn load(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
         self.native_address(TEMP, addr);
-        self.0.push(Load(dest, (TEMP, Four), MEMORY));
+        self.0.push(Load(TEMP, (TEMP.into(), Four), MEMORY));
+        self.move_(dest, TEMP);
     }
 
     /**
@@ -151,10 +182,10 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn store(&mut self, src: Value, addr: Value) {
-        assert_ne!(src, TEMP);
+    fn store(&mut self, src: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src, (TEMP, Four), MEMORY));
+        self.0.push(Store(src.into(), (TEMP, Four), MEMORY));
     }
 
     /**
@@ -162,9 +193,10 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn load_byte(&mut self, dest: Value, addr: Value) {
+    fn load_byte(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
         self.native_address(TEMP, addr);
-        self.0.push(Load(dest, (TEMP, One), MEMORY));
+        self.0.push(Load(TEMP, (TEMP.into(), One), MEMORY));
+        self.move_(dest, TEMP);
     }
 
     /**
@@ -172,36 +204,39 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn store_byte(&mut self, src: Value, addr: Value) {
-        assert_ne!(src, TEMP);
+    fn store_byte(&mut self, src: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src, (TEMP, One), MEMORY));
+        self.0.push(Store(src.into(), (TEMP.into(), One), MEMORY));
     }
 
     /**
      * `load()` `dest` from `addr`, then increment `addr`.
      * `TEMP` is corrupted.
      */
-    fn pop(&mut self, dest: Value, addr: Value) {
-        assert_ne!(dest, addr);
+    fn pop(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(dest.into(), addr.into());
+        assert_ne!(dest.into(), TEMP.into());
         self.load(dest, addr);
-        self.const_binary(Add, addr, addr, cell_bytes(1));
+        self.const_binary(Add, TEMP, addr, cell_bytes(1));
+        self.move_(addr, TEMP);
     }
 
     /**
      * Decrement `addr` by `cell_bytes(1)`, then `store()` `src` at `addr`.
      * `TEMP` is corrupted.
      */
-    fn push(&mut self, src: Value, addr: Value) {
-        assert_ne!(src, TEMP);
-        assert_ne!(src, addr);
-        self.const_binary(Sub, addr, addr, cell_bytes(1));
-        self.store(src, addr);
+    fn push(&mut self, src: impl IntoValue, addr: impl IntoValue) {
+        assert_ne!(src.into(), TEMP.into());
+        assert_ne!(src.into(), addr.into());
+        self.const_binary(Sub, TEMP, addr, cell_bytes(1));
+        self.move_(addr, TEMP);
+        self.store(src, TEMP);
     }
 
     #[allow(dead_code)]
-    fn debug(&mut self, x: Value) {
-        self.0.push(Debug(x));
+    fn debug(&mut self, x: impl IntoValue) {
+        self.0.push(Debug(x.into()));
     }
 }
 
@@ -214,29 +249,29 @@ impl code::Machine for Machine {
     type State = State;
 
     fn num_globals(&self) -> usize {
-        NUM_REGISTERS
+        NUM_GLOBALS
     }
 
     fn get_code(&self, state: Self::State) -> Vec<((TestOp, Precision), Vec<Action>, Self::State)> {
         match state {
             State::Root => {vec![
                 build(TestOp::Always, |b| {
-                    b.move_(S_A, reg::A);
-                    b.const_binary(Asr, reg::A, reg::A, 8);
+                    b.move_(Opcode, BA);
+                    b.const_binary(Asr, BA, BA, 8);
                 }, State::Dispatch),
             ]},
             State::Next => {vec![
                 build(TestOp::Always, |b| {
-                    b.pop(reg::A, reg::EP);
+                    b.pop(BA, BEP);
                 }, State::Root),
             ]},
             State::Pick => {
                 let mut pick = Vec::new();
                 for u in 0..4 {
-                    pick.push(build(TestOp::Eq(STACK_0, u), |b| {
-                        b.const_binary(Add, RD, reg::SP, cell_bytes(u as i64 + 1));
+                    pick.push(build(eq(Stack0, u), |b| {
+                        b.const_binary(Add, RD, BSP, cell_bytes(u as i64 + 1));
                         b.load(RD, RD);
-                        b.store(RD, reg::SP);
+                        b.store(RD, BSP);
                     }, State::Root));
                 }
                 pick
@@ -244,11 +279,11 @@ impl code::Machine for Machine {
             State::Roll => {
                 let mut roll = Vec::new();
                 for u in 0..4 {
-                    roll.push(build(TestOp::Eq(STACK_0, u as i32), |b| {
-                        b.const_binary(Add, RBP, reg::SP, cell_bytes(u));
+                    roll.push(build(eq(Stack0, u as i32), |b| {
+                        b.const_binary(Add, RBP, BSP, cell_bytes(u));
                         b.load(RB, RBP);
                         for v in 0..u {
-                            b.const_binary(Add, RSI, reg::SP, cell_bytes(v));
+                            b.const_binary(Add, RSI, BSP, cell_bytes(v));
                             b.load(RD, RSI);
                             b.store(RB, RSI);
                             b.move_(RB, RD);
@@ -259,779 +294,779 @@ impl code::Machine for Machine {
                 roll
             },
             State::Qdup => {vec![
-                build(TestOp::Eq(STACK_0, 0), |_| {}, State::Root),
-                build(TestOp::Ne(STACK_0, 0), |b| {
-                    b.push(STACK_0, reg::SP);
+                build(eq(Stack0, 0), |_| {}, State::Root),
+                build(ne(Stack0, 0), |b| {
+                    b.push(Stack0, BSP);
                 }, State::Root),
             ]},
             State::Lshift => {vec![
-                build(TestOp::Ult(STACK_1, CELL_BITS as i32), |b| {
-                    b.binary(Lsl, RD, STACK_0, STACK_1);
-                    b.store(RD, reg::SP);
+                build(ult(Stack1, CELL_BITS as i32), |b| {
+                    b.binary(Lsl, RD, Stack0, Stack1);
+                    b.store(RD, BSP);
                 }, State::Root),
-                build(TestOp::Uge(STACK_1, CELL_BITS as i32), |b| {
+                build(uge(Stack1, CELL_BITS as i32), |b| {
                     b.const_(RD, 0);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
             ]},
             State::Rshift => {vec![
-                build(TestOp::Ult(STACK_1, CELL_BITS as i32), |b| {
-                    b.binary(Lsr, RD, STACK_0, STACK_1);
-                    b.store(RD, reg::SP);
+                build(ult(Stack1, CELL_BITS as i32), |b| {
+                    b.binary(Lsr, RD, Stack0, Stack1);
+                    b.store(RD, BSP);
                 }, State::Root),
-                build(TestOp::Uge(STACK_1, CELL_BITS as i32), |b| {
+                build(uge(Stack1, CELL_BITS as i32), |b| {
                     b.const_(RD, 0);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
             ]},
             State::Branch => {vec![
                 build(TestOp::Always, |b| {
                     // Load EP from the cell it points to.
-                    b.load(reg::EP, reg::EP); // FIXME: Add check that EP is valid.
+                    b.load(BEP, BEP); // FIXME: Add check that EP is valid.
                 }, State::Next),
             ]},
             State::Branchi => {vec![
                 build(TestOp::Always, |b| {
-                    b.const_binary(Mul, RD, reg::A, cell_bytes(1));
-                    b.binary(Add, reg::EP, reg::EP, RD); // FIXME: Add check that EP is valid.
+                    b.const_binary(Mul, RD, BA, cell_bytes(1));
+                    b.binary(Add, BEP, BEP, RD); // FIXME: Add check that EP is valid.
                 }, State::Next),
             ]},
             State::Qbranch => {vec![
-                build(TestOp::Eq(STACK_0, 0), |_| {}, State::Branch),
-                build(TestOp::Ne(STACK_0, 0), |b| {
-                    b.const_binary(Add, reg::EP, reg::EP, cell_bytes(1));
+                build(eq(Stack0, 0), |_| {}, State::Branch),
+                build(ne(Stack0, 0), |b| {
+                    b.const_binary(Add, BEP, BEP, cell_bytes(1));
                 }, State::Root),
             ]},
             State::Qbranchi => {vec![
-                build(TestOp::Eq(STACK_0, 0), |_| {}, State::Branchi),
-                build(TestOp::Ne(STACK_0, 0), |_| {}, State::Next),
+                build(eq(Stack0, 0), |_| {}, State::Branchi),
+                build(ne(Stack0, 0), |_| {}, State::Next),
             ]},
             State::Loop => {vec![
-                build(TestOp::Eq(LOOP_FLAG, 0), |b| {
+                build(eq(LoopFlag, 0), |b| {
                     // Discard the loop index and limit.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                     // Add 4 to EP.
-                    b.const_binary(Add, reg::EP, reg::EP, cell_bytes(1)); // FIXME: Add check that EP is valid.
+                    b.const_binary(Add, BEP, BEP, cell_bytes(1)); // FIXME: Add check that EP is valid.
                 }, State::Root),
-                build(TestOp::Ne(LOOP_FLAG, 0), |_| {}, State::Branch),
+                build(ne(LoopFlag, 0), |_| {}, State::Branch),
             ]},
             State::Loopi => {vec![
-                build(TestOp::Eq(LOOP_FLAG, 0), |b| {
+                build(eq(LoopFlag, 0), |b| {
                     // Discard the loop index and limit.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                 }, State::Next),
-                build(TestOp::Ne(LOOP_FLAG, 0), |_| {}, State::Branchi),
+                build(ne(LoopFlag, 0), |_| {}, State::Branchi),
             ]},
             State::Ploopp => {vec![
-                build(TestOp::Lt(LOOP_FLAG, 0), |b| {
+                build(lt(LoopFlag, 0), |b| {
                     // Discard the loop index and limit.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                     // Add 4 to EP.
-                    b.const_binary(Add, reg::EP, reg::EP, cell_bytes(1)); // FIXME: Add check that EP is valid.
+                    b.const_binary(Add, BEP, BEP, cell_bytes(1)); // FIXME: Add check that EP is valid.
                 }, State::Root),
-                build(TestOp::Ge(LOOP_FLAG, 0), |_| {}, State::Branch),
+                build(ge(LoopFlag, 0), |_| {}, State::Branch),
             ]},
             State::Ploopm => {vec![
-                build(TestOp::Lt(LOOP_FLAG, 0), |b| {
+                build(lt(LoopFlag, 0), |b| {
                     // Discard the loop index and limit.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                     // Add 4 to EP.
-                    b.const_binary(Add, reg::EP, reg::EP, cell_bytes(1)); // FIXME: Add check that EP is valid.
+                    b.const_binary(Add, BEP, BEP, cell_bytes(1)); // FIXME: Add check that EP is valid.
                 }, State::Root),
-                build(TestOp::Ge(LOOP_FLAG, 0), |_| {}, State::Branch),
+                build(ge(LoopFlag, 0), |_| {}, State::Branch),
             ]},
             State::Ploop => {vec![
-                build(TestOp::Ge(LOOP_STEP, 0), |b| {
-                    b.unary(Not, LOOP_NEW, LOOP_NEW);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
+                build(ge(LoopStep, 0), |b| {
+                    b.unary(Not, LoopNew, LoopNew);
+                    b.binary(And, LoopNew, LoopNew, LoopOld);
                 }, State::Ploopp),
-                build(TestOp::Lt(LOOP_STEP, 0), |b| {
-                    b.unary(Not, LOOP_OLD, LOOP_OLD);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
+                build(lt(LoopStep, 0), |b| {
+                    b.unary(Not, LoopOld, LoopOld);
+                    b.binary(And, LoopNew, LoopNew, LoopOld);
                 }, State::Ploopm),
             ]},
             State::Ploopip => {vec![
-                build(TestOp::Lt(LOOP_FLAG, 0), |b| {
+                build(lt(LoopFlag, 0), |b| {
                     // Discard the loop index and limit.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                 }, State::Root),
-                build(TestOp::Ge(LOOP_FLAG, 0), |_| {}, State::Branchi),
+                build(ge(LoopFlag, 0), |_| {}, State::Branchi),
             ]},
             State::Ploopim => {vec![
-                build(TestOp::Lt(LOOP_FLAG, 0), |b| {
+                build(lt(LoopFlag, 0), |b| {
                     // Discard the loop index and limit.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                 }, State::Root),
-                build(TestOp::Ge(LOOP_FLAG, 0), |_| {}, State::Branchi),
+                build(ge(LoopFlag, 0), |_| {}, State::Branchi),
             ]},
             State::Ploopi => {vec![
-                build(TestOp::Ge(RD, 0), |b| {
-                    b.unary(Not, LOOP_NEW, LOOP_NEW);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
+                build(ge(RD, 0), |b| {
+                    b.unary(Not, LoopNew, LoopNew);
+                    b.binary(And, LoopNew, LoopNew, LoopOld);
                 }, State::Ploopip),
-                build(TestOp::Lt(RD, 0), |b| {
-                    b.unary(Not, LOOP_OLD, LOOP_OLD);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
+                build(lt(RD, 0), |b| {
+                    b.unary(Not, LoopOld, LoopOld);
+                    b.binary(And, LoopNew, LoopNew, LoopOld);
                 }, State::Ploopim),
             ]},
             State::Halt => {vec![]},
             State::Dispatch => {vec![
                 // NEXT
-                build(TestOp::Bits(S_A, 0xff, 0x00), |_| {}, State::Next),
+                build(opcode(0x00), |_| {}, State::Next),
 
                 // DUP
-                build(TestOp::Bits(S_A, 0xff, 0x01), |b| {
-                    b.load(RD, reg::SP);
-                    b.push(RD, reg::SP);
+                build(opcode(0x01), |b| {
+                    b.load(RD, BSP);
+                    b.push(RD, BSP);
                 }, State::Root),
 
                 // DROP
-                build(TestOp::Bits(S_A, 0xff, 0x02), |b| {
-                    b.const_binary(Add, reg::SP, reg::SP, cell_bytes(1));
+                build(opcode(0x02), |b| {
+                    b.const_binary(Add, BSP, BSP, cell_bytes(1));
                 }, State::Root),
 
                 // SWAP
-                build(TestOp::Bits(S_A, 0xff, 0x03), |b| {
-                    b.pop(RSI, reg::SP);
-                    b.load(RB, reg::SP);
-                    b.store(RSI, reg::SP);
-                    b.push(RB, reg::SP);
+                build(opcode(0x03), |b| {
+                    b.pop(RSI, BSP);
+                    b.load(RB, BSP);
+                    b.store(RSI, BSP);
+                    b.push(RB, BSP);
                 }, State::Root),
 
                 // OVER
-                build(TestOp::Bits(S_A, 0xff, 0x04), |b| {
-                    b.const_binary(Add, RD, reg::SP, cell_bytes(1));
+                build(opcode(0x04), |b| {
+                    b.const_binary(Add, RD, BSP, cell_bytes(1));
                     b.load(RB, RD);
-                    b.push(RB, reg::SP);
+                    b.push(RB, BSP);
                 }, State::Root),
 
                 // ROT
-                build(TestOp::Bits(S_A, 0xff, 0x05), |b| {
-                    b.load(RD, reg::SP);
-                    b.const_binary(Add, RBP, reg::SP, cell_bytes(1));
+                build(opcode(0x05), |b| {
+                    b.load(RD, BSP);
+                    b.const_binary(Add, RBP, BSP, cell_bytes(1));
                     b.load(RB, RBP);
                     b.store(RD, RBP);
-                    b.const_binary(Add, RBP, reg::SP, cell_bytes(2));
+                    b.const_binary(Add, RBP, BSP, cell_bytes(2));
                     b.load(RD, RBP);
                     b.store(RB, RBP);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // -ROT
-                build(TestOp::Bits(S_A, 0xff, 0x06), |b| {
-                    b.load(RD, reg::SP);
-                    b.const_binary(Add, RBP, reg::SP, cell_bytes(2));
+                build(opcode(0x06), |b| {
+                    b.load(RD, BSP);
+                    b.const_binary(Add, RBP, BSP, cell_bytes(2));
                     b.load(RB, RBP);
                     b.store(RD, RBP);
-                    b.const_binary(Add, RBP, reg::SP, cell_bytes(1));
+                    b.const_binary(Add, RBP, BSP, cell_bytes(1));
                     b.load(RD, RBP);
                     b.store(RB, RBP);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // TUCK
-                build(TestOp::Bits(S_A, 0xff, 0x07), |b| {
-                    b.load(RD, reg::SP);
-                    b.const_binary(Add, RBP, reg::SP, cell_bytes(1));
+                build(opcode(0x07), |b| {
+                    b.load(RD, BSP);
+                    b.const_binary(Add, RBP, BSP, cell_bytes(1));
                     b.load(RB, RBP);
                     b.store(RD, RBP);
-                    b.store(RB, reg::SP);
-                    b.push(RD, reg::SP);
+                    b.store(RB, BSP);
+                    b.push(RD, BSP);
                 }, State::Root),
 
                 // NIP
-                build(TestOp::Bits(S_A, 0xff, 0x08), |b| {
-                    b.pop(RD, reg::SP);
-                    b.store(RD, reg::SP);
+                build(opcode(0x08), |b| {
+                    b.pop(RD, BSP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // PICK
-                build(TestOp::Bits(S_A, 0xff, 0x09), |b| {
-                    b.load(STACK_0, reg::SP);
+                build(opcode(0x09), |b| {
+                    b.load(Stack0, BSP);
                 }, State::Pick),
 
                 // ROLL
-                build(TestOp::Bits(S_A, 0xff, 0x0a), |b| {
-                    b.pop(STACK_0, reg::SP);
+                build(opcode(0x0a), |b| {
+                    b.pop(Stack0, BSP);
                 }, State::Roll),
 
                 // ?DUP
-                build(TestOp::Bits(S_A, 0xff, 0x0b), |b| {
-                    b.load(STACK_0, reg::SP);
+                build(opcode(0x0b), |b| {
+                    b.load(Stack0, BSP);
                 }, State::Qdup),
 
                 // >R
-                build(TestOp::Bits(S_A, 0xff, 0x0c), |b| {
-                    b.pop(RD, reg::SP);
-                    b.push(RD, reg::RP);
+                build(opcode(0x0c), |b| {
+                    b.pop(RD, BSP);
+                    b.push(RD, BRP);
                 }, State::Root),
 
                 // R>
-                build(TestOp::Bits(S_A, 0xff, 0x0d), |b| {
-                    b.pop(RD, reg::RP);
-                    b.push(RD, reg::SP);
+                build(opcode(0x0d), |b| {
+                    b.pop(RD, BRP);
+                    b.push(RD, BSP);
                 }, State::Root),
 
                 // R@
-                build(TestOp::Bits(S_A, 0xff, 0x0e), |b| {
-                    b.load(RD, reg::RP);
-                    b.push(RD, reg::SP);
+                build(opcode(0x0e), |b| {
+                    b.load(RD, BRP);
+                    b.push(RD, BSP);
                 }, State::Root),
 
                 // <
-                build(TestOp::Bits(S_A, 0xff, 0x0f), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x0f), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Lt, RD, RSI, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // >
-                build(TestOp::Bits(S_A, 0xff, 0x10), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x10), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Lt, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // =
-                build(TestOp::Bits(S_A, 0xff, 0x11), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x11), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Eq, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // <>
-                build(TestOp::Bits(S_A, 0xff, 0x12), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x12), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Eq, RD, RD, RSI);
                     b.unary(Not, RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 0<
-                build(TestOp::Bits(S_A, 0xff, 0x13), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x13), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Lt, RD, RD, 0);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 0>
-                build(TestOp::Bits(S_A, 0xff, 0x14), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x14), |b| {
+                    b.load(RD, BSP);
                     b.const_(RSI, 0);
                     b.binary(Lt, RD, RSI, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 0=
-                build(TestOp::Bits(S_A, 0xff, 0x15), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x15), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Eq, RD, RD, 0);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 0<>
-                build(TestOp::Bits(S_A, 0xff, 0x16), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x16), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Eq, RD, RD, 0);
                     b.unary(Not, RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // U<
-                build(TestOp::Bits(S_A, 0xff, 0x17), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x17), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Ult, RD, RSI, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // U>
-                build(TestOp::Bits(S_A, 0xff, 0x18), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x18), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Ult, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 0
-                build(TestOp::Bits(S_A, 0xff, 0x19), |b| {
+                build(opcode(0x19), |b| {
                     b.const_(RSI, 0);
-                    b.push(RSI, reg::SP);
+                    b.push(RSI, BSP);
                 }, State::Root),
 
                 // 1
-                build(TestOp::Bits(S_A, 0xff, 0x1a), |b| {
+                build(opcode(0x1a), |b| {
                     b.const_(RSI, 1);
-                    b.push(RSI, reg::SP);
+                    b.push(RSI, BSP);
                 }, State::Root),
 
                 // -1
-                build(TestOp::Bits(S_A, 0xff, 0x1b), |b| {
+                build(opcode(0x1b), |b| {
                     b.const_(RSI, -1);
-                    b.push(RSI, reg::SP);
+                    b.push(RSI, BSP);
                 }, State::Root),
 
                 // CELL
-                build(TestOp::Bits(S_A, 0xff, 0x1c), |b| {
+                build(opcode(0x1c), |b| {
                     b.const_(RSI, cell_bytes(1));
-                    b.push(RSI, reg::SP);
+                    b.push(RSI, BSP);
                 }, State::Root),
 
                 // -CELL
-                build(TestOp::Bits(S_A, 0xff, 0x1d), |b| {
+                build(opcode(0x1d), |b| {
                     b.const_(RSI, (-Wrapping(cell_bytes(1))).0);
-                    b.push(RSI, reg::SP);
+                    b.push(RSI, BSP);
                 }, State::Root),
 
                 // +
-                build(TestOp::Bits(S_A, 0xff, 0x1e), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x1e), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Add, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // -
-                build(TestOp::Bits(S_A, 0xff, 0x1f), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x1f), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Sub, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // >-<
-                build(TestOp::Bits(S_A, 0xff, 0x20), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x20), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Sub, RD, RSI, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 1+
-                build(TestOp::Bits(S_A, 0xff, 0x21), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x21), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Add, RD, RD, 1);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 1-
-                build(TestOp::Bits(S_A, 0xff, 0x22), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x22), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Sub, RD, RD, 1);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // CELL+
-                build(TestOp::Bits(S_A, 0xff, 0x23), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x23), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Add, RD, RD, cell_bytes(1));
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // CELL-
-                build(TestOp::Bits(S_A, 0xff, 0x24), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x24), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Sub, RD, RD, cell_bytes(1));
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // *
-                build(TestOp::Bits(S_A, 0xff, 0x25), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x25), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Mul, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 /* TODO:
                 // /
-                build(TestOp::Bits(S_A, 0xff, 0x26), |_| {
+                build(opcode(0x26), |_| {
                     // TODO
                 }, State::Root),
 
                 // MOD
-                build(TestOp::Bits(S_A, 0xff, 0x27), |_| {
+                build(opcode(0x27), |_| {
                     // TODO
                 }, State::Root),
 
                 // /MOD
-                build(TestOp::Bits(S_A, 0xff, 0x28), |_| {
+                build(opcode(0x28), |_| {
                     // TODO
                 }, State::Root),
 
                 // U/MOD
-                build(TestOp::Bits(S_A, 0xff, 0x29), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RA, reg::SP);
+                build(opcode(0x29), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RA, BSP);
                     b.0.push(Division(UnsignedDivMod, P32, RA, RD, RA, RD));
-                    b.store(RD, reg::SP);
-                    b.push(RA, reg::SP);
+                    b.store(RD, BSP);
+                    b.push(RA, BSP);
                 }, State::Root),
 
                 // S/REM
-                build(TestOp::Bits(S_A, 0xff, 0x2a), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RA, reg::SP);
+                build(opcode(0x2a), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RA, BSP);
                     b.0.push(Division(SignedDivMod, P32, RA, RD, RA, RD));
-                    b.store(RD, reg::SP);
-                    b.push(RA, reg::SP);
+                    b.store(RD, BSP);
+                    b.push(RA, BSP);
                 }, State::Root),
                 */
 
                 // 2/
-                build(TestOp::Bits(S_A, 0xff, 0x2b), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x2b), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Asr, RD, RD, 1);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // CELLS
-                build(TestOp::Bits(S_A, 0xff, 0x2c), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x2c), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Mul, RD, RD, cell_bytes(1));
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // ABS
-                build(TestOp::Bits(S_A, 0xff, 0x2d), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x2d), |b| {
+                    b.load(RD, BSP);
                     b.unary(Abs, RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // NEGATE
-                build(TestOp::Bits(S_A, 0xff, 0x2e), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x2e), |b| {
+                    b.load(RD, BSP);
                     b.unary(Negate, RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // MAX
-                build(TestOp::Bits(S_A, 0xff, 0x2f), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x2f), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Max, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // MIN
-                build(TestOp::Bits(S_A, 0xff, 0x30), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x30), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Min, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // INVERT
-                build(TestOp::Bits(S_A, 0xff, 0x31), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x31), |b| {
+                    b.load(RD, BSP);
                     b.unary(Not, RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // AND
-                build(TestOp::Bits(S_A, 0xff, 0x32), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x32), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(And, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // OR
-                build(TestOp::Bits(S_A, 0xff, 0x33), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x33), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Or, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // XOR
-                build(TestOp::Bits(S_A, 0xff, 0x34), |b| {
-                    b.pop(RD, reg::SP);
-                    b.load(RSI, reg::SP);
+                build(opcode(0x34), |b| {
+                    b.pop(RD, BSP);
+                    b.load(RSI, BSP);
                     b.binary(Xor, RD, RD, RSI);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // LSHIFT
-                build(TestOp::Bits(S_A, 0xff, 0x35), |b| {
-                    b.pop(STACK_0, reg::SP);
-                    b.load(STACK_1, reg::SP);
+                build(opcode(0x35), |b| {
+                    b.pop(Stack0, BSP);
+                    b.load(Stack1, BSP);
                 }, State::Lshift),
 
                 // RSHIFT
-                build(TestOp::Bits(S_A, 0xff, 0x36), |b| {
-                    b.pop(STACK_0, reg::SP);
-                    b.load(STACK_1, reg::SP);
+                build(opcode(0x36), |b| {
+                    b.pop(Stack0, BSP);
+                    b.load(Stack1, BSP);
                 }, State::Rshift),
 
                 // 1LSHIFT
-                build(TestOp::Bits(S_A, 0xff, 0x37), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x37), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Lsl, RD, RD, 1);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // 1RSHIFT
-                build(TestOp::Bits(S_A, 0xff, 0x38), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x38), |b| {
+                    b.load(RD, BSP);
                     b.const_binary(Lsr, RD, RD, 1);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // @
-                build(TestOp::Bits(S_A, 0xff, 0x39), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x39), |b| {
+                    b.load(RD, BSP);
                     b.load(RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // !
-                build(TestOp::Bits(S_A, 0xff, 0x3a), |b| {
-                    b.pop(RD, reg::SP);
-                    b.pop(RB, reg::SP);
+                build(opcode(0x3a), |b| {
+                    b.pop(RD, BSP);
+                    b.pop(RB, BSP);
                     b.store(RB, RD);
                 }, State::Root),
 
                 // C@
-                build(TestOp::Bits(S_A, 0xff, 0x3b), |b| {
-                    b.load(RD, reg::SP);
+                build(opcode(0x3b), |b| {
+                    b.load(RD, BSP);
                     b.load_byte(RD, RD);
-                    b.store(RD, reg::SP);
+                    b.store(RD, BSP);
                 }, State::Root),
 
                 // C!
-                build(TestOp::Bits(S_A, 0xff, 0x3c), |b| {
-                    b.pop(RD, reg::SP);
-                    b.pop(RB, reg::SP);
+                build(opcode(0x3c), |b| {
+                    b.pop(RD, BSP);
+                    b.pop(RB, BSP);
                     b.store_byte(RB, RD);
                 }, State::Root),
 
                 // +!
-                build(TestOp::Bits(S_A, 0xff, 0x3d), |b| {
-                    b.pop(RD, reg::SP);
-                    b.pop(RB, reg::SP);
+                build(opcode(0x3d), |b| {
+                    b.pop(RD, BSP);
+                    b.pop(RB, BSP);
                     b.load(RBP, RD);
                     b.binary(Add, RB, RBP, RB);
                     b.store(RB, RD);
                 }, State::Root),
 
-                // SP@
-                build(TestOp::Bits(S_A, 0xff, 0x3e), |b| {
-                    b.move_(RA, reg::SP);
-                    b.push(RA, reg::SP);
+                // BSP@
+                build(opcode(0x3e), |b| {
+                    b.move_(RA, BSP);
+                    b.push(RA, BSP);
                 }, State::Root),
 
-                // SP!
-                build(TestOp::Bits(S_A, 0xff, 0x3f), |b| {
-                    b.load(reg::SP, reg::SP);
+                // BSP!
+                build(opcode(0x3f), |b| {
+                    b.load(BSP, BSP);
                 }, State::Root),
 
-                // RP@
-                build(TestOp::Bits(S_A, 0xff, 0x40), |b| {
-                    b.push(reg::RP, reg::SP);
+                // BRP@
+                build(opcode(0x40), |b| {
+                    b.push(BRP, BSP);
                 }, State::Root),
 
-                // RP!
-                build(TestOp::Bits(S_A, 0xff, 0x41), |b| {
-                    b.pop(reg::RP, reg::SP);
+                // BRP!
+                build(opcode(0x41), |b| {
+                    b.pop(BRP, BSP);
                 }, State::Root),
 
                 // EP@
-                build(TestOp::Bits(S_A, 0xff, 0x42), |b| {
-                    b.push(reg::EP, reg::SP);
+                build(opcode(0x42), |b| {
+                    b.push(BEP, BSP);
                 }, State::Root),
 
-                // S0@
-                build(TestOp::Bits(S_A, 0xff, 0x43), |b| {
-                    b.push(reg::S0, reg::SP);
+                // BS0@
+                build(opcode(0x43), |b| {
+                    b.push(BS0, BSP);
                 }, State::Root),
 
-                // S0!
-                build(TestOp::Bits(S_A, 0xff, 0x44), |b| {
-                    b.pop(reg::S0, reg::SP);
+                // BS0!
+                build(opcode(0x44), |b| {
+                    b.pop(BS0, BSP);
                 }, State::Root),
 
-                // R0@
-                build(TestOp::Bits(S_A, 0xff, 0x45), |b| {
-                    b.push(reg::R0, reg::SP);
+                // BR0@
+                build(opcode(0x45), |b| {
+                    b.push(BR0, BSP);
                 }, State::Root),
 
-                // R0!
-                build(TestOp::Bits(S_A, 0xff, 0x46), |b| {
-                    b.pop(reg::R0, reg::SP);
+                // BR0!
+                build(opcode(0x46), |b| {
+                    b.pop(BR0, BSP);
                 }, State::Root),
 
                 // 'THROW@
-                build(TestOp::Bits(S_A, 0xff, 0x47), |b| {
-                    b.push(reg::THROW, reg::SP);
+                build(opcode(0x47), |b| {
+                    b.push(BThrow, BSP);
                 }, State::Root),
 
                 // 'THROW!
-                build(TestOp::Bits(S_A, 0xff, 0x48), |b| {
-                    b.pop(reg::THROW, reg::SP);
+                build(opcode(0x48), |b| {
+                    b.pop(BThrow, BSP);
                 }, State::Root),
 
                 // MEMORY@
-                build(TestOp::Bits(S_A, 0xff, 0x49), |b| {
-                    b.push(reg::MEMORY, reg::SP);
+                build(opcode(0x49), |b| {
+                    b.push(BMemory, BSP);
                 }, State::Root),
 
                 // 'BAD@
-                build(TestOp::Bits(S_A, 0xff, 0x4a), |b| {
-                    b.push(reg::BAD, reg::SP);
+                build(opcode(0x4a), |b| {
+                    b.push(BBad, BSP);
                 }, State::Root),
 
                 // -ADDRESS@
-                build(TestOp::Bits(S_A, 0xff, 0x4b), |b| {
-                    b.push(reg::NOT_ADDRESS, reg::SP);
+                build(opcode(0x4b), |b| {
+                    b.push(BNotAddress, BSP);
                 }, State::Root),
 
                 // BRANCH
-                build(TestOp::Bits(S_A, 0xff, 0x4c), |_| {}, State::Branch),
+                build(opcode(0x4c), |_| {}, State::Branch),
 
                 // BRANCHI
-                build(TestOp::Bits(S_A, 0xff, 0x4d), |_| {}, State::Branchi),
+                build(opcode(0x4d), |_| {}, State::Branchi),
 
                 // ?BRANCH
-                build(TestOp::Bits(S_A, 0xff, 0x4e), |b| {
-                    b.pop(STACK_0, reg::SP);
+                build(opcode(0x4e), |b| {
+                    b.pop(Stack0, BSP);
                 }, State::Qbranch),
 
                 // ?BRANCHI
-                build(TestOp::Bits(S_A, 0xff, 0x4f), |b| {
-                    b.pop(STACK_0, reg::SP);
+                build(opcode(0x4f), |b| {
+                    b.pop(Stack0, BSP);
                 }, State::Qbranchi),
 
                 // EXECUTE
-                build(TestOp::Bits(S_A, 0xff, 0x50), |b| {
-                    b.push(reg::EP, reg::RP);
-                    b.pop(reg::EP, reg::SP); // FIXME: Add check that EP is valid.
+                build(opcode(0x50), |b| {
+                    b.push(BEP, BRP);
+                    b.pop(BEP, BSP); // FIXME: Add check that EP is valid.
                 }, State::Next),
 
                 // @EXECUTE
-                build(TestOp::Bits(S_A, 0xff, 0x51), |b| {
-                    b.push(reg::EP, reg::RP);
-                    b.pop(RA, reg::SP);
-                    b.load(reg::EP, RA); // FIXME: Add check that EP is valid.
+                build(opcode(0x51), |b| {
+                    b.push(BEP, BRP);
+                    b.pop(RA, BSP);
+                    b.load(BEP, RA); // FIXME: Add check that EP is valid.
                 }, State::Next),
 
                 // CALL
-                build(TestOp::Bits(S_A, 0xff, 0x52), |b| {
-                    b.const_binary(Add, RA, reg::EP, cell_bytes(1));
-                    b.push(RA, reg::RP);
+                build(opcode(0x52), |b| {
+                    b.const_binary(Add, RA, BEP, cell_bytes(1));
+                    b.push(RA, BRP);
                 }, State::Branch),
 
                 // CALLI
-                build(TestOp::Bits(S_A, 0xff, 0x53), |b| {
-                    b.push(reg::EP, reg::RP);
+                build(opcode(0x53), |b| {
+                    b.push(BEP, BRP);
                 }, State::Branchi),
 
                 // EXIT
-                build(TestOp::Bits(S_A, 0xff, 0x54), |b| {
-                    b.pop(reg::EP, reg::RP); // FIXME: Add check that EP is valid.
+                build(opcode(0x54), |b| {
+                    b.pop(BEP, BRP); // FIXME: Add check that EP is valid.
                 }, State::Next),
 
                 // (DO)
-                build(TestOp::Bits(S_A, 0xff, 0x55), |b| {
+                build(opcode(0x55), |b| {
                     // Pop two items from SP.
-                    b.pop(RSI, reg::SP);
-                    b.pop(RB, reg::SP);
+                    b.pop(RSI, BSP);
+                    b.pop(RB, BSP);
                     // Push two items to RP.
-                    b.push(RB, reg::RP);
-                    b.push(RSI, reg::RP);
+                    b.push(RB, BRP);
+                    b.push(RSI, BRP);
                 }, State::Root),
 
                 // (LOOP)
-                build(TestOp::Bits(S_A, 0xff, 0x56), |b| {
+                build(opcode(0x56), |b| {
                     // Load the index and limit from RP.
-                    b.pop(RB, reg::RP);
-                    b.load(RSI, reg::RP);
+                    b.pop(RB, BRP);
+                    b.load(RSI, BRP);
                     // Update the index.
                     b.const_binary(Add, RB, RB, 1);
-                    b.push(RB, reg::RP);
-                    b.binary(Sub, LOOP_FLAG, RB, RSI);
+                    b.push(RB, BRP);
+                    b.binary(Sub, LoopFlag, RB, RSI);
                 }, State::Loop),
 
                 // (LOOP)I
-                build(TestOp::Bits(S_A, 0xff, 0x57), |b| {
+                build(opcode(0x57), |b| {
                     // Load the index and limit from RP.
-                    b.pop(RB, reg::RP);
-                    b.load(RSI, reg::RP);
+                    b.pop(RB, BRP);
+                    b.load(RSI, BRP);
                     // Update the index.
                     b.const_binary(Add, RB, RB, 1);
-                    b.push(RB, reg::RP);
-                    b.binary(Sub, LOOP_FLAG, RB, RSI);
+                    b.push(RB, BRP);
+                    b.binary(Sub, LoopFlag, RB, RSI);
                 }, State::Loopi),
 
                 // (+LOOP)
-                build(TestOp::Bits(S_A, 0xff, 0x58), |b| {
+                build(opcode(0x58), |b| {
                     // Pop the step from SP.
-                    b.pop(LOOP_STEP, reg::SP);
+                    b.pop(LoopStep, BSP);
                     // Load the index and limit from RP.
-                    b.pop(RB, reg::RP);
-                    b.load(RSI, reg::RP);
+                    b.pop(RB, BRP);
+                    b.load(RSI, BRP);
                     // Update the index.
-                    b.binary(Add, RBP, RB, LOOP_STEP);
-                    b.push(RBP, reg::RP);
+                    b.binary(Add, RBP, RB, LoopStep);
+                    b.push(RBP, BRP);
                     // Compute the differences between old and new indexes and limit.
-                    b.binary(Sub, LOOP_OLD, RB, RSI);
-                    b.binary(Sub, LOOP_NEW, RBP, RSI);
+                    b.binary(Sub, LoopOld, RB, RSI);
+                    b.binary(Sub, LoopNew, RBP, RSI);
                 }, State::Ploop),
 
                 // (+LOOP)I
-                build(TestOp::Bits(S_A, 0xff, 0x59), |b| {
+                build(opcode(0x59), |b| {
                     // Pop the step from SP.
-                    b.pop(RD, reg::SP);
+                    b.pop(RD, BSP);
                     // Load the index and limit from RP.
-                    b.pop(RB, reg::RP);
-                    b.load(RSI, reg::RP);
+                    b.pop(RB, BRP);
+                    b.load(RSI, BRP);
                     // Update the index.
                     b.binary(Add, RBP, RB, RD);
-                    b.push(RBP, reg::RP);
+                    b.push(RBP, BRP);
                     // Compute the differences between old and new indexes and limit.
-                    b.binary(Sub, LOOP_OLD, RB, RSI);
-                    b.binary(Sub, LOOP_NEW, RBP, RSI);
+                    b.binary(Sub, LoopOld, RB, RSI);
+                    b.binary(Sub, LoopNew, RBP, RSI);
                 }, State::Ploopi),
 
                 // UNLOOP
-                build(TestOp::Bits(S_A, 0xff, 0x5a), |b| {
+                build(opcode(0x5a), |b| {
                     // Discard two items from RP.
-                    b.const_binary(Add, reg::RP, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
                 }, State::Root),
 
                 // J
-                build(TestOp::Bits(S_A, 0xff, 0x5b), |b| {
+                build(opcode(0x5b), |b| {
                     // Push the third item of RP to SP.
-                    b.const_binary(Add, RA, reg::RP, cell_bytes(2));
+                    b.const_binary(Add, RA, BRP, cell_bytes(2));
                     b.load(RSI, RA);
-                    b.push(RSI, reg::SP);
+                    b.push(RSI, BSP);
                 }, State::Root),
 
                 // (LITERAL)
-                build(TestOp::Bits(S_A, 0xff, 0x5c), |b| {
-                    // Load RD from cell pointed to by EP, and add 4 to EP.
-                    b.pop(RD, reg::EP); // FIXME: Add check that EP is now valid.
-                    b.push(RD, reg::SP);
+                build(opcode(0x5c), |b| {
+                    // Load RD from cell pointed to by BEP, and add 4 to EP.
+                    b.pop(RD, BEP); // FIXME: Add check that EP is now valid.
+                    b.push(RD, BSP);
                 }, State::Root),
 
                 // (LITERAL)I
-                build(TestOp::Bits(S_A, 0xff, 0x5d), |b| {
-                    b.push(reg::A, reg::SP);
+                build(opcode(0x5d), |b| {
+                    b.push(BA, BSP);
                 }, State::Next),
 
                 // THROW
-                build(TestOp::Bits(S_A, 0xff, 0x5e), |b| {
-                    b.move_(reg::BAD, reg::EP);
-                    b.load(reg::EP, reg::THROW); // FIXME: Add check that EP is valid.
+                build(opcode(0x5e), |b| {
+                    b.move_(BBad, BEP);
+                    b.load(BEP, BThrow); // FIXME: Add check that EP is valid.
                 }, State::Next),
 
                 // HALT
-                build(TestOp::Bits(S_A, 0xff, 0x5f), |_| {}, State::Halt),
+                build(opcode(0x5f), |_| {}, State::Halt),
             ]},
         }
     }
@@ -1138,17 +1173,17 @@ pub mod tests {
                 halt_addr: 0,
             };
             // Initialize the memory.
-            *vm.jit.slot(reg::MEMORY) = vm.memory.as_mut_ptr() as u64;
+            *vm.jit.slot(BMemory) = vm.memory.as_mut_ptr() as u64;
             // Allocate the data stack.
             let s_base = vm.allocate(data_cells as u32);
             let sp = s_base + cell_bytes(data_cells as i64) as u32;
-            vm.set(reg::S0, sp);
-            vm.set(reg::SP, sp);
+            vm.set(BS0, sp);
+            vm.set(BSP, sp);
             // Allocate the return stack.
             let r_base = vm.allocate(return_cells as u32);
             let rp = r_base + cell_bytes(return_cells as i64) as u32;
-            vm.set(reg::R0, rp);
-            vm.set(reg::RP, rp);
+            vm.set(BR0, rp);
+            vm.set(BRP, rp);
             // Allocate a word to hold a HALT instruction.
             vm.halt_addr = vm.allocate(1);
             vm.store(vm.halt_addr, 0x5F);
@@ -1156,12 +1191,12 @@ pub mod tests {
         }
 
         /** Read a register. */
-        pub fn get(&mut self, global: Value) -> u32 {
+        pub fn get(&mut self, global: Global) -> u32 {
             *self.jit.slot(global) as u32
         }
 
         /** Write a register. */
-        pub fn set(&mut self, global: Value, value: u32) {
+        pub fn set(&mut self, global: Global, value: u32) {
             *self.jit.slot(global) = value as u64
         }
 
@@ -1199,42 +1234,42 @@ pub mod tests {
 
         /** Push `item` onto the data stack. */
         pub fn push(&mut self, item: u32) {
-            let mut sp = self.get(reg::SP);
+            let mut sp = self.get(BSP);
             sp -= cell_bytes(1) as u32;
-            self.set(reg::SP, sp);
+            self.set(BSP, sp);
             self.store(sp, item);
         }
 
         /** Pop an item from the data stack. */
         pub fn pop(&mut self) -> u32 {
-            let mut sp = self.get(reg::SP);
+            let mut sp = self.get(BSP);
             let item = self.load(sp);
             sp += cell_bytes(1) as u32;
-            self.set(reg::SP, sp);
+            self.set(BSP, sp);
             item
         }
 
         /** Push `item` onto the return stack. */
         pub fn rpush(&mut self, item: u32) {
-            let mut rp = self.get(reg::RP);
+            let mut rp = self.get(BRP);
             rp -= cell_bytes(1) as u32;
-            self.set(reg::RP, rp);
+            self.set(BRP, rp);
             self.store(rp, item);
         }
 
         /** Pop an item from the return stack. */
         pub fn rpop(&mut self) -> u32 {
-            let mut rp = self.get(reg::RP);
+            let mut rp = self.get(BRP);
             let item = self.load(rp);
             rp += cell_bytes(1) as u32;
-            self.set(reg::RP, rp);
+            self.set(BRP, rp);
             item
         }
 
         /** Run the code at address `ep`. */
         pub fn run(mut self, ep: u32) -> Self {
             assert!(Self::is_aligned(ep));
-            self.set(reg::EP, ep);
+            self.set(BEP, ep);
             let (jit, state) = self.jit.execute(State::Root);
 	    assert_eq!(state, State::Halt);
             self.jit = jit;
@@ -1256,8 +1291,8 @@ pub mod tests {
         vm.rpush(vm.halt_addr);
         vm = vm.run(0);
         let result = vm.pop();
-        assert_eq!(vm.get(reg::S0), vm.get(reg::SP));
-        assert_eq!(vm.get(reg::R0), vm.get(reg::RP));
+        assert_eq!(vm.get(BS0), vm.get(BSP));
+        assert_eq!(vm.get(BR0), vm.get(BRP));
         assert_eq!(result, 253);
     }
 }

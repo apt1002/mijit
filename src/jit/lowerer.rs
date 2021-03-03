@@ -54,7 +54,6 @@ impl <'a> Lowerer<'a> {
     }
 
     /** Store `src` into slot `index`. */
-    // TODO: Do we need `prec`?
     fn store_slot(&mut self, index: usize, src: Register) {
         self.a.store(P64, (R8, self.slot_offset(index)), src);
     }
@@ -173,31 +172,25 @@ impl <'a> Lowerer<'a> {
         &mut self,
         unary_op: code::UnaryOp,
         prec: Precision,
-        dest: Value,
+        dest: Register,
         src: Value,
     ) {
         match unary_op {
             code::UnaryOp::Abs => {
-                self.dest_to_register(dest, |l, dest| {
-                    let src = l.move_away_from(src, dest);
-                    l.a.const_(prec, dest, 0);
-                    l.value_op(Sub, prec, dest, src);
-                    l.value_move_if(Condition::L, true, prec, dest, src);
-                });
+                let src = self.move_away_from(src, dest);
+                self.a.const_(prec, dest, 0);
+                self.value_op(Sub, prec, dest, src);
+                self.value_move_if(Condition::L, true, prec, dest, src);
             },
             code::UnaryOp::Negate => {
-                self.dest_to_register(dest, |l, dest| {
-                    let src = l.move_away_from(src, dest);
-                    l.a.const_(prec, dest, 0);
-                    l.value_op(Sub, prec, dest, src);
-                });
+                let src = self.move_away_from(src, dest);
+                self.a.const_(prec, dest, 0);
+                self.value_op(Sub, prec, dest, src);
             },
             code::UnaryOp::Not => {
-                self.dest_to_register(dest, |l, dest| {
-                    let src = l.src_to_register(src, dest);
-                    l.move_(dest, src);
-                    l.a.const_op(Xor, prec, dest, -1);
-                });
+                let src = self.src_to_register(src, dest);
+                self.move_(dest, src);
+                self.a.const_op(Xor, prec, dest, -1);
             },
         };
     }
@@ -205,23 +198,21 @@ impl <'a> Lowerer<'a> {
     /** Select how to assemble an asymmetric BinaryOp such as `Sub`. */
     fn asymmetric_binary(
         &mut self,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
         callback: impl FnOnce(&mut Self, Register, Value),
     ) {
-        self.dest_to_register(dest, |l, dest| {
-            let src2 = l.move_away_from(src2, dest);
-            let src1 = l.src_to_register(src1, dest);
-            l.move_(dest, src1);
-            callback(l, dest, src2);
-        });
+        let src2 = self.move_away_from(src2, dest);
+        let src1 = self.src_to_register(src1, dest);
+        self.move_(dest, src1);
+        callback(self, dest, src2);
     }
 
     /** Select how to assemble a symmetric BinaryOp such as `Add`. */
     fn symmetric_binary(
         &mut self,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
         callback: impl FnOnce(&mut Self, Register, Value),
@@ -229,7 +220,7 @@ impl <'a> Lowerer<'a> {
         if let Value::Slot(_) = src1 {
             // We get better code if `src1` is not a Slot, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
-        } else if src2 == dest {
+        } else if src2 == Value::Register(dest) {
             // We get better code if `src1` is `dest`, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
         } else {
@@ -238,50 +229,27 @@ impl <'a> Lowerer<'a> {
     }
 
     /** Select how to assemble a shift BinaryOp such as `Shl`. */
-    fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Value, src1: Value, src2: Value) {
+    fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Register, src1: Value, src2: Value) {
         let src2 = self.src_to_register(src2, TEMP);
         self.move_(TEMP, src2);
-        match dest {
-            Value::Register(dest) => {
-                let src1 = self.src_to_register(src1, dest);
-                self.move_(dest, src1);
-                assert_eq!(TEMP, RC);
-                self.a.shift(op, prec, dest);
-            },
-            Value::Slot(index) => {
-                // Not enough reserved registers; push `src1`, or maybe `RA`.
-                let src1 = match src1 {
-                    Value::Register(src1) => {
-                        self.a.push(src1);
-                        src1
-                    },
-                    Value::Slot(index) => {
-                        self.a.push(RA);
-                        self.load_slot(RA, index);
-                        RA
-                    },
-                };
-                self.a.shift(op, prec, src1);
-                self.store_slot(index, src1);
-                self.a.pop(src1);
-            },
-        }
+        let src1 = self.src_to_register(src1, dest);
+        self.move_(dest, src1);
+        assert_eq!(TEMP, RC);
+        self.a.shift(op, prec, dest);
     }
 
     /** Select how to assemble a conditional BinaryOp such as `Lt` or `Max`. */
     fn compare_binary(
         &mut self,
         prec: Precision,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
         callback: impl FnOnce(&mut Self, Register, Register),
     ) {
-        self.dest_to_register(dest, |l, dest| {
-            let src1 = l.src_to_register(src1, TEMP);
-            l.value_op(Cmp, prec, src1, src2);
-            callback(l, dest, src1);
-        });
+        let src1 = self.src_to_register(src1, TEMP);
+        self.value_op(Cmp, prec, src1, src2);
+        callback(self, dest, src1);
     }
 
     /**
@@ -291,7 +259,7 @@ impl <'a> Lowerer<'a> {
         &mut self,
         binary_op: code::BinaryOp,
         prec: Precision,
-        dest: Value,
+        dest: Register,
         src1: Value,
         src2: Value,
     ) {
@@ -394,11 +362,6 @@ impl <'a> Lowerer<'a> {
         action: Action,
     ) {
         match action {
-            Action::Constant(prec, dest, value) => {
-                self.dest_to_register(dest, |l: &mut Self, dest: Register| {
-                    l.a.const_(prec, dest, value);
-                });
-            },
             Action::Move(dest, src) => {
                 // `dest_to_register()` would generate less efficient code.
                 match dest {
@@ -420,45 +383,24 @@ impl <'a> Lowerer<'a> {
                     },
                 }
             },
+            Action::Constant(prec, dest, value) => {
+                self.a.const_(prec, dest, value);
+            },
             Action::Unary(op, prec, dest, src) => {
                 self.lower_unary_op(op, prec, dest, src);
             },
             Action::Binary(op, prec, dest, src1, src2) => {
                 self.lower_binary_op(op, prec, dest, src1, src2);
             },
-            Action::Division(_op, _prec, _, _, _, _) => {
-                panic!("FIXME: Don't know how to assemble div");
-            },
             Action::Load(dest, (addr, width), _) => {
                 let width = Self::lower_width(width);
-                self.dest_to_register(dest, |l, dest| {
-                    let addr = l.src_to_register(addr, dest);
-                    l.a.load_narrow(P64, width, dest, (addr, 0));
-                });
+                let addr = self.src_to_register(addr, dest);
+                self.a.load_narrow(P64, width, dest, (addr, 0));
             },
             Action::Store(src, (addr, width), _) => {
                 let width = Self::lower_width(width);
-                match addr {
-                    Value::Register(addr) => {
-                        let src = self.src_to_register(src, TEMP);
-                        self.a.store_narrow(width, (addr, 0), src);
-                    },
-                    Value::Slot(index) => {
-                        self.load_slot(TEMP, index);
-                        match src {
-                            Value::Register(src) => {
-                                self.a.store_narrow(width, (TEMP, 0), src);
-                            },
-                            Value::Slot(index) => {
-                                // Not enough reserved registers; push `RA`.
-                                self.a.push(RA);
-                                self.load_slot(RA, index);
-                                self.a.store_narrow(width, (TEMP, 0), RA);
-                                self.a.pop(RA);
-                            },
-                        }
-                    },
-                }
+                let src = self.src_to_register(src, TEMP);
+                self.a.store_narrow(width, (addr, 0), src);
             },
             Action::Push(src) => {
                 let src = self.src_to_register(src, TEMP);

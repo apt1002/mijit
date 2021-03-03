@@ -4,7 +4,7 @@ pub mod x86_64;
 
 pub mod code;
 
-pub mod optimizer;
+//pub mod optimizer;
 
 pub mod jit;
 

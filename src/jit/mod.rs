@@ -1,8 +1,8 @@
 use indexmap::{IndexSet};
 
-use super::{Buffer, code, optimizer, x86_64};
+use super::{Buffer, code, /*optimizer,*/ x86_64};
 use x86_64::*;
-use code::{Action, TestOp, Machine, Precision, Value};
+use code::{Action, TestOp, Machine, Precision, Value, IntoValue};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -64,35 +64,23 @@ impl Action {
     /** Call `f` on every Value mentioned in Action. */
     fn for_each_value(&self, mut f: impl FnMut(Value)) {
         match *self {
-            Action::Constant(_, dest, _) => {
-                f(dest);
-            },
             Action::Move(dest, src) => {
                 f(dest);
                 f(src);
             },
-            Action::Unary(_, _, dest, src) => {
-                f(dest);
+            Action::Constant(_, _, _) => {},
+            Action::Unary(_, _, _, src) => {
                 f(src);
             },
-            Action::Binary(_, _, dest, src1, src2) => {
-                f(dest);
+            Action::Binary(_, _, _, src1, src2) => {
                 f(src1);
                 f(src2);
             },
-            Action::Division(_, _, quot, rem, num, den) => {
-                f(quot);
-                f(rem);
-                f(num);
-                f(den);
-            },
-            Action::Load(dest, (addr, _), _) => {
-                f(dest);
+            Action::Load(_, (addr, _), _) => {
                 f(addr);
             },
-            Action::Store(src, (addr, _), _) => {
+            Action::Store(src, (_, _), _) => {
                 f(src);
-                f(addr);
             },
             Action::Push(src) => {
                 f(src);
@@ -227,8 +215,8 @@ impl<M: Machine> Jit<M> {
         &self.states
     }
 
-    pub fn slot(&mut self, slot: Value) -> &mut u64 {
-        match slot {
+    pub fn slot(&mut self, slot: impl IntoValue) -> &mut u64 {
+        match slot.into() {
             Value::Register(_) => panic!("Not a Slot"),
             // TODO: Factor out pool index calculation.
             Value::Slot(index) => &mut self.pool[index + 1],
@@ -259,7 +247,7 @@ impl<M: Machine> Jit<M> {
         actions: Vec<Action>,
         new_index: usize,
     ) {
-        let actions = optimizer::optimize(&self.convention, &actions, &self.convention);
+        //let actions = optimizer::optimize(&self.convention, &actions, &self.convention);
         let mut lo = Lowerer {
             a: Assembler::new(&mut self.buffer),
         };

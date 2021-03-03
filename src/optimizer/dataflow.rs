@@ -184,12 +184,12 @@ impl Simulation {
 
     pub fn action(&mut self, action: &Action) {
         match *action {
-            Action::Constant(prec, dest, value) => {
-                let node = self.op(Op::Constant(prec, value));
-                self.bind(dest, node);
-            },
             Action::Move(dest, src) => {
                 let node = self.lookup(src);
+                self.bind(dest, node);
+            },
+            Action::Constant(prec, dest, value) => {
+                let node = self.op(Op::Constant(prec, value));
                 self.bind(dest, node);
             },
             Action::Unary(op, prec, dest, src) => {
@@ -202,9 +202,6 @@ impl Simulation {
                 let src2 = self.lookup(src2);
                 let node = self.op(Op::Binary(op, prec, src1, src2));
                 self.bind(dest, node);
-            },
-            Action::Division(_op, _prec, _, _, _, _) => {
-                panic!("FIXME: Don't know how to do division");
             },
             Action::Load(dest, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
