@@ -76,13 +76,11 @@ impl Action {
                 f(src1);
                 f(src2);
             },
-            Action::Load(dest, (addr, _), _) => {
-                f(dest);
+            Action::Load(_, (addr, _), _) => {
                 f(addr);
             },
-            Action::Store(src, (addr, _), _) => {
+            Action::Store(src, (_, _), _) => {
                 f(src);
-                f(addr);
             },
             Action::Push(src) => {
                 f(src);

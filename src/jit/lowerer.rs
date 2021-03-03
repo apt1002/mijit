@@ -394,34 +394,13 @@ impl <'a> Lowerer<'a> {
             },
             Action::Load(dest, (addr, width), _) => {
                 let width = Self::lower_width(width);
-                self.dest_to_register(dest, |l, dest| {
-                    let addr = l.src_to_register(addr, dest);
-                    l.a.load_narrow(P64, width, dest, (addr, 0));
-                });
+                let addr = self.src_to_register(addr, dest);
+                self.a.load_narrow(P64, width, dest, (addr, 0));
             },
             Action::Store(src, (addr, width), _) => {
                 let width = Self::lower_width(width);
-                match addr {
-                    Value::Register(addr) => {
-                        let src = self.src_to_register(src, TEMP);
-                        self.a.store_narrow(width, (addr, 0), src);
-                    },
-                    Value::Slot(index) => {
-                        self.load_slot(TEMP, index);
-                        match src {
-                            Value::Register(src) => {
-                                self.a.store_narrow(width, (TEMP, 0), src);
-                            },
-                            Value::Slot(index) => {
-                                // Not enough reserved registers; push `RA`.
-                                self.a.push(RA);
-                                self.load_slot(RA, index);
-                                self.a.store_narrow(width, (TEMP, 0), RA);
-                                self.a.pop(RA);
-                            },
-                        }
-                    },
-                }
+                let src = self.src_to_register(src, TEMP);
+                self.a.store_narrow(width, (addr, 0), src);
             },
             Action::Push(src) => {
                 let src = self.src_to_register(src, TEMP);

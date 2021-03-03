@@ -173,7 +173,8 @@ impl Builder {
     // TODO: Bounds checking.
     fn load(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
         self.native_address(TEMP, addr);
-        self.0.push(Load(dest.into(), (TEMP.into(), Four), MEMORY));
+        self.0.push(Load(TEMP, (TEMP.into(), Four), MEMORY));
+        self.move_(dest, TEMP);
     }
 
     /**
@@ -184,7 +185,7 @@ impl Builder {
     fn store(&mut self, src: impl IntoValue, addr: impl IntoValue) {
         assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src.into(), (TEMP.into(), Four), MEMORY));
+        self.0.push(Store(src.into(), (TEMP, Four), MEMORY));
     }
 
     /**
@@ -194,7 +195,8 @@ impl Builder {
     // TODO: Bounds checking.
     fn load_byte(&mut self, dest: impl IntoValue, addr: impl IntoValue) {
         self.native_address(TEMP, addr);
-        self.0.push(Load(dest.into(), (TEMP.into(), One), MEMORY));
+        self.0.push(Load(TEMP, (TEMP.into(), One), MEMORY));
+        self.move_(dest, TEMP);
     }
 
     /**
