@@ -1,4 +1,4 @@
-use crate::util::{AsUsize};
+use crate::util::{AsUsize, ArrayMap};
 use super::{Op};
 use super::code::{Value};
 
@@ -12,11 +12,11 @@ impl AsUsize for Node {
     fn as_usize(self) -> usize { self.0 }
 }
 
-/** Connects a [`Node`] that produces a value to one that consumes it. */
+/** A value produced by a [`Node`] in a Dataflow graph. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Edge(usize);
+pub struct Out(usize);
 
-impl AsUsize for Edge {
+impl AsUsize for Out {
     fn as_usize(self) -> usize { self.0 }
 }
 
@@ -53,7 +53,7 @@ pub struct Dataflow {
     /** One per Out. Gives the Node that generates the Out. */
     outs: Vec<Node>,
     /** One per In. Connects the In to the Out. */
-    ins: Vec<Edge>,
+    ins: Vec<Out>,
     /** One per non-dataflow dependency. Gives a predecessor Node. */
     deps: Vec<Node>,
 }
@@ -111,8 +111,8 @@ impl Dataflow {
         }
     }
 
-    /** Returns the input [`Edge`]s of `node`. */
-    pub fn ins(&self, node: Node) -> &[Edge] {
+    /** Returns the [`Out`]s which are consumed by the inputs of `node`. */
+    pub fn ins(&self, node: Node) -> &[Out] {
         if let Some(prev) = self.prev(node) {
             &self.ins[prev.last_in .. self.info(node).last_in]
         } else {
@@ -124,7 +124,7 @@ impl Dataflow {
      * Returns the [`Node`] which produces `out`, and the index of `out` among
      * the outputs of the `Node`.
      */
-    pub fn out(&self, out: Edge) -> (Node, usize) {
+    pub fn out(&self, out: Out) -> (Node, usize) {
         let node = self.outs[out.as_usize()];
         let first_out = if let Some(prev) = self.prev(node) {
             prev.last_out
@@ -134,4 +134,19 @@ impl Dataflow {
         (node, out.as_usize() - first_out)
     }
 
+    /**
+     * Returns a fresh ArrayMap that initally associates `V::default()` with
+     * each [`Node`] of this Dataflow.
+     */
+    pub fn node_map<V: Default>(&self) -> ArrayMap<Node, V> {
+        ArrayMap::new(self.nodes.len())
+    }
+
+    /**
+     * Returns a fresh ArrayMap that initally associates `V::default()` with
+     * each output of each [`Node`] of this Dataflow.
+     */
+    pub fn out_map<V: Default>(&self) -> ArrayMap<Out, V> {
+        ArrayMap::new(self.outs.len())
+    }
 }
