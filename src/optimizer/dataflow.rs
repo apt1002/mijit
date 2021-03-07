@@ -28,11 +28,11 @@ struct Info {
     /** What kind of operation the Node represents. */
     op: Op,
     /** The index in [`Dataflow::deps`] after the last dep of the Node. */
-    last_dep: usize,
+    end_dep: usize,
     /** The index in [`Dataflow::ins`] after the last In of the Node. */
-    last_in: usize,
+    end_in: usize,
     /** The index in [`Dataflow::outs`] after the last Out of the Node. */
-    last_out: usize,
+    end_out: usize,
 }
 
 /**
@@ -60,9 +60,9 @@ impl Dataflow {
     pub fn new(inputs: Vec<Value>) -> Self {
         let entry = Info {
             op: Op::Convention,
-            last_dep: 0,
-            last_in: 0,
-            last_out: inputs.len(),
+            end_dep: 0,
+            end_in: 0,
+            end_out: inputs.len(),
         };
         let outs: Vec<_> = inputs.iter().map(|_| Node(0)).collect();
         Dataflow {
@@ -115,32 +115,32 @@ impl Dataflow {
 
     /** Returns the [`Node`]s which must be executed before `node`. */
     pub fn deps(&self, node: Node) -> &[Node] {
-        let first_dep = if let Some(prev) = self.prev(node) {
-            prev.last_dep
+        let start_dep = if let Some(prev) = self.prev(node) {
+            prev.end_dep
         } else {
             0
         };
-        &self.deps[first_dep .. self.info(node).last_dep]
+        &self.deps[start_dep .. self.info(node).end_dep]
     }
 
     /** Returns the [`Out`]s which are consumed by the inputs of `node`. */
     pub fn ins(&self, node: Node) -> &[Out] {
-        let first_in = if let Some(prev) = self.prev(node) {
-            prev.last_in
+        let start_in = if let Some(prev) = self.prev(node) {
+            prev.end_in
         } else {
             0
         };
-        &self.ins[first_in .. self.info(node).last_in]
+        &self.ins[start_in .. self.info(node).end_in]
     }
 
     /** Returns the [`Out`]s which are produced by `node`. */
     pub fn outs(&self, node: Node) -> impl Iterator<Item=Out> {
-        let first_out = if let Some(prev) = self.prev(node) {
-            prev.last_out
+        let start_out = if let Some(prev) = self.prev(node) {
+            prev.end_out
         } else {
             0
         };
-        (first_out .. self.info(node).last_out).map(|index| Out(index))
+        (start_out .. self.info(node).end_out).map(|index| Out(index))
     }
 
     /**
@@ -149,12 +149,26 @@ impl Dataflow {
      */
     pub fn out(&self, out: Out) -> (Node, usize) {
         let node = self.outs[out.as_usize()];
-        let first_out = if let Some(prev) = self.prev(node) {
-            prev.last_out
+        let start_out = if let Some(prev) = self.prev(node) {
+            prev.end_out
         } else {
             0
         };
-        (node, out.as_usize() - first_out)
+        (node, out.as_usize() - start_out)
+    }
+
+    pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Out], num_outs: usize) -> Node {
+        let node = Node(self.nodes.len());
+        self.deps.extend(deps);
+        self.ins.extend(ins);
+        self.outs.extend((0..num_outs).map(|_| node));
+        self.nodes.push(Info {
+            op: op,
+            end_dep: self.deps.len(),
+            end_in: self.ins.len(),
+            end_out: self.outs.len(),
+        });
+        node
     }
 
     /**
