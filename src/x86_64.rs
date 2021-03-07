@@ -552,6 +552,7 @@ impl<'a> Assembler<'a> {
      * which corrupts the status flags. Use `const_preserving_flags` to avoid
      * this problem.
      */
+    // TODO: Remove `prec`?
     pub fn const_(&mut self, prec: Precision, dest: Register, mut imm: i64) {
         if prec == P32 {
             imm &= 0xFFFFFFFF;

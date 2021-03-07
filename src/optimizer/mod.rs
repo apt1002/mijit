@@ -1,5 +1,11 @@
-use super::code::{Action};
+use super::code::{self, Action};
 use super::jit::{Convention};
+
+mod op;
+pub use op::{Op};
+
+mod dataflow;
+pub use dataflow::{Dataflow};
 
 /** Optimizes a basic block. */
 pub fn optimize(
