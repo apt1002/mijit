@@ -1,6 +1,6 @@
 use indexmap::{IndexSet};
 
-use super::{Buffer, code, /*optimizer,*/ x86_64};
+use super::{Buffer, code, optimizer, x86_64};
 use x86_64::*;
 use code::{Action, TestOp, Machine, Precision, Value, IntoValue};
 use Register::*;
@@ -247,7 +247,7 @@ impl<M: Machine> Jit<M> {
         actions: Vec<Action>,
         new_index: usize,
     ) {
-        //let actions = optimizer::optimize(&self.convention, &actions, &self.convention);
+        let actions = optimizer::optimize(&self.convention, &actions, &self.convention);
         let mut lo = Lowerer {
             a: Assembler::new(&mut self.buffer),
         };
