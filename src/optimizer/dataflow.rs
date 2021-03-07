@@ -27,12 +27,12 @@ impl AsUsize for Out {
 struct Info {
     /** What kind of operation the Node represents. */
     op: Op,
-    /** The index in [`Dataflow::outs`] after the last Out of the Node. */
-    last_out: usize,
-    /** The index in [`Dataflow::ins`] after the last In of the Node. */
-    last_in: usize,
     /** The index in [`Dataflow::deps`] after the last dep of the Node. */
     last_dep: usize,
+    /** The index in [`Dataflow::ins`] after the last In of the Node. */
+    last_in: usize,
+    /** The index in [`Dataflow::outs`] after the last Out of the Node. */
+    last_out: usize,
 }
 
 /**
@@ -48,35 +48,40 @@ pub struct Dataflow {
     inputs: Vec<Value>,
     /** One per Node. */
     nodes: Vec<Info>,
-    /** One per Out. Gives the Node that generates the Out. */
-    outs: Vec<Node>,
-    /** One per In. Connects the In to the Out. */
-    ins: Vec<Out>,
     /** One per non-dataflow dependency. Gives a predecessor Node. */
     deps: Vec<Node>,
+    /** One per In. Connects the In to the Out. */
+    ins: Vec<Out>,
+    /** One per Out. Gives the Node that generates the Out. */
+    outs: Vec<Node>,
 }
 
 impl Dataflow {
     pub fn new(inputs: Vec<Value>) -> Self {
         let entry = Info {
             op: Op::Convention,
-            last_out: inputs.len(),
-            last_in: 0,
             last_dep: 0,
+            last_in: 0,
+            last_out: inputs.len(),
         };
         let outs: Vec<_> = inputs.iter().map(|_| Node(0)).collect();
         Dataflow {
             inputs,
             nodes: vec![entry],
-            outs,
-            ins: Vec::new(),
             deps: Vec::new(),
+            ins: Vec::new(),
+            outs,
         }
     }
 
-    /** Returns the `inputs` of this Dataflow (as passed to `new()`). */
+    /** Returns the `inputs` of this [`Dataflow`] (as passed to `new()`). */
     pub fn inputs(&self) -> &[Value] {
         self.inputs.as_ref()
+    }
+
+    /** Returns the entry [`Node`]. */
+    pub fn entry_node(&self) -> Node {
+        Node(0)
     }
 
     /** Returns the [`Info`] about `node`. */
@@ -108,13 +113,34 @@ impl Dataflow {
         }
     }
 
+    /** Returns the [`Node`]s which must be executed before `node`. */
+    pub fn deps(&self, node: Node) -> &[Node] {
+        let first_dep = if let Some(prev) = self.prev(node) {
+            prev.last_dep
+        } else {
+            0
+        };
+        &self.deps[first_dep .. self.info(node).last_dep]
+    }
+
     /** Returns the [`Out`]s which are consumed by the inputs of `node`. */
     pub fn ins(&self, node: Node) -> &[Out] {
-        if let Some(prev) = self.prev(node) {
-            &self.ins[prev.last_in .. self.info(node).last_in]
+        let first_in = if let Some(prev) = self.prev(node) {
+            prev.last_in
         } else {
-            &self.ins[0..0]
-        }
+            0
+        };
+        &self.ins[first_in .. self.info(node).last_in]
+    }
+
+    /** Returns the [`Out`]s which are produced by `node`. */
+    pub fn outs(&self, node: Node) -> impl Iterator<Item=Out> {
+        let first_out = if let Some(prev) = self.prev(node) {
+            prev.last_out
+        } else {
+            0
+        };
+        (first_out .. self.info(node).last_out).map(|index| Out(index))
     }
 
     /**
