@@ -14,11 +14,10 @@ use ShiftOp::*;
  *  - `R8` holds the pool base address.
  */
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
-pub const ALLOCATABLE_REGISTERS: [Register; 12] =
-    [RA, RD, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
+pub const ALLOCATABLE_REGISTERS: [Register; 13] =
+    [RA, RD, RC, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
 
-pub const TEMP: Register = RC;
-pub const TEMP_VALUE: Value = Value::Register(TEMP);
+const TEMP: Register = R12;
 
 pub struct Lowerer<'a> {
     pub a: Assembler<'a>,
@@ -36,7 +35,7 @@ impl <'a> Lowerer<'a> {
     fn move_away_from(&mut self, src: Value, dest: Register) -> Value {
         if src == Value::Register(dest) {
             self.move_(TEMP, dest);
-            TEMP_VALUE
+            TEMP.into()
         } else {
             src
         }
@@ -230,12 +229,18 @@ impl <'a> Lowerer<'a> {
 
     /** Select how to assemble a shift BinaryOp such as `Shl`. */
     fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Register, src1: Value, src2: Value) {
-        let src2 = self.src_to_register(src2, TEMP);
-        self.move_(TEMP, src2);
+        let save_rc = src2 != Value::Register(RC);
+        if save_rc {
+            self.move_(TEMP, RC);
+        }
+        let src2 = self.src_to_register(src2, RC);
+        self.move_(RC, src2);
         let src1 = self.src_to_register(src1, dest);
         self.move_(dest, src1);
-        assert_eq!(TEMP, RC);
         self.a.shift(op, prec, dest);
+        if save_rc {
+            self.move_(RC, TEMP);
+        }
     }
 
     /** Select how to assemble a conditional BinaryOp such as `Lt` or `Max`. */
