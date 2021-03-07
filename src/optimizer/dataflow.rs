@@ -33,8 +33,6 @@ struct Info {
     last_in: usize,
     /** The index in [`Dataflow::deps`] after the last dep of the Node. */
     last_dep: usize,
-    /** The immediate constant of the operation, if any. */
-    constant: i64,
 }
 
 /**
@@ -65,7 +63,6 @@ impl Dataflow {
             last_out: inputs.len(),
             last_in: 0,
             last_dep: 0,
-            constant: 0,
         };
         let outs: Vec<_> = inputs.iter().map(|_| Node(0)).collect();
         Dataflow {
