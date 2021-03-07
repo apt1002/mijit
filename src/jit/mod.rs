@@ -85,9 +85,7 @@ impl Action {
             Action::Push(src) => {
                 f(src);
             },
-            Action::Pop(dest) => {
-                f(dest);
-            },
+            Action::Pop(_) => {},
             Action::Debug(src) => {
                 f(src);
             },

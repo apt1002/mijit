@@ -175,7 +175,7 @@ pub enum Action {
     Load(Register, (Value, Width), AliasMask),
     Store(Value, (Register, Width), AliasMask),
     Push(Value),
-    Pop(Value),
+    Pop(Register),
     Debug(Value),
 }
 

@@ -72,22 +72,6 @@ impl <'a> Lowerer<'a> {
     }
 
     /**
-     * If `dest` is a Register, passes it to `callback`, otherwise passes `TEMP`
-     * to `callback` then stores it.
-     */
-    fn dest_to_register(&mut self, dest: Value, callback: impl FnOnce(&mut Lowerer<'a>, Register)) {
-        match dest {
-            Value::Register(dest) => {
-                callback(self, dest);
-            },
-            Value::Slot(index) => {
-                callback(self, TEMP);
-                self.store_slot(index, TEMP);
-            },
-        }
-    }
-
-    /**
      * Calls `a.op()` or `a.load_op()` depending on whether `src` is a Register
      * or a Slot.
      */
@@ -412,9 +396,7 @@ impl <'a> Lowerer<'a> {
                 self.a.push(src);
             },
             Action::Pop(dest) => {
-                self.dest_to_register(dest, |l, dest| {
-                    l.a.pop(dest);
-                });
+                self.a.pop(dest);
             },
             Action::Debug(x) => {
                 let x = self.src_to_register(x, TEMP);
