@@ -5,7 +5,10 @@ mod op;
 pub use op::{Op};
 
 mod dataflow;
-pub use dataflow::{Dataflow};
+pub use dataflow::{Dataflow, Node, Out};
+
+mod simulation;
+pub use simulation::{Simulation};
 
 /** Optimizes a basic block. */
 pub fn optimize(
