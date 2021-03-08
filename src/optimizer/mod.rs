@@ -10,6 +10,9 @@ pub use dataflow::{Dataflow, Node, Out};
 mod simulation;
 pub use simulation::{Simulation};
 
+mod pressure;
+pub use pressure::{Pressure};
+
 /** Optimizes a basic block. */
 pub fn optimize(
     _before: &Convention,
