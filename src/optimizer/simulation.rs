@@ -20,7 +20,12 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn new(dataflow: Dataflow) -> Self {
+    /**
+     * Constructs a `Simulation` of a basic block. On entry, only `inputs` are
+     * live.
+     */
+    pub fn new(inputs: Vec<Value>) -> Self {
+        let dataflow = Dataflow::new(inputs);
         let entry_node = dataflow.entry_node();
         let bindings = dataflow.inputs().iter()
             .cloned()
@@ -36,13 +41,15 @@ impl Simulation {
     }
 
     /** Returns the `Out` that is bound to `value`. */
-    pub fn lookup(&self, value: Value) -> Out {
+    fn lookup(&self, value: Value) -> Out {
         self.bindings.get(&value).expect("Read a dead value").clone()
     }
 
     /** Returns a Node representing the result of `op`. */
     fn op(&mut self, op: Op, deps: &[Node], ins: &[Value], outs: &[Register]) -> Node {
         let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
+        // TODO: Common subexpression elimination.
+        // TODO: Peephole optimizations.
         let node = self.dataflow.add_node(op, deps, &ins, outs.len());
         for (out, &r) in self.dataflow.outs(node).zip(outs) {
             self.bindings.insert(r.into(), out);
@@ -50,6 +57,7 @@ impl Simulation {
         node
     }
 
+    /** Simulate executing `action`. */
     pub fn action(&mut self, action: &Action) {
         match *action {
             Action::Move(dest, src) => {
@@ -95,5 +103,15 @@ impl Simulation {
                 self.stack = node;
             },
         };
+    }
+
+    /**
+     * Appends an exit [`Node`] that depends on all dataflow and non-dataflow
+     * outputs. On exit, `outputs` are live.
+     * Returns the finished `Dataflow` graph and the exit `Node`.
+     */
+    pub fn finish(mut self, outputs: Vec<Value>) -> (Dataflow, Node) {
+        let node = self.op(Op::Convention, &[self.store, self.stack], &outputs, &[]);
+        (self.dataflow, node)
     }
 }

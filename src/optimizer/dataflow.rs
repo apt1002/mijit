@@ -58,20 +58,15 @@ pub struct Dataflow {
 
 impl Dataflow {
     pub fn new(inputs: Vec<Value>) -> Self {
-        let entry = Info {
-            op: Op::Convention,
-            end_dep: 0,
-            end_in: 0,
-            end_out: inputs.len(),
-        };
-        let outs: Vec<_> = inputs.iter().map(|_| Node(0)).collect();
-        Dataflow {
+        let mut ret = Dataflow {
             inputs,
-            nodes: vec![entry],
+            nodes: Vec::new(),
             deps: Vec::new(),
             ins: Vec::new(),
-            outs,
-        }
+            outs: Vec::new(),
+        };
+        ret.add_node(Op::Convention, &[], &[], ret.inputs().len());
+        ret
     }
 
     /** Returns the `inputs` of this [`Dataflow`] (as passed to `new()`). */
