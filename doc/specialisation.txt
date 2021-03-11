@@ -1,0 +1,57 @@
+Contents
+========
+
+ - What is a JIT compiler for?
+ - How does a JIT compiler work?
+ - A JIT compiler is really an interpreter
+ - Specialisation is an essential phenomenon
+ - Limits on specialisation
+ - Mathematical structure of specialisation
+
+What is a JIT compiler for?
+===========================
+
+A Just-In-Time (JIT) compiler is a way of executing programs that simultaneously achieves three important goals:
+
+1. We want code to be easy to write and to maintain for a long time.
+2. We want it to run efficiently, to save time and money.
+3. We don't want to do any preparation before running new code.
+
+Without 1, we'd write the code in assembly language. Without 2, we'd use an interpreter. Without 3, we'd use an ahead-of-time compiler. All of these approaches cover a lot of interesting cases. However, we are increasingly running into cases where we need all three goals to be met.
+
+How does a JIT compiler work?
+=============================
+
+The key insight is the 80/20 rule: 80% of the time is spent executing 20% of the code. This is a massive and inaccurate simplification, but the essential concept is right, and the vocabulary is useful. We can compile only 20% of a program (the "hot code"), yet spend only 20% of the time interpreting the rest of the program (the "code code"). We can avoid 80% of the ineffciency of an interpreter, and also avoid 80% of the costs of a compiler.
+
+The hard part is to decide which 20% of the code to compile. A good general way to make the decision is to run the code, and observe its behaviour. If it does the same thing 100 times, it's probably going to do it many more times, and so we can decide that it is "hot code", worthy of special compiled code to do the job more efficiently.
+
+There are many important complications, in practice. In particular:
+
+ - The numbers "80" and "20" vary between programs and within programs. Either number can be increased if the other number is also increased. Techniques exist to vary the two numbers independently, e.g. inlining functions or adding a layer of interpretation. And even for a particular version of a particular program, the concept of "doing the same thing" is insufficiently defined to measure the amount of hot code meaningfully.
+
+ - The "interpreter" and "compiler" are just two possible execution "tiers". Many JIT compilers have additional tiers, each with a different compromise between efficiency and up-front cost, and some omit the interpreter altogether. In a well optimised design, the concepts are all a bit blurry.
+
+A JIT compiler is really an interpreter
+=======================================
+
+A necessary feature of a JIT compiler is that the compiled code is incomplete. It does not express the full meaning of the program we're running. At any moment we might encounter a novel situation for which there is no compiled code, and resort to interpreting the program instead. The ultimate arbiter of "correct" program behaviour is the interpreter. The compiled code is merely an approximation that is useful when it is accurate.
+
+When running, the compiled code has to retain the ability to fall back to the interpreter. This requires it to maintain, at least in an abstract sense, all the data structures needed for correct operation of the interpreter. The compiled code also has to check, at least in an abstract sense, that the interpreter would do what the compiled code is going to do, and it has to do this continually as it runs. So the compiled code maintains all the data structures that an interpreter would need, and does all the checks that an interpreter would need. Is the compiled code not just a fancy interpreter? Yes, it is.
+
+The only part that deserves to be called a compiler is the part that kicks in when new hot code is discovered. The purpose of the compiler is to modify the interpreter: to give it the ability to run the hot code efficiently. It must do this without changing the behaviour of the interpreter.
+
+This is an essential feature of a JIT compiler. Fundamentally, the compiler recompiles the interpreter, not the user program. It nonetheless compiles code that behaves approximately like the user program, and a compiled form of the user program is a useful point of comparison, 
+
+Specialisation
+==============
+
+Suppose we run a program on a JIT compiler, and then without warning we substitute a different program. Indeed, this is actually pretty typical behaviour; many programs go through several "phases" of operation. How will the JIT compiler behave?
+
+It is probably worth first emphasising that the JIT compiler will run all the phases correctly. The question is about the internal behaviour: when the compiler kicks in, and what code it compiles.
+
+Neglecting the code that is common to more than one phase, the best we can hope for is that the JIT compiler behaves as well as if it were restarted in between each phase. At the start of phase 2, the JIT compiler will have lots of compiled code that is useful for phase 1. This compiled code is largely useless for phase 2, but we can at least hope that it is not a handicap.
+
+A better way to say this is that over time the interpreter becomes specialised for the program it is running. Each piece of compiled code is a specialisation for a particular task, which makes the interpreter more efficient if it ever has to perform that task. If the interpreter does not have to perform the task, the specialisation is useless.
+
+This is another essential fearure of a JIT compiler. [...]
