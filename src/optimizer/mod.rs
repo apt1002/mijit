@@ -16,6 +16,9 @@ pub use pressure::{Pressure};
 mod resources;
 pub use resources::{Resources};
 
+mod usage;
+pub use usage::{Usage};
+
 /** Optimizes a basic block. */
 pub fn optimize(
     _before: &Convention,
