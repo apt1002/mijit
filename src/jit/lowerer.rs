@@ -1,6 +1,6 @@
 use super::{code, x86_64};
 use x86_64::*;
-use code::{Action, TestOp, Precision, Value};
+use code::{Action, TestOp, Precision, Slot, Value};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -41,20 +41,20 @@ impl <'a> Lowerer<'a> {
         }
     }
 
-    /** Returns the offset of slot `index` in the persistent data. */
-    fn slot_offset(&self, index: usize) -> i32 {
+    /** Returns the offset of `slot` in the persistent data. */
+    fn slot_offset(&self, slot: Slot) -> i32 {
         // TODO: Factor out pool index calculation.
-        ((index + 1) * 8) as i32
+        ((slot.0 + 1) * 8) as i32
     }
 
-    /** Load slot `index` into `dest`. */
-    fn load_slot(&mut self, dest: Register, index: usize) {
-        self.a.load(P64, dest, (R8, self.slot_offset(index)));
+    /** Load `slot` into `dest`. */
+    fn load_slot(&mut self, dest: Register, slot: Slot) {
+        self.a.load(P64, dest, (R8, self.slot_offset(slot)));
     }
 
-    /** Store `src` into slot `index`. */
-    fn store_slot(&mut self, index: usize, src: Register) {
-        self.a.store(P64, (R8, self.slot_offset(index)), src);
+    /** Store `src` into `slot`. */
+    fn store_slot(&mut self, slot: Slot, src: Register) {
+        self.a.store(P64, (R8, self.slot_offset(slot)), src);
     }
 
     /**
@@ -64,8 +64,8 @@ impl <'a> Lowerer<'a> {
     fn src_to_register(&mut self, src: Value, reg: Register) -> Register {
         match src {
             Value::Register(src) => src,
-            Value::Slot(index) => {
-                self.load_slot(reg, index);
+            Value::Slot(slot) => {
+                self.load_slot(reg, slot);
                 reg
             },
         }

@@ -2,7 +2,7 @@ use std::num::{Wrapping};
 
 use super::code::{
     self, TestOp, Precision, UnaryOp, BinaryOp, Width,
-    Action, Value, IntoValue, Register,
+    Action, Slot, Value, IntoValue, Register,
 };
 use Precision::*;
 use UnaryOp::*;
@@ -38,7 +38,7 @@ pub enum Global {
 
 impl From<Global> for Value {
     fn from(r: Global) -> Self {
-        Value::Slot(r as usize)
+        Value::Slot(Slot(r as usize))
     }
 }
 
