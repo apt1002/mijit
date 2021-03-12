@@ -24,7 +24,7 @@ Without 1, we'd write the code in assembly language. Without 2, we'd use an inte
 How does a JIT compiler work?
 =============================
 
-The key insight is the 80/20 rule: 80% of the time is spent executing 20% of the code. This is a massive and inaccurate simplification, but the essential concept is right, and the vocabulary is useful. We can compile only 20% of a program (the "hot code"), yet spend only 20% of the time interpreting the rest of the program (the "code code"). We can avoid 80% of the ineffciency of an interpreter, and also avoid 80% of the costs of a compiler.
+The key insight is the 80/20 rule: 80% of the time is spent executing 20% of the code. This is a massive and inaccurate simplification, but the essential concept is right, and the vocabulary is useful. We can compile only 20% of a program (the "hot code"), yet spend only 20% of the time interpreting the rest of the program (the "cold code"). We can avoid 80% of the ineffciency of an interpreter, and also avoid 80% of the costs of a compiler.
 
 The hard part is to decide which 20% of the program to compile. A good general way to make the decision is to run the program, and observe its behaviour. If the program does the same thing 100 times, it's probably going to do it many more times, and so we can decide that this part is "hot code", worthy of special compiled code to do the job more efficiently.
 
@@ -39,7 +39,7 @@ We must refine these concepts.
 A JIT compiler is really an interpreter
 =======================================
 
-A necessary feature of a JIT compiler is that the compiled code is incomplete. It does not express the full meaning of the program we're running. At any moment we might encounter a novel situation for which there is no compiled code, and resort to interpreting the program instead. The ultimate arbiter of "correct" program behaviour is the interpreter. The compiled code is merely an approximation that is efficient when it is accurate.
+A necessary feature of a JIT compiler is that the compiled code is incomplete. It does not express the full meaning of the program that is running. At any moment the JIT compiler might encounter a novel situation for which there is no compiled code, and resort to interpreting the program instead. The ultimate arbiter of "correct" program behaviour is the interpreter. The compiled code is merely an approximation that is efficient when it is accurate.
 
 When running, the compiled code has to retain the ability to fall back to the interpreter. This requires it to maintain, at least in an abstract sense, all the data structures needed for correct operation of the interpreter. The compiled code also has to check, at least in an abstract sense, that the interpreter would do what the compiled code is going to do, and it has to do this continually as it runs. So the compiled code maintains all the data structures that an interpreter would need, and does all the checks that an interpreter would need. Is the compiled code not just a fancy interpreter?
 
@@ -67,11 +67,11 @@ It is not possible to compile an interpeter that is specialised for every progra
 
 The costs of specialisation include: compile time (which must be accounted as part of run time); the memory needed to hold the compiled code; the space consumed in the instruction cache and branch predictor by the compiled code. All of these are roughly proportional to the amount of compiled code. This argument focuses attention on the benefit per compiled specialisation.
 
-The main benefit of compiling dedicated code for a specialisation is that it provides a way for the interpreter to remember that it is "in" the specialisation, and to execute different instructions from those it would execute otherwise. Essentially, we reserve branch target, i.e. a possible value of the program counter (EIP on x86, PC on ARM), to mean "the specialisation is active", and we compile at that address the code we want to run.
+The main benefit of compiling dedicated code for a specialisation is that it provides a way for the interpreter to remember that it is "in" the specialisation, and to execute different instructions from those it would execute otherwise. Essentially, the JIT compiler reserves a branch target, i.e. a possible value of the program counter (EIP on x86, PC on ARM), to mean "the specialisation is active", and it compiles at that address the code it wants to run.
 
 Is there any other way to remember that a specialisation is active? Could we get the benefit of the specialisation without the cost? I think the answer is no. We can rule out any mechanism that is as inefficient as an interpreter; we already have one of those. That includes any mechanism that tests a state variable at run time; we might as well interpret an instruction opcode instead (or test some other aspect of the virtual machine code). To put it another way, the only alternative to compiling dedicated code per specialisation is for specialisations to share code, and in that case we lose the benefits of specialisation.
 
-So the total amount of storage available for remembering which specialisation is active is limited to about 20 bits, being the parts of the program counter that we can choose freely without straying outside the compiled code and without the basic blocks overlapping. Furthermore, some of that tiny budget is needed just to implement the virtual machine specification correctly; the interpreter itself has a control-flow graph. This budget is extremely constraining, and I can't see a way around it.
+So the total amount of storage available for remembering which specialisation is active is limited to about 20 bits, being the parts of the program counter that the JIT compiler can choose freely without straying outside the compiled code and without the basic blocks overlapping. Furthermore, some of that tiny budget is needed just to implement the virtual machine specification correctly; the interpreter itself has a control-flow graph. This budget is extremely constraining, and I can't see a way around it.
 
 Entering and leaving specialisations
 ====================================
