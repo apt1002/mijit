@@ -1,0 +1,3 @@
+[Mit](https://github.com/rrthomas/mit/) and [Welly](https://www.wellylang.org/introduction.html) each include a specializing interpreter, intended as a prototype of this project. Mijit's goal is to generate code on-the-fly, in contrast to the prototype, which separates profiling from compiling.
+
+[Beetle](https://github.com/rrthomas/beetle) is a suitably simple and stable virtual machine that Mijit uses as a working example, and for testing. It is a precursor of Mit, and has various specialisations for running Forth code. [pForth](https://github.com/rrthomas/pforth) can generate Beetle code.
