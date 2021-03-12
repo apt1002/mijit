@@ -26,19 +26,29 @@ pub use super::x86_64::{Register, Precision};
 // Not currently used. Planned for #11.
 pub mod clock;
 
+/** A spill slot. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Slot(pub usize);
+
 /** A spill slot or register. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
-    Slot(usize),
+    Slot(Slot),
     Register(Register),
 }
 
 impl Debug for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str(&match self {
-            Value::Slot(n) => format!("Slot({})", n),
+            Value::Slot(s) => format!("{:#?}", s),
             Value::Register(r) => format!("{:#?}", r),
         })
+    }
+}
+
+impl From<Slot> for Value {
+    fn from(v: Slot) -> Self {
+        Value::Slot(v)
     }
 }
 

@@ -2,7 +2,7 @@ use indexmap::{IndexSet};
 
 use super::{Buffer, code, optimizer, x86_64};
 use x86_64::*;
-use code::{Action, TestOp, Machine, Precision, Value, IntoValue};
+use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -140,7 +140,7 @@ impl<M: Machine> Jit<M> {
                     action.for_each_value(|v: Value| {
                         match v {
                             Value::Register(_) => {},
-                            Value::Slot(index) => {
+                            Value::Slot(Slot(index)) => {
                                 num_slots = std::cmp::max(num_slots, index + 1);
                             },
                         }
@@ -150,7 +150,7 @@ impl<M: Machine> Jit<M> {
             done += 1;
         }
         let convention = Convention {
-            live_values: (0..num_slots).map(|i| Value::Slot(i)).collect(),
+            live_values: (0..num_slots).map(|i| Value::Slot(Slot(i))).collect(),
             slots_used: num_slots,
         };
 
@@ -217,7 +217,7 @@ impl<M: Machine> Jit<M> {
         match slot.into() {
             Value::Register(_) => panic!("Not a Slot"),
             // TODO: Factor out pool index calculation.
-            Value::Slot(index) => &mut self.pool[index + 1],
+            Value::Slot(Slot(index)) => &mut self.pool[index + 1],
         }
     }
 
