@@ -19,6 +19,9 @@ pub use resources::{Resources};
 mod schedule;
 pub use schedule::{Schedule};
 
+mod codegen;
+pub use codegen::{codegen};
+
 /** Optimizes a basic block. */
 pub fn optimize(
     _before: &Convention,
@@ -35,7 +38,6 @@ pub fn optimize(
 mod tests {
     use std::collections::{HashMap};
     use super::*;
-    use super::super::{code};
     use code::{Register, UnaryOp, BinaryOp, Precision};
     use code::tests::{Emulator};
     use super::super::jit::lowerer::{ALLOCATABLE_REGISTERS};
