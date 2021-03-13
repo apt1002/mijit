@@ -38,6 +38,20 @@ impl<K: AsUsize, V> ArrayMap<K, V> {
     pub fn iter_mut(&mut self) -> std::slice::IterMut<V> { self.0.iter_mut() }
 }
 
+impl<'a, K: AsUsize, V> IntoIterator for &'a ArrayMap<K, V> {
+    type Item = &'a V;
+    type IntoIter = std::slice::Iter<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter { self.iter() }
+}
+
+impl<'a, K: AsUsize, V> IntoIterator for &'a mut ArrayMap<K, V> {
+    type Item = &'a mut V;
+    type IntoIter = std::slice::IterMut<'a, V>;
+
+    fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
+}
+
 impl<K: AsUsize, V> AsRef<[V]> for ArrayMap<K, V> {
     fn as_ref(&self) -> &[V] { self.0.as_ref() }
 }
