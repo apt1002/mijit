@@ -16,8 +16,8 @@ pub use pressure::{Pressure};
 mod resources;
 pub use resources::{Resources};
 
-mod usage;
-pub use usage::{Usage};
+mod schedule;
+pub use schedule::{Schedule};
 
 /** Optimizes a basic block. */
 pub fn optimize(
