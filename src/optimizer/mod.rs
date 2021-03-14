@@ -1,5 +1,5 @@
 use super::code::{self, Action};
-use super::jit::{Convention};
+use super::jit::{lowerer, Convention};
 
 mod op;
 pub use op::{Op};
@@ -9,6 +9,9 @@ pub use dataflow::{Dataflow, Node, Out};
 
 mod simulation;
 pub use simulation::{Simulation};
+
+mod pool;
+pub use pool::{NUM_REGISTERS, map_from_register_to_index, RegIndex, RegisterPool};
 
 mod pressure;
 pub use pressure::{Pressure};

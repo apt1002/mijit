@@ -1,6 +1,6 @@
-use super::{Out, Node, Schedule};
+use super::{Out, Node, Schedule, RegisterPool};
 use super::code::{Action, Slot, Register};
-use crate::util::{ArrayMap, AsUsize};
+use crate::util::{ArrayMap};
 
 /** Records the storage allocated for a particular [`Out`]. */
 #[derive(Debug, Default)]
@@ -9,18 +9,9 @@ struct Binding {
     register: Option<Register>,
 }
 
-/** An index into [`ALLOCATABLE_REGISTERS`]. */
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-struct RegIndex(usize);
-
-impl AsUsize for RegIndex {
-    fn as_usize(self) -> usize {
-        self.0
-    }
-}
-
 struct CodeGen<'a> {
     schedule: Schedule<'a>,
+    _pool: RegisterPool<usize, Out>,
     _bindings: ArrayMap<Out, Binding>,
 }
 
@@ -28,9 +19,11 @@ impl<'a> CodeGen<'a> {
     pub fn new(schedule: Schedule<'a>) -> Self {
         // Initialize the datastructures with the live registers of the
         // starting `Convention`.
+        let pool = RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS), |_| 0);
         let bindings = schedule.dataflow.out_map();
         CodeGen {
             schedule: schedule,
+            _pool: pool, // TODO
             _bindings: bindings, //TODO
         }
     }
