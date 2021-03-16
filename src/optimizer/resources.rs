@@ -1,6 +1,6 @@
 use std::cmp::{PartialOrd, Ordering};
 use std::num::{Wrapping};
-use std::ops::{Add, Sub};
+use std::ops::{Add, AddAssign, Sub, SubAssign};
 
 /** Has ones above the top bit of each hexadecimal digit. */
 const CARRY_MASK: Wrapping<u64> = Wrapping(0x1111111111111110);
@@ -14,8 +14,8 @@ const CARRY_MASK: Wrapping<u64> = Wrapping(0x1111111111111110);
 pub struct Resources(std::num::Wrapping<u64>);
 
 impl Resources {
-    pub fn new(hex: u64) -> Self {
-        assert!(hex < 1<<60);
+    pub const fn new(hex: u64) -> Self {
+        // assert!(hex < 1<<60); // Not allowed in a const fn.
         Resources(Wrapping(hex))
     }
 }
@@ -51,6 +51,12 @@ impl Add for Resources {
     }
 }
 
+impl AddAssign for Resources {
+    fn add_assign(&mut self, other: Self) {
+        *self = self.add(other);
+    }
+}
+
 impl Sub for Resources {
     type Output = Self;
 
@@ -58,6 +64,12 @@ impl Sub for Resources {
         let ret = self.0 - rhs.0;
         assert_eq!((self.0 ^ rhs.0 ^ ret) & CARRY_MASK, Wrapping(0));
         Resources(ret)
+    }
+}
+
+impl SubAssign for Resources {
+    fn sub_assign(&mut self, other: Self) {
+        *self = self.sub(other);
     }
 }
 
