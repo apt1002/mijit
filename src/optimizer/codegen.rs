@@ -1,18 +1,17 @@
-use super::{Out, Node, Schedule, RegisterPool};
-use super::code::{Action, Slot, Register};
+use super::{Out, Node, Schedule, RegisterPool, RegIndex, Placer};
+use super::code::{Action};
 use crate::util::{ArrayMap};
 
-/** Records the storage allocated for a particular [`Out`]. */
-#[derive(Debug, Default)]
-struct Binding {
-    slot: Option<Slot>,
-    register: Option<Register>,
-}
-
+/** The state of the code generation algorithm. */
 struct CodeGen<'a> {
+    /** The [`Node`]s remaining to be processed. */
     schedule: Schedule<'a>,
+    /** The register allocator state. */
     _pool: RegisterPool<usize, Out>,
-    _bindings: ArrayMap<Out, Binding>,
+    /** The register allocation decisions. */
+    _dest_regs: ArrayMap<Out, RegIndex>,
+    /** The [`Node`]s processed so far. */
+    _placer: Placer,
 }
 
 impl<'a> CodeGen<'a> {
@@ -20,11 +19,13 @@ impl<'a> CodeGen<'a> {
         // Initialize the datastructures with the live registers of the
         // starting `Convention`.
         let pool = RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS), |_| 0);
-        let bindings = schedule.dataflow.out_map();
+        let dest_regs = schedule.dataflow.out_map();
+        let placer = Placer::new();
         CodeGen {
             schedule: schedule,
-            _pool: pool, // TODO
-            _bindings: bindings, //TODO
+            _pool: pool, // TODO.
+            _dest_regs: dest_regs, // TODO.
+            _placer: placer,
         }
     }
 

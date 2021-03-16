@@ -57,6 +57,9 @@ pub use pressure::{Pressure};
 mod resources;
 pub use resources::{Resources};
 
+mod placer;
+pub use placer::{Placer, MOVE_COST, SPILL_COST, SLOT_COST};
+
 mod schedule;
 pub use schedule::{Schedule};
 

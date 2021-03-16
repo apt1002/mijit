@@ -49,6 +49,9 @@ impl Op {
             Op::Store(width, alias) => {
                 assert_eq!(outs.len(), 0);
                 assert_eq!(ins.len(), 2);
+                // FIXME: Add a destination [`Register`] to [`Action::Store`],
+                // and allow the address operand to be a general [`Value`].
+                // The address gets copied into the destination `Register`.
                 match ins[1] {
                     Value::Register(addr) => {
                         Some(Action::Store(ins[0], (addr, width), alias))

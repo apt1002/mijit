@@ -46,6 +46,7 @@ impl UseList {
  * are used. At any point, you can query the `Schedule` and find out all future
  * [`Use`]s of an `Out`.
  */
+#[derive(Debug)]
 pub struct Schedule<'a> {
     pub dataflow: &'a Dataflow,
     nodes: Vec<Node>,
