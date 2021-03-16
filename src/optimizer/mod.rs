@@ -43,7 +43,7 @@ mod op;
 pub use op::{Op};
 
 mod dataflow;
-pub use dataflow::{Dataflow, Node, Out};
+pub use dataflow::{Dataflow, Node, DUMMY_NODE, Out, DUMMY_OUT};
 
 mod simulation;
 pub use simulation::{Simulation};

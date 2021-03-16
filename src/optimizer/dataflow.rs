@@ -12,6 +12,9 @@ impl AsUsize for Node {
     fn as_usize(self) -> usize { self.0 }
 }
 
+/** Indicates an absent `Node`. */
+pub const DUMMY_NODE: Node = Node(usize::MAX);
+
 /** A value produced by a [`Node`] in a Dataflow graph. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Out(usize);
@@ -19,6 +22,9 @@ pub struct Out(usize);
 impl AsUsize for Out {
     fn as_usize(self) -> usize { self.0 }
 }
+
+/** Indicates an absent `Out`. */
+pub const DUMMY_OUT: Out = Out(usize::MAX);
 
 //-----------------------------------------------------------------------------
 
