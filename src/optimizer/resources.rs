@@ -2,26 +2,21 @@ use std::cmp::{PartialOrd, Ordering};
 use std::num::{Wrapping};
 use std::ops::{Add, Sub};
 
-/** Has ones above the top bit of each base-8 digit. */
-const CARRY_MASK: Wrapping<u64> = Wrapping(0x9249249249249248);
+/** Has ones above the top bit of each hexadecimal digit. */
+const CARRY_MASK: Wrapping<u64> = Wrapping(0x1111111111111110);
 
 /**
  * Represents a collection of finite resources.
- * A Resources can record up to 7 units of each of 21 distinct resources,
- * using the base-8 digits of a 64-bit integer.
+ * A Resources can record up to 15 units of each of 15 distinct resources,
+ * using the hexadecimal digits of a 64-bit integer.
  */
 #[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Resources(std::num::Wrapping<u64>);
 
 impl Resources {
-    pub fn new(amounts: &[u8]) -> Self {
-        assert!(amounts.len() <= 21);
-        let mut ret = Wrapping(0);
-        for (i, &amount) in amounts.iter().enumerate() {
-            assert!(amount < 8);
-            ret |= Wrapping(amount as u64) << (3*i);
-        }
-        Resources(ret)
+    pub fn new(hex: u64) -> Self {
+        assert!(hex < 1<<60);
+        Resources(Wrapping(hex))
     }
 }
 
@@ -74,10 +69,10 @@ mod tests {
 
     fn fixtures() -> [Resources; 4] {
         [
-            Resources::new(&[3, 3]),
-            Resources::new(&[3, 5]),
-            Resources::new(&[5, 3]),
-            Resources::new(&[5, 5]),
+            Resources::new(0x33),
+            Resources::new(0x53),
+            Resources::new(0x35),
+            Resources::new(0x55),
         ]
     }
 
@@ -137,12 +132,12 @@ mod tests {
     #[test]
     #[should_panic]
     fn overflow() {
-        let _ = Resources::new(&[3]) + Resources::new(&[5]);
+        let _ = Resources::new(0x3) + Resources::new(0xd);
     }
 
     #[test]
     #[should_panic]
     fn underflow() {
-        let _ = Resources::new(&[3]) - Resources::new(&[5]);
+        let _ = Resources::new(0x3) - Resources::new(0xd);
     }
 }
