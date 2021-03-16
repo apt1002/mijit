@@ -1,31 +1,5 @@
-use std::collections::{HashMap};
-
-use crate::util::{ArrayMap, AsUsize, map_filter_max};
-use super::code::{Register};
-use super::lowerer::{ALLOCATABLE_REGISTERS};
-
-/** `ALLOCATABLE_REGISTERS.len()`. */
-pub const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
-
-/** An index into [`ALLOCATABLE_REGISTERS`]. */
-// TODO: Move into `code`? We should probably be hiding `x86_64::Register`
-// from `code` and using `RegIndex` instead, renamed to `code::Register`.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct RegIndex(usize);
-
-impl AsUsize for RegIndex {
-    fn as_usize(self) -> usize {
-        self.0
-    }
-}
-
-/** Returns a fresh map from Register to RegIndex. */
-pub fn map_from_register_to_index() -> HashMap<Register, RegIndex> {
-    ALLOCATABLE_REGISTERS.iter()
-        .enumerate()
-        .map(|(i, &r)| (r, RegIndex(i)))
-        .collect()
-}
+use crate::util::{ArrayMap, map_filter_max};
+use super::{NUM_REGISTERS, RegIndex};
 
 /**
  * A pool of allocatable Registers.

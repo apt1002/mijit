@@ -1,5 +1,43 @@
-use super::code::{self, Action};
-use super::jit::{lowerer, Convention};
+use std::collections::{HashMap};
+
+use crate::util::{AsUsize};
+use super::code::{self, Register, Action};
+use super::jit::{Convention};
+use super::jit::lowerer::{ALLOCATABLE_REGISTERS};
+
+//-----------------------------------------------------------------------------
+
+/** `ALLOCATABLE_REGISTERS.len()`. */
+pub const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
+
+/** An index into [`ALLOCATABLE_REGISTERS`]. */
+// TODO: Move into `code`? See #23.
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct RegIndex(usize);
+
+/** Indicates an absent RegIndex. */
+pub const DUMMY_REG: RegIndex = RegIndex(usize::MAX);
+
+impl Default for RegIndex {
+    fn default() -> Self { DUMMY_REG }
+}
+
+impl AsUsize for RegIndex {
+    fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
+/** Returns a fresh map from Register to RegIndex. */
+// TODO: Delete. See #23.
+pub fn map_from_register_to_index() -> HashMap<Register, RegIndex> {
+    ALLOCATABLE_REGISTERS.iter()
+        .enumerate()
+        .map(|(i, &r)| (r, RegIndex(i)))
+        .collect()
+}
+
+//-----------------------------------------------------------------------------
 
 mod op;
 pub use op::{Op};
@@ -11,7 +49,7 @@ mod simulation;
 pub use simulation::{Simulation};
 
 mod pool;
-pub use pool::{NUM_REGISTERS, map_from_register_to_index, RegIndex, RegisterPool};
+pub use pool::{RegisterPool};
 
 mod pressure;
 pub use pressure::{Pressure};
@@ -43,7 +81,6 @@ mod tests {
     use super::*;
     use code::{Register, UnaryOp, BinaryOp, Precision};
     use code::tests::{Emulator};
-    use super::super::jit::lowerer::{ALLOCATABLE_REGISTERS};
 
     #[test]
     fn nop() {
