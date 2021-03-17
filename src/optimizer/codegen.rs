@@ -1,6 +1,20 @@
-use super::{Out, Node, Schedule, RegisterPool, RegIndex, Placer};
-use super::code::{Action};
+use super::{NUM_REGISTERS, ALLOCATABLE_REGISTERS, Op, Out, DUMMY_OUT, Node, Schedule, RegisterPool, RegIndex, Placer};
+use super::code::{Register, Slot, Value, Action};
 use crate::util::{ArrayMap};
+
+enum Instruction {
+    Absent,
+    _Spill(Out),
+    _Node(Node),
+}
+
+use Instruction::*;
+
+impl Default for Instruction {
+    fn default() -> Self {
+        Absent
+    }
+}
 
 /** The state of the code generation algorithm. */
 struct CodeGen<'a> {
@@ -9,9 +23,9 @@ struct CodeGen<'a> {
     /** The register allocator state. */
     _pool: RegisterPool<usize, Out>,
     /** The register allocation decisions. */
-    _dest_regs: ArrayMap<Out, RegIndex>,
-    /** The [`Node`]s processed so far. */
-    _placer: Placer,
+    dest_regs: ArrayMap<Out, RegIndex>,
+    /** The [`Instruction`]s processed so far. */
+    placer: Placer<Instruction>,
 }
 
 impl<'a> CodeGen<'a> {
@@ -24,8 +38,8 @@ impl<'a> CodeGen<'a> {
         CodeGen {
             schedule: schedule,
             _pool: pool, // TODO.
-            _dest_regs: dest_regs, // TODO.
-            _placer: placer,
+            dest_regs: dest_regs, // TODO.
+            placer: placer,
         }
     }
 
@@ -43,13 +57,61 @@ impl<'a> CodeGen<'a> {
         // Update all the datastructures about register usage etc.
     }
 
-    pub fn finish(self) -> Vec<Action> {
-        // If the ending `Convention` has live registers, generate and schedule
-        // move instructions.
-
-        // Serialize the cycles into a list of actions.
-        let actions = Vec::new(); //...
-        actions
+    /**
+     * Allocate spill slots, resolve operands, convert all instructions to
+     * [`Action`]s, and return them in the order they should be executed in.
+     */
+    pub fn finish(self, num_slots: &mut usize) -> Vec<Action> {
+        let dataflow = self.schedule.dataflow;
+        // Initialise bindings.
+        let register_to_index = super::map_from_register_to_index();
+        let mut spills: ArrayMap<Out, Option<Slot>> = dataflow.out_map();
+        let mut regs: ArrayMap<RegIndex, Out> = ArrayMap::new_with(NUM_REGISTERS, || DUMMY_OUT);
+        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(dataflow.inputs()) {
+            match value {
+                Value::Register(r) => {
+                    let ri = *register_to_index.get(&r).expect("Not an allocatable register");
+                    regs[ri] = out;
+                },
+                Value::Slot(s) => {
+                    assert!(s.0 < *num_slots);
+                    spills[out] = Some(s);
+                },
+            }
+        }
+        // Build the list of instructions.
+        let mut ret: Vec<_> = self.placer.iter().map(|instruction| {
+            match instruction {
+                &Absent => panic!("Absent instruction"),
+                &_Spill(s) => {
+                    assert!(spills[s].is_none()); // Not yet spilled.
+                    let ri = self.dest_regs[s];
+                    assert!(regs[ri] == s); // Not yet overwritten.
+                    let slot = Slot(*num_slots);
+                    *num_slots += 1;
+                    spills[s] = Some(slot);
+                    Action::Move(slot.into(), ALLOCATABLE_REGISTERS[ri.0].into())
+                },
+                &_Node(n) => {
+                    let outs: Vec<Register> = dataflow.outs(n)
+                        .map(|dest| ALLOCATABLE_REGISTERS[self.dest_regs[dest].0])
+                        .collect();
+                    let ins: Vec<Value> = dataflow.ins(n).iter().map(|&src| {
+                        let ri = self.dest_regs[src];
+                        if regs[ri] == src {
+                            ALLOCATABLE_REGISTERS[ri.0].into()
+                        } else {
+                            spills[src].expect("Value was overwritten but not spilled").into()
+                        }
+                    }).collect();
+                    Op::to_action(dataflow.node(n), &outs, &ins).unwrap()
+                },
+            }
+        }).collect();
+        // TODO: If the ending `Convention` has live registers, generate and
+        // schedule move instructions.
+        ret.shrink_to_fit();
+        ret
     }
 }
 
@@ -59,5 +121,6 @@ pub fn codegen(schedule: Schedule) -> Vec<Action>
     while let Some(node) = codegen.schedule.next() {
         codegen.add_node(node);
     }
-    codegen.finish()
+    let mut num_slots = 0;
+    codegen.finish(&mut num_slots)
 }
