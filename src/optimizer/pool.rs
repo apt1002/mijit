@@ -78,8 +78,13 @@ impl<C, D> RegisterPool<C, D> {
      * returns the largest value.
      * Panics if there is no dirty register available.
      */
-    pub fn spill<P: Ord>(&mut self, priority: impl Copy + Fn(&D) -> P, c: C) -> (RegIndex, D) {
-        let i = map_filter_max(&self.dirty, |d| d.as_ref().map(priority));
+    pub fn spill<P: Ord>(&mut self, priority: impl Fn(&D) -> P, c: C) -> (RegIndex, D) {
+        // This is `Option::map()` but it avoids `priority: impl Copy`.
+        let p = |d: &Option<D>| match d {
+            &None => None,
+            &Some(ref d) => Some(priority(d)),
+        };
+        let i = map_filter_max(&self.dirty, p);
         let ri = RegIndex(i.expect("No register is dirty"));
         let d = self.free(ri, c);
         (ri, d)
