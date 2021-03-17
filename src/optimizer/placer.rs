@@ -19,6 +19,8 @@ const MAX_NODES: usize = 6;
  *  - The number of store units.
  *  - The number of arithmetic / logic units.
  *  - The number of multiplication units.
+ * These correspond to the hexadecimal digits of the [`Resources`] from least
+ * to most significant.
  */
 pub const BUDGET: Resources = Resources::new(0x1412316);
 

@@ -40,6 +40,11 @@ impl<C, D> RegisterPool<C, D> {
         RegisterPool {dirty, clean}
     }
 
+    /** Tests whether the specified register is clean. */
+    pub fn is_clean(&self, ri: RegIndex) -> bool {
+        self.dirty[ri].is_none()
+    }
+
     /**
      * Returns the number of clean registers. The rest are dirty.
      * Decreased by `allocate()`. Increased by `spill()`.
