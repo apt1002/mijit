@@ -42,6 +42,12 @@ pub fn map_from_register_to_index() -> HashMap<Register, RegIndex> {
 mod op;
 pub use op::{Op};
 
+mod resources;
+pub use resources::{Resources};
+
+mod cost;
+pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
+
 mod dataflow;
 pub use dataflow::{Dataflow, Node, DUMMY_NODE, Out, DUMMY_OUT};
 
@@ -52,13 +58,10 @@ mod pool;
 pub use pool::{RegisterPool};
 
 mod pressure;
-pub use pressure::{Pressure};
-
-mod resources;
-pub use resources::{Resources};
+pub use pressure::{Pressure}; // Unused so far.
 
 mod placer;
-pub use placer::{Placer, MOVE_COST, SPILL_COST, SLOT_COST};
+pub use placer::{Placer};
 
 mod schedule;
 pub use schedule::{Schedule};

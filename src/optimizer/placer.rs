@@ -1,33 +1,7 @@
-use super::{Resources};
+use super::{Resources, BUDGET};
 
 /** The maximum number of [`Item`]s to place per cycle. */
 pub const MAX_ITEMS: usize = 8;
-
-/**
- * The CPU resources available per cycle. The different resources are as
- * follows (modelled on Skylake):
- *  - The number of instructions that can be decoded.
- *  - The number of flag-using macro instructions (this is a hack).
- *  - The number of address generation units.
- *  - The number of load units.
- *  - The number of store units.
- *  - The number of arithmetic / logic units.
- *  - The number of multiplication units.
- * These correspond to the hexadecimal digits of the [`Resources`] from least
- * to most significant.
- */
-pub const BUDGET: Resources = Resources::new(0x1412316);
-
-/** The resources needed to move a value from one register to another. */
-pub const MOVE_COST: Resources = Resources::new(0x0000001);
-
-/** The resources needed to spill an Out. */
-pub const SPILL_COST: Resources = Resources::new(0x0010101);
-
-/**
- * The additional resources needed per operand that is a Slot.
- */
-pub const SLOT_COST: Resources = Resources::new(0x0001100);
 
 /**
  * Represents a list of items that have been placed in the same cycle.

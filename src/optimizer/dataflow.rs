@@ -1,5 +1,5 @@
 use crate::util::{AsUsize, ArrayMap};
-use super::{Op};
+use super::{Op, Cost, op_cost};
 use super::code::{Value};
 
 //-----------------------------------------------------------------------------
@@ -33,6 +33,8 @@ pub const DUMMY_OUT: Out = Out(usize::MAX);
 struct Info {
     /** What kind of operation the Node represents. */
     op: Op,
+    /** A cache of `op_cost(op)`, or `Node` if `op` is `Convention`. */
+    cost: Option<&'static Cost>,
     /** The index in [`Dataflow::deps`] after the last dep of the Node. */
     end_dep: usize,
     /** The index in [`Dataflow::ins`] after the last In of the Node. */
@@ -95,6 +97,11 @@ impl Dataflow {
      */
     pub fn node(&self, node: Node) -> Op {
         self.info(node).op
+    }
+
+    /** Equivalent to `op_cost(self.op(node))` but faster. */
+    pub fn cost(&self, node: Node) -> &'static Cost {
+        self.info(node).cost.expect("Cannot execute Op::Convention")
     }
 
     /**
@@ -165,6 +172,7 @@ impl Dataflow {
         self.outs.extend((0..num_outs).map(|_| node));
         self.nodes.push(Info {
             op: op,
+            cost: op_cost(op),
             end_dep: self.deps.len(),
             end_in: self.ins.len(),
             end_out: self.outs.len(),
