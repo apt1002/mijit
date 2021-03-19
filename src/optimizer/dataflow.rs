@@ -95,7 +95,7 @@ impl Dataflow {
     /**
      * Returns an [`Op`] indicating what kind of operation `node` represents.
      */
-    pub fn node(&self, node: Node) -> Op {
+    pub fn op(&self, node: Node) -> Op {
         self.info(node).op
     }
 
@@ -139,6 +139,16 @@ impl Dataflow {
             0
         };
         &self.ins[start_in .. self.info(node).end_in]
+    }
+
+    /** Returns the number of [`Out`]s which are produced by `node`. */
+    pub fn num_outs(&self, node: Node) -> usize {
+        let start_out = if let Some(prev) = self.prev(node) {
+            prev.end_out
+        } else {
+            0
+        };
+        self.info(node).end_out - start_out
     }
 
     /** Returns the [`Out`]s which are produced by `node`. */
