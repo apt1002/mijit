@@ -21,7 +21,7 @@ struct CodeGen<'a> {
     /** The [`Node`]s remaining to be processed. */
     schedule: Schedule<'a>,
     /** The register allocator state. */
-    _pool: RegisterPool<usize, Out>,
+    _pool: RegisterPool<Out>,
     /** The register allocation decisions. */
     dest_regs: ArrayMap<Out, RegIndex>,
     /** The [`Instruction`]s processed so far. */
@@ -32,7 +32,7 @@ impl<'a> CodeGen<'a> {
     pub fn new(schedule: Schedule<'a>) -> Self {
         // Initialize the datastructures with the live registers of the
         // starting `Convention`.
-        let pool = RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS), |_| 0);
+        let pool = RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS));
         let dest_regs = schedule.dataflow.out_map();
         let placer = Placer::new();
         CodeGen {
