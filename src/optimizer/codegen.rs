@@ -104,7 +104,7 @@ impl<'a> CodeGen<'a> {
                             spills[src].expect("Value was overwritten but not spilled").into()
                         }
                     }).collect();
-                    Op::to_action(dataflow.node(n), &outs, &ins).unwrap()
+                    Op::to_action(dataflow.node(n), &outs, &ins)
                 },
             }
         }).collect();

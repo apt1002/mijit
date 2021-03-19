@@ -18,33 +18,34 @@ pub enum Op {
 
 impl Op {
     /**
-     * Aggregates this Op with the specified output and input [`Value`]s to
+     * Aggregates this [`Op`] with the specified output and input [`Value`]s to
      * make an [`Action`].
      * Returns `None` if `self` is [`Op::Convention`].
      * Panics if the address of an [`Op::Store`] is not a [`Register`].
+     * Panics if the `Op` is a `Convention`.
      */
-    pub fn to_action(self, outs: &[Register], ins: &[Value]) -> Option<Action> {
+    pub fn to_action(self, outs: &[Register], ins: &[Value]) -> Action {
         match self {
-            Op::Convention => None,
+            Op::Convention => panic!("Cannot execute a Convention"),
             Op::Constant(c) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 0);
-                Some(Action::Constant(Precision::P64, outs[0], c))
+                Action::Constant(Precision::P64, outs[0], c)
             },
             Op::Unary(prec, op) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 1);
-                Some(Action::Unary(op, prec, outs[0], ins[0]))
+                Action::Unary(op, prec, outs[0], ins[0])
             },
             Op::Binary(prec, op) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 2);
-                Some(Action::Binary(op, prec, outs[0], ins[0], ins[1]))
+                Action::Binary(op, prec, outs[0], ins[0], ins[1])
             },
             Op::Load(width, alias) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 1);
-                Some(Action::Load(outs[0], (ins[0], width), alias))
+                Action::Load(outs[0], (ins[0], width), alias)
             },
             Op::Store(width, alias) => {
                 assert_eq!(outs.len(), 0);
@@ -54,7 +55,7 @@ impl Op {
                 // The address gets copied into the destination `Register`.
                 match ins[1] {
                     Value::Register(addr) => {
-                        Some(Action::Store(ins[0], (addr, width), alias))
+                        Action::Store(ins[0], (addr, width), alias)
                     },
                     Value::Slot(_) => panic!("Address must be a Register"),
                 }
@@ -62,17 +63,17 @@ impl Op {
             Op::Push => {
                 assert_eq!(outs.len(), 0);
                 assert_eq!(ins.len(), 1);
-                Some(Action::Push(ins[0]))
+                Action::Push(ins[0])
             },
             Op::Pop => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 0);
-                Some(Action::Pop(outs[0]))
+                Action::Pop(outs[0])
             },
             Op::Debug => {
                 assert_eq!(outs.len(), 0);
                 assert_eq!(ins.len(), 1);
-                Some(Action::Debug(ins[0]))
+                Action::Debug(ins[0])
             },
         }
     }
