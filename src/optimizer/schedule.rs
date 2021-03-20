@@ -55,13 +55,21 @@ pub struct Schedule<'a> {
 }
 
 impl<'a> Schedule<'a> {
-    pub fn new(dataflow: &'a Dataflow, nodes: &[Node]) -> Self {
+    /**
+     * - dataflow - The [`Dataflow`] used to look up information about [`Node`]s.
+     * - nodes - The live [`Node`]s in the order we want to process them.
+     * - exit_node - The [`Node`] representing the [`Convention`] on exit.
+     */
+    pub fn new(dataflow: &'a Dataflow, nodes: &[Node], exit_node: Node) -> Self {
         let mut schedule = Schedule {
             dataflow: dataflow,
             nodes: Vec::with_capacity(nodes.len()),
             firsts: dataflow.out_map(),
             nexts: Vec::new(),
         };
+        for &in_ in schedule.dataflow.ins(exit_node).iter().rev() {
+            schedule.push(in_);
+        }
         for &node in nodes.iter().rev() {
             schedule.nodes.push(node);
             for &in_ in schedule.dataflow.ins(node).iter().rev() {
@@ -110,13 +118,12 @@ impl<'a> Iterator for Schedule<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{code, Op};
-    use code::{Slot};
+    use super::super::{Op};
 
     #[test]
     /** Test that Schedule keeps track of the uses of `Out`s. */
     pub fn test() {
-        let mut d = Dataflow::new(vec![Slot(0).into(), Slot(1).into()]);
+        let mut d = Dataflow::new(2);
         let mut it = d.outs(d.entry_node());
         let out0 = it.next().unwrap();
         let out1 = it.next().unwrap();
@@ -129,20 +136,22 @@ mod tests {
         let node3 = d.add_node(Op::Convention, &[], &[out2, out3], 1);
         let mut it = d.outs(node3);
         let out4 = it.next().unwrap();
-        let mut schedule = Schedule::new(&d, &[node1, node2, node3]);
-        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(5))));
-        assert_eq!(schedule.first_use(out1), Some(Use(Reverse(4))));
+        let exit_node = d.add_node(Op::Convention, &[], &[out4], 0);
+        let mut schedule = Schedule::new(&d, &[node1, node2, node3], exit_node);
+        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(6))));
+        assert_eq!(schedule.first_use(out1), Some(Use(Reverse(5))));
         assert_eq!(schedule.next(), Some(node1));
-        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(3))));
+        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(4))));
         assert_eq!(schedule.first_use(out1), None);
-        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(2))));
+        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(3))));
         assert_eq!(schedule.next(), Some(node2));
         assert_eq!(schedule.first_use(out0), None);
-        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(1))));
-        assert_eq!(schedule.first_use(out3), Some(Use(Reverse(0))));
+        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(2))));
+        assert_eq!(schedule.first_use(out3), Some(Use(Reverse(1))));
         assert_eq!(schedule.next(), Some(node3));
         assert_eq!(schedule.first_use(out2), None);
         assert_eq!(schedule.first_use(out3), None);
-        assert_eq!(schedule.first_use(out4), None);
+        assert_eq!(schedule.first_use(out4), Some(Use(Reverse(0))));
+        assert_eq!(schedule.next(), None);
     }
 }

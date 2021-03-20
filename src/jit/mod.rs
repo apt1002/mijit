@@ -245,7 +245,7 @@ impl<M: Machine> Jit<M> {
         actions: Vec<Action>,
         new_index: usize,
     ) {
-        let actions = optimizer::optimize(&self.convention, &actions, &self.convention);
+        let actions = optimizer::optimize(&self.convention, &self.convention, &actions);
         let mut lo = Lowerer {
             a: Assembler::new(&mut self.buffer),
         };
@@ -288,6 +288,7 @@ pub mod tests {
     pub const CODE_SIZE: usize = 1 << 20;
 
     #[test]
+    #[ignore]
     pub fn factorial() {
         use factorial::*;
         use State::*;

@@ -1,6 +1,5 @@
 use crate::util::{AsUsize, ArrayMap};
 use super::{Op, Cost, op_cost};
-use super::code::{Value};
 
 //-----------------------------------------------------------------------------
 
@@ -52,8 +51,6 @@ struct Info {
  */
 #[derive(Debug, Clone)]
 pub struct Dataflow {
-    /** The inputs of the whole graph. */
-    inputs: Vec<Value>,
     /** One per Node. */
     nodes: Vec<Info>,
     /** One per non-dataflow dependency. Gives a predecessor Node. */
@@ -65,21 +62,16 @@ pub struct Dataflow {
 }
 
 impl Dataflow {
-    pub fn new(inputs: Vec<Value>) -> Self {
+    /** Construct a `Dataflow` with `num_inputs` values live on entry. */
+    pub fn new(num_inputs: usize) -> Self {
         let mut ret = Dataflow {
-            inputs,
             nodes: Vec::new(),
             deps: Vec::new(),
             ins: Vec::new(),
             outs: Vec::new(),
         };
-        ret.add_node(Op::Convention, &[], &[], ret.inputs().len());
+        ret.add_node(Op::Convention, &[], &[], num_inputs);
         ret
-    }
-
-    /** Returns the `inputs` of this [`Dataflow`] (as passed to `new()`). */
-    pub fn inputs(&self) -> &[Value] {
-        self.inputs.as_ref()
     }
 
     /** Returns the entry [`Node`]. */
@@ -204,5 +196,10 @@ impl Dataflow {
      */
     pub fn out_map<V: Default>(&self) -> ArrayMap<Out, V> {
         ArrayMap::new(self.outs.len())
+    }
+
+    /** Returns all [`Node`]s in the order they were added. */
+    pub fn all_nodes(&self) -> impl Iterator<Item=Node> {
+        (0..self.nodes.len()).map(|i| Node(i))
     }
 }

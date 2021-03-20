@@ -1,6 +1,6 @@
 use std::cmp::{max};
 
-use super::{NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, DUMMY_REG, Op, Schedule, RegisterPool, Placer};
+use super::{Convention, NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, DUMMY_REG, Op, Schedule, RegisterPool, Placer};
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::code::{Register, Slot, Value, Action};
@@ -51,6 +51,10 @@ impl Default for OutInfo {
  */
 #[derive(Debug)]
 struct CodeGen<'a> {
+    /** The [`Convention`] used on entry. */
+    before: &'a Convention,
+    /** The [`Convention`] used on exit. */
+    after: &'a Convention,
     /** The [`Node`]s remaining to be processed. */
     schedule: Schedule<'a>,
     /** The [`Instruction`]s processed so far. */
@@ -66,12 +70,14 @@ struct CodeGen<'a> {
 }
 
 impl<'a> CodeGen<'a> {
-    pub fn new(schedule: Schedule<'a>) -> Self {
+    pub fn new(before: &'a Convention, after: &'a Convention, schedule: Schedule<'a>) -> Self {
         let df: &'a Dataflow = schedule.dataflow;
         // Initialize the datastructures with the live registers of the
         // starting `Convention`.
         let placer = Placer::new();
         let cg = CodeGen {
+            before: before,
+            after: after,
             schedule: schedule,
             placer: placer,
             outs: df.out_map(),
@@ -152,13 +158,13 @@ impl<'a> CodeGen<'a> {
      * Allocate spill slots, resolve operands, convert all instructions to
      * [`Action`]s, and return them in the order they should be executed in.
      */
-    pub fn finish(self, num_slots: &mut usize) -> Vec<Action> {
+    pub fn finish(self, num_slots: &mut usize, exit_node: Node) -> Vec<Action> {
         let dataflow = self.schedule.dataflow;
         // Initialise bindings.
         let register_to_index = super::map_from_register_to_index();
         let mut spills: ArrayMap<Out, Option<Slot>> = dataflow.out_map();
         let mut regs: ArrayMap<RegIndex, Out> = ArrayMap::new_with(NUM_REGISTERS, || DUMMY_OUT);
-        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(dataflow.inputs()) {
+        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&self.before.live_values) {
             match value {
                 Value::Register(r) => {
                     let ri = *register_to_index.get(&r).expect("Not an allocatable register");
@@ -201,17 +207,18 @@ impl<'a> CodeGen<'a> {
         }).collect();
         // TODO: If the ending `Convention` has live registers, generate and
         // schedule move instructions.
+        let _ = exit_node;
+        let _ = &self.after.live_values;
         ret.shrink_to_fit();
         ret
     }
 }
 
-pub fn codegen(schedule: Schedule) -> Vec<Action>
-{
-    let mut codegen = CodeGen::new(schedule);
+pub fn codegen(before: &Convention, after: &Convention, schedule: Schedule, exit_node: Node) -> Vec<Action> {
+    let mut codegen = CodeGen::new(before, after, schedule);
     while let Some(node) = codegen.schedule.next() {
         codegen.add_node(node);
     }
     let mut num_slots = 0;
-    codegen.finish(&mut num_slots)
+    codegen.finish(&mut num_slots, exit_node)
 }

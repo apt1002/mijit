@@ -1283,6 +1283,7 @@ pub mod tests {
     }
 
     #[test]
+    #[ignore]
     pub fn ackermann() {
         let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
         vm.load_object(ackermann_object().as_ref());

@@ -24,10 +24,10 @@ impl Simulation {
      * Constructs a `Simulation` of a basic block. On entry, only `inputs` are
      * live.
      */
-    pub fn new(inputs: Vec<Value>) -> Self {
-        let dataflow = Dataflow::new(inputs);
+    pub fn new(inputs: &[Value]) -> Self {
+        let dataflow = Dataflow::new(inputs.len());
         let entry_node = dataflow.entry_node();
-        let bindings = dataflow.inputs().iter()
+        let bindings = inputs.iter()
             .cloned()
             .zip(dataflow.outs(entry_node))
             .collect();
@@ -110,8 +110,8 @@ impl Simulation {
      * outputs. On exit, `outputs` are live.
      * Returns the finished `Dataflow` graph and the exit `Node`.
      */
-    pub fn finish(mut self, outputs: Vec<Value>) -> (Dataflow, Node) {
-        let node = self.op(Op::Convention, &[self.store, self.stack], &outputs, &[]);
-        (self.dataflow, node)
+    pub fn finish(mut self, outputs: &[Value]) -> (Dataflow, Node) {
+        let exit_node = self.op(Op::Convention, &[self.store, self.stack], outputs, &[]);
+        (self.dataflow, exit_node)
     }
 }
