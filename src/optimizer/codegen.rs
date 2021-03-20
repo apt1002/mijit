@@ -1,6 +1,6 @@
 use std::cmp::{max};
 
-use super::{NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, Op, Schedule, RegisterPool, Placer};
+use super::{NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, DUMMY_REG, Op, Schedule, RegisterPool, Placer};
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::code::{Register, Slot, Value, Action};
@@ -8,6 +8,7 @@ use crate::util::{ArrayMap};
 
 //-----------------------------------------------------------------------------
 
+#[derive(Debug, Copy, Clone)]
 enum Instruction {
     Absent,
     Spill(Out),
@@ -24,22 +25,47 @@ impl Default for Instruction {
 
 //-----------------------------------------------------------------------------
 
-/** The state of the code generation algorithm. */
+/** The information that a [`CodeGen`] stores about each [`Out`]. */
+#[derive(Debug)]
+pub struct OutInfo {
+    /** The time at which the `Out` became available, or [`usize::MAX`]. */
+    time: usize,
+    /** The register allocated for the `Out`, or [`DUMMY_REG`]. */
+    reg: RegIndex,
+    /** `true` if we've placed an [`Instruction::Spill`] for the `Out`. */
+    is_spilled: bool,
+}
+
+impl Default for OutInfo {
+    fn default() -> Self {
+        OutInfo {
+            time: usize::MAX,
+            reg: DUMMY_REG,
+            is_spilled: false,
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+/**
+ * The state of the code generation algorithm. The state is mutated as
+ * [`Instructions`] are added, in the order specified by a [`Schedule`].
+ */
+#[derive(Debug)]
 struct CodeGen<'a> {
     /** The [`Node`]s remaining to be processed. */
     schedule: Schedule<'a>,
     /** The [`Instruction`]s processed so far. */
     placer: Placer<Instruction>,
-    /** The time at which each [`Out`] became available. */
-    out_times: ArrayMap<Out, usize>,
+    /** An `OutInfo` for each `Out`. */
+    outs: ArrayMap<Out, OutInfo>,
     /** The time at which each [`Node`] was executed. */
     node_times: ArrayMap<Node, usize>,
     /** The time at which each [`Reg`] becomes clean, or `usize::MAX`. */
     reg_times: ArrayMap<RegIndex, usize>,
     /** The register allocator state. */
     pool: RegisterPool<Out>,
-    /** The register allocation decisions. */
-    out_regs: ArrayMap<Out, RegIndex>,
 }
 
 impl<'a> CodeGen<'a> {
@@ -51,22 +77,16 @@ impl<'a> CodeGen<'a> {
         let cg = CodeGen {
             schedule: schedule,
             placer: placer,
-            out_times: df.out_map(),
+            outs: df.out_map(),
             node_times: df.node_map(),
             reg_times: ArrayMap::new_with(super::NUM_REGISTERS, || usize::MAX),
             pool: RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS)),
-            out_regs: df.out_map(), // Initially all `DUMMY_REG`.
         };
         // TODO: Fill in various fields based on entry Convention.
         cg
     }
 
-    /** Tests whether we've placed a `Spill` for `out`. */
-    pub fn is_spilled(&self, out: Out) -> bool {
-        self.reg_times[self.out_regs[out]] != usize::MAX
-    }
-
-    /** Called for each [`Node`] in the schedule in forwards order. */
+    /** Called for each [`Node`] in the [`Schedule`] in forwards order. */
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.schedule.dataflow;
         let mut time = 0; // Earliest time (in cycles) when we can place `node`.
@@ -75,8 +95,9 @@ impl<'a> CodeGen<'a> {
         while self.pool.num_clean() < num_outs {
             let schedule = &self.schedule; // Appease borrow-checker.
             let (ri, out) = self.pool.spill(|&out| schedule.first_use(out));
-            self.reg_times[ri] = self.out_times[out];
+            self.reg_times[ri] = self.outs[out].time;
             self.placer.add_item(Spill(out), SPILL_COST, &mut self.reg_times[ri]);
+            self.outs[out].is_spilled = true;
         }
         // Bump `time` until the dependencies are available.
         for &dep in df.deps(node) {
@@ -84,18 +105,18 @@ impl<'a> CodeGen<'a> {
         }
         // Bump `time` until the operands are available.
         for (&in_, &latency) in df.ins(node).iter().zip(df.cost(node).input_latencies) {
-            time = max(time, self.out_times[in_] + latency as usize);
+            time = max(time, self.outs[in_].time + latency as usize);
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
             let ri = self.pool.allocate(out);
-            self.out_regs[out] = ri;
-            self.reg_times[ri] = usize::MAX;
+            self.outs[out].reg = ri;
             time = max(time, self.reg_times[ri]);
+            self.reg_times[ri] = usize::MAX;
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
-        if df.ins(node).iter().any(|&in_| self.is_spilled(in_)) {
+        if df.ins(node).iter().any(|&in_| self.outs[in_].is_spilled) {
             // We can't be sure it's not still in a register; this is a guess.
             resources += SLOT_COST;
         }
@@ -103,7 +124,7 @@ impl<'a> CodeGen<'a> {
         // Record when the outputs become available.
         self.node_times[node] = time;
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
-            self.out_times[out] = time + latency as usize;
+            self.outs[out].time = time + latency as usize;
         }
     }
 
@@ -135,7 +156,7 @@ impl<'a> CodeGen<'a> {
                 &Absent => panic!("Absent instruction"),
                 &Spill(s) => {
                     assert!(spills[s].is_none()); // Not yet spilled.
-                    let ri = self.out_regs[s];
+                    let ri = self.outs[s].reg;
                     assert!(regs[ri] == s); // Not yet overwritten.
                     let slot = Slot(*num_slots);
                     *num_slots += 1;
@@ -144,10 +165,10 @@ impl<'a> CodeGen<'a> {
                 },
                 &Node(n) => {
                     let outs: Vec<Register> = dataflow.outs(n)
-                        .map(|dest| ALLOCATABLE_REGISTERS[self.out_regs[dest].0])
+                        .map(|dest| ALLOCATABLE_REGISTERS[self.outs[dest].reg.0])
                         .collect();
                     let ins: Vec<Value> = dataflow.ins(n).iter().map(|&src| {
-                        let ri = self.out_regs[src];
+                        let ri = self.outs[src].reg;
                         if regs[ri] == src {
                             ALLOCATABLE_REGISTERS[ri.0].into()
                         } else {
