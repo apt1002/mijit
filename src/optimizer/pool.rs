@@ -37,6 +37,11 @@ impl<D> RegisterPool<D> {
         RegisterPool {dirty, clean}
     }
 
+    /** The information stored about `ri` if it is dirty, or `None`. */
+    pub fn reg_info(&self, ri: RegIndex) -> &Option<D> {
+        &self.dirty[ri]
+    }
+
     /** Tests whether the specified register is clean. */
     pub fn is_clean(&self, ri: RegIndex) -> bool {
         self.dirty[ri].is_none()

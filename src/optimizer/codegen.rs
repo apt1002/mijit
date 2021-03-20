@@ -32,8 +32,6 @@ pub struct OutInfo {
     time: usize,
     /** The register allocated for the `Out`, or [`DUMMY_REG`]. */
     reg: RegIndex,
-    /** `true` if we've placed an [`Instruction::Spill`] for the `Out`. */
-    is_spilled: bool,
 }
 
 impl Default for OutInfo {
@@ -41,7 +39,6 @@ impl Default for OutInfo {
         OutInfo {
             time: usize::MAX,
             reg: DUMMY_REG,
-            is_spilled: false,
         }
     }
 }
@@ -62,7 +59,7 @@ struct CodeGen<'a> {
     outs: ArrayMap<Out, OutInfo>,
     /** The time at which each [`Node`] was executed. */
     node_times: ArrayMap<Node, usize>,
-    /** The time at which each [`Reg`] becomes clean, or `usize::MAX`. */
+    /** The last time at which each [`Reg`] is used, or zero. */
     reg_times: ArrayMap<RegIndex, usize>,
     /** The register allocator state. */
     pool: RegisterPool<Out>,
@@ -79,25 +76,41 @@ impl<'a> CodeGen<'a> {
             placer: placer,
             outs: df.out_map(),
             node_times: df.node_map(),
-            reg_times: ArrayMap::new_with(super::NUM_REGISTERS, || usize::MAX),
+            reg_times: ArrayMap::new(super::NUM_REGISTERS),
             pool: RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS)),
         };
         // TODO: Fill in various fields based on entry Convention.
         cg
     }
 
+    /** `true` if we've placed an [`Instruction::Spill`] for `out`. */
+    fn is_spilled(&self, out: Out) -> bool {
+        *self.pool.reg_info(self.outs[out].reg) != Some(out)
+    }
+
+    /** Record that we used `ri` at `time` (either reading or writing). */
+    fn use_reg(&mut self, ri: RegIndex, time: usize) {
+        self.reg_times[ri] = max(self.reg_times[ri], time);
+    }
+
     /** Called for each [`Node`] in the [`Schedule`] in forwards order. */
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.schedule.dataflow;
         let mut time = 0; // Earliest time (in cycles) when we can place `node`.
+        // Free every input register that won't be used again.
+        for &in_ in df.ins(node) {
+            if self.schedule.first_use(in_).is_none() && !self.is_spilled(in_) {
+                self.pool.free(self.outs[in_].reg);
+            }
+        }
         // Spill until we have enough registers to hold the outputs of `node`.
         let num_outs = df.num_outs(node);
         while self.pool.num_clean() < num_outs {
             let schedule = &self.schedule; // Appease borrow-checker.
             let (ri, out) = self.pool.spill(|&out| schedule.first_use(out));
-            self.reg_times[ri] = self.outs[out].time;
-            self.placer.add_item(Spill(out), SPILL_COST, &mut self.reg_times[ri]);
-            self.outs[out].is_spilled = true;
+            let mut time = self.outs[out].time;
+            self.placer.add_item(Spill(out), SPILL_COST, &mut time);
+            self.use_reg(ri, time);
         }
         // Bump `time` until the dependencies are available.
         for &dep in df.deps(node) {
@@ -112,18 +125,25 @@ impl<'a> CodeGen<'a> {
             let ri = self.pool.allocate(out);
             self.outs[out].reg = ri;
             time = max(time, self.reg_times[ri]);
-            self.reg_times[ri] = usize::MAX;
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
-        if df.ins(node).iter().any(|&in_| self.outs[in_].is_spilled) {
+        if df.ins(node).iter().any(|&in_| self.is_spilled(in_)) {
             // We can't be sure it's not still in a register; this is a guess.
             resources += SLOT_COST;
         }
         self.placer.add_item(Node(node), resources, &mut time);
-        // Record when the outputs become available.
+        // Record the node's placement.
         self.node_times[node] = time;
+        // Record when the inputs were used.
+        for &in_ in df.ins(node) {
+            if !self.is_spilled(in_) {
+                self.use_reg(self.outs[in_].reg, time);
+            }
+        }
+        // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
+            self.reg_times[self.outs[out].reg] = time;
             self.outs[out].time = time + latency as usize;
         }
     }
