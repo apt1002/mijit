@@ -1,4 +1,4 @@
-use std::fmt::{Debug};
+use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 use std::marker::{PhantomData};
 
@@ -13,7 +13,7 @@ pub trait AsUsize: Debug + Copy + Hash + Eq {
  * A map that is implemented as an array.
  * This is preferable to a HashMap when possible.
  */
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ArrayMap<K: AsUsize, V>(
     Box<[V]>,
     PhantomData<K>,
@@ -36,6 +36,12 @@ impl<K: AsUsize, V> ArrayMap<K, V> {
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
 
     pub fn iter_mut(&mut self) -> std::slice::IterMut<V> { self.0.iter_mut() }
+}
+
+impl<K: AsUsize, V: Debug> Debug for ArrayMap<K, V> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        self.0.fmt(f)
+    }
 }
 
 impl<'a, K: AsUsize, V> IntoIterator for &'a ArrayMap<K, V> {

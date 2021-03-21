@@ -1,4 +1,6 @@
-use crate::util::{AsUsize, ArrayMap};
+use std::fmt::{self, Debug, Formatter};
+
+use crate::util::{AsUsize, ArrayMap, CommaSeparated};
 use super::{Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
@@ -27,8 +29,32 @@ pub const DUMMY_OUT: Out = Out(usize::MAX);
 
 //-----------------------------------------------------------------------------
 
+/** Helper for `<Dataflow as Debug>::fmt()`. Represents a Node. */
+struct NodeAdapter<'a> {
+    dataflow: &'a Dataflow,
+    node: Node,
+}
+
+impl<'a> Debug for NodeAdapter<'a> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:?}: ({:?}) <- {:?} ({:?})",
+            self.node,
+            CommaSeparated(|| self.dataflow.outs(self.node)),
+            self.dataflow.op(self.node),
+            CommaSeparated(|| self.dataflow.ins(self.node)),
+        )?;
+        let deps = self.dataflow.deps(self.node);
+        if deps.len() > 0 {
+            write!(f, " after ({:?})", CommaSeparated(|| deps))?;
+        }
+        Ok(())
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 /** The internal representation of a [`Node`]. */
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct Info {
     /** What kind of operation the Node represents. */
     op: Op,
@@ -49,7 +75,7 @@ struct Info {
  * There is a dummy `Node` that has an output for each [`Value`] that is live
  * on entry to the Dataflow.
  */
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Dataflow {
     /** One per Node. */
     nodes: Vec<Info>,
@@ -201,5 +227,14 @@ impl Dataflow {
     /** Returns all [`Node`]s in the order they were added. */
     pub fn all_nodes(&self) -> impl Iterator<Item=Node> {
         (0..self.nodes.len()).map(|i| Node(i))
+    }
+}
+
+impl Debug for Dataflow {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.write_str("Dataflow")?;
+        f.debug_list().entries(self.all_nodes().map(
+            |n| NodeAdapter {dataflow: self, node: n}
+        )).finish()
     }
 }

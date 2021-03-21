@@ -1,8 +1,9 @@
 use std::cmp::{Reverse};
+use std::fmt::{self, Debug, Formatter};
 use std::iter::{Iterator};
 use std::num::{NonZeroUsize};
 
-use crate::util::{ArrayMap};
+use crate::util::{ArrayMap, CommaSeparated};
 use super::{Dataflow, Node, Out};
 
 /**
@@ -46,7 +47,6 @@ impl UseList {
  * are used. At any point, you can query the `Schedule` and find out all future
  * [`Use`]s of an `Out`.
  */
-#[derive(Debug)]
 pub struct Schedule<'a> {
     pub dataflow: &'a Dataflow,
     nodes: Vec<Node>,
@@ -97,6 +97,15 @@ impl<'a> Schedule<'a> {
 
     pub fn first_use(&self, out: Out) -> Option<Use> {
         self.firsts[out].first()
+    }
+}
+
+impl<'a> Debug for Schedule<'a> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("Schedule")
+            .field("dataflow", self.dataflow)
+            .field("nodes", &CommaSeparated(|| &self.nodes))
+            .finish()
     }
 }
 

@@ -1,4 +1,5 @@
 use std::collections::{HashMap};
+use std::fmt::{self, Debug, Formatter};
 
 use crate::util::{AsUsize};
 use super::code::{self, Register, Action};
@@ -12,8 +13,14 @@ pub const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
 /** An index into [`ALLOCATABLE_REGISTERS`]. */
 // TODO: Move into `code`? See #23.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub struct RegIndex(usize);
+
+impl Debug for RegIndex {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "RI{}", self.0)
+    }
+}
 
 /** Indicates an absent RegIndex. */
 pub const DUMMY_REG: RegIndex = RegIndex(usize::MAX);

@@ -1,3 +1,5 @@
+use std::fmt::{Debug};
+
 use super::{Resources, BUDGET};
 
 /** The maximum number of [`Item`]s to place per cycle. */
@@ -35,12 +37,12 @@ impl<T: Default> Cycle<T> {
  * we use the terminology "larger" and "smaller", not "earlier" or "later".
  */
 #[derive(Debug)]
-pub struct Placer<T: Default> {
+pub struct Placer<T: Debug + Default> {
     /** The Cycles in which we're placing things. */
     cycles: Vec<Cycle<T>>,
 }
 
-impl<T: Default> Placer<T> {
+impl<T: Debug + Default> Placer<T> {
     pub fn new() -> Self {
         Placer {
             cycles: Vec::new(),
@@ -64,6 +66,7 @@ impl<T: Default> Placer<T> {
      * that can afford `cost`.
      */
     pub fn add_item(&mut self, item: T, cost: Resources, cycle: &mut usize) {
+        assert_ne!(*cycle, usize::MAX);
         self.choose_cycle(cost, cycle);
         let c = &mut self.cycles[*cycle];
         assert!(c.num_items < MAX_ITEMS);

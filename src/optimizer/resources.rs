@@ -1,3 +1,4 @@
+use std::fmt::{self, Debug, Formatter};
 use std::cmp::{PartialOrd, Ordering};
 use std::num::{Wrapping};
 use std::ops::{Add, AddAssign, Sub, SubAssign};
@@ -10,13 +11,19 @@ const CARRY_MASK: Wrapping<u64> = Wrapping(0x1111111111111110);
  * A Resources can record up to 15 units of each of 15 distinct resources,
  * using the hexadecimal digits of a 64-bit integer.
  */
-#[derive(Debug, Clone, Copy, Hash, PartialEq, Eq)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Resources(std::num::Wrapping<u64>);
 
 impl Resources {
     pub const fn new(hex: u64) -> Self {
         // assert!(hex < 1<<60); // Not allowed in a const fn.
         Resources(Wrapping(hex))
+    }
+}
+
+impl Debug for Resources {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:#x}", self.0)
     }
 }
 
