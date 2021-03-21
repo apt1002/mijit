@@ -97,7 +97,7 @@ pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> 
 mod tests {
     use std::collections::{HashMap};
     use super::*;
-    use code::{Register, UnaryOp, BinaryOp, Precision};
+    use code::{Register, Slot, UnaryOp, BinaryOp, Precision};
     use code::tests::{Emulator};
 
     #[test]
@@ -120,10 +120,10 @@ mod tests {
     #[ignore]
     fn one_ops() {
         const R0: Register = ALLOCATABLE_REGISTERS[0];
-        const R1: Register = ALLOCATABLE_REGISTERS[1];
+        const R1: Slot = Slot(0);
         let convention = Convention {
             live_values: vec![R0.into(), R1.into()],
-            slots_used: 0,
+            slots_used: 1,
         };
         let emulator = Emulator::new(convention.live_values.clone());
         use Precision::*;

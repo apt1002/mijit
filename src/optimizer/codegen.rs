@@ -1,6 +1,10 @@
 use std::cmp::{max};
 
-use super::{Convention, NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, DUMMY_REG, Op, Schedule, RegisterPool, Placer};
+use super::{
+    Convention,
+    NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, map_from_register_to_index, DUMMY_REG,
+    Op, Schedule, RegisterPool, Placer,
+};
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::code::{Register, Slot, Value, Action};
@@ -72,26 +76,39 @@ struct CodeGen<'a> {
 impl<'a> CodeGen<'a> {
     pub fn new(before: &'a Convention, after: &'a Convention, schedule: Schedule<'a>) -> Self {
         let df: &'a Dataflow = schedule.dataflow;
-        // Initialize the datastructures with the live registers of the
-        // starting `Convention`.
-        let placer = Placer::new();
+        // Initialize the data structures with the live registers of `before`.
+        let reg_map = map_from_register_to_index();
+        let mut dirty = ArrayMap::new(super::NUM_REGISTERS);
+        let mut outs: ArrayMap<Out, OutInfo> = df.out_map();
+        for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
+            match value {
+                Value::Register(r) => {
+                    let &ri = reg_map.get(&r).expect("Not an allocatable register");
+                    dirty[ri] = Some(out);
+                    outs[out].reg = ri;
+                },
+                Value::Slot(_) => {},
+            }
+            outs[out].time = 0;
+        }
+        // Construct and return.
         let cg = CodeGen {
             before: before,
             after: after,
             schedule: schedule,
-            placer: placer,
-            outs: df.out_map(),
+            placer: Placer::new(),
+            outs: outs,
             node_times: df.node_map(),
             reg_times: ArrayMap::new(super::NUM_REGISTERS),
-            pool: RegisterPool::new(ArrayMap::new(super::NUM_REGISTERS)),
+            pool: RegisterPool::new(dirty),
         };
-        // TODO: Fill in various fields based on entry Convention.
         cg
     }
 
-    /** `true` if we've placed an [`Instruction::Spill`] for `out`. */
+    /** `true` if we've spilled `out`. */
     fn is_spilled(&self, out: Out) -> bool {
-        *self.pool.reg_info(self.outs[out].reg) != Some(out)
+        let ri = self.outs[out].reg;
+        ri == DUMMY_REG || *self.pool.reg_info(ri) != Some(out)
     }
 
     /** Record that we used `ri` at `time` (either reading or writing). */
@@ -106,7 +123,8 @@ impl<'a> CodeGen<'a> {
         // Free every input register that won't be used again.
         for &in_ in df.ins(node) {
             if self.schedule.first_use(in_).is_none() && !self.is_spilled(in_) {
-                self.pool.free(self.outs[in_].reg);
+                let d = self.pool.free(self.outs[in_].reg);
+                assert_eq!(d, in_);
             }
         }
         // Spill until we have enough registers to hold the outputs of `node`.
@@ -158,8 +176,9 @@ impl<'a> CodeGen<'a> {
      * Allocate spill slots, resolve operands, convert all instructions to
      * [`Action`]s, and return them in the order they should be executed in.
      */
-    pub fn finish(self, num_slots: &mut usize, exit_node: Node) -> Vec<Action> {
+    pub fn finish(self, exit_node: Node) -> Vec<Action> {
         let dataflow = self.schedule.dataflow;
+        let mut num_slots = self.before.slots_used;
         // Initialise bindings.
         let register_to_index = super::map_from_register_to_index();
         let mut spills: ArrayMap<Out, Option<Slot>> = dataflow.out_map();
@@ -171,7 +190,7 @@ impl<'a> CodeGen<'a> {
                     regs[ri] = out;
                 },
                 Value::Slot(s) => {
-                    assert!(s.0 < *num_slots);
+                    assert!(s.0 < num_slots);
                     spills[out] = Some(s);
                 },
             }
@@ -184,8 +203,8 @@ impl<'a> CodeGen<'a> {
                     assert!(spills[s].is_none()); // Not yet spilled.
                     let ri = self.outs[s].reg;
                     assert!(regs[ri] == s); // Not yet overwritten.
-                    let slot = Slot(*num_slots);
-                    *num_slots += 1;
+                    let slot = Slot(num_slots);
+                    num_slots += 1;
                     spills[s] = Some(slot);
                     Action::Move(slot.into(), ALLOCATABLE_REGISTERS[ri.0].into())
                 },
@@ -195,7 +214,7 @@ impl<'a> CodeGen<'a> {
                         .collect();
                     let ins: Vec<Value> = dataflow.ins(n).iter().map(|&src| {
                         let ri = self.outs[src].reg;
-                        if regs[ri] == src {
+                        if ri != DUMMY_REG && regs[ri] == src {
                             ALLOCATABLE_REGISTERS[ri.0].into()
                         } else {
                             spills[src].expect("Value was overwritten but not spilled").into()
@@ -205,7 +224,7 @@ impl<'a> CodeGen<'a> {
                 },
             }
         }).collect();
-        // TODO: If the ending `Convention` has live registers, generate and
+        // TODO: If the ending `Convention` has live `Value`s, generate and
         // schedule move instructions.
         let _ = exit_node;
         let _ = &self.after.live_values;
@@ -219,6 +238,5 @@ pub fn codegen(before: &Convention, after: &Convention, schedule: Schedule, exit
     while let Some(node) = codegen.schedule.next() {
         codegen.add_node(node);
     }
-    let mut num_slots = 0;
-    codegen.finish(&mut num_slots, exit_node)
+    codegen.finish(exit_node)
 }
