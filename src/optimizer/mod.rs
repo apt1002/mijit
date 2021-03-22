@@ -73,6 +73,9 @@ pub use placer::{Placer};
 mod schedule;
 pub use schedule::{Schedule};
 
+mod moves;
+pub use moves::{moves};
+
 mod codegen;
 pub use codegen::{codegen};
 
@@ -117,7 +120,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn one_ops() {
         const R0: Register = ALLOCATABLE_REGISTERS[0];
         const R1: Slot = Slot(0);

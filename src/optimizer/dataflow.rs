@@ -6,8 +6,14 @@ use super::{Op, Cost, op_cost};
 //-----------------------------------------------------------------------------
 
 /** A node in a Dataflow graph. */
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Node(usize);
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Node({})", self.0)
+    }
+}
 
 impl AsUsize for Node {
     fn as_usize(self) -> usize { self.0 }
@@ -17,8 +23,14 @@ impl AsUsize for Node {
 pub const DUMMY_NODE: Node = Node(usize::MAX);
 
 /** A value produced by a [`Node`] in a Dataflow graph. */
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Out(usize);
+
+impl Debug for Out {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Out({})", self.0)
+    }
+}
 
 impl AsUsize for Out {
     fn as_usize(self) -> usize { self.0 }

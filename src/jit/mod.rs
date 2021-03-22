@@ -288,7 +288,6 @@ pub mod tests {
     pub const CODE_SIZE: usize = 1 << 20;
 
     #[test]
-    #[ignore]
     pub fn factorial() {
         use factorial::*;
         use State::*;

@@ -1,9 +1,11 @@
 use std::cmp::{max};
+use std::collections::{HashMap};
+use std::fmt::{self, Debug, Formatter};
 
 use super::{
     Convention,
     NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, map_from_register_to_index, DUMMY_REG,
-    Op, Schedule, RegisterPool, Placer,
+    Op, Schedule, RegisterPool, Placer, moves,
 };
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
@@ -12,7 +14,7 @@ use crate::util::{ArrayMap};
 
 //-----------------------------------------------------------------------------
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Copy, Clone)]
 enum Instruction {
     Absent,
     Spill(Out),
@@ -20,6 +22,16 @@ enum Instruction {
 }
 
 use Instruction::*;
+
+impl Debug for Instruction {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        match self {
+            &Absent => write!(f, "Absent"),
+            &Spill(out) => out.fmt(f),
+            &Node(node) => node.fmt(f),
+        }
+    }
+}
 
 impl Default for Instruction {
     fn default() -> Self {
@@ -81,15 +93,17 @@ impl<'a> CodeGen<'a> {
         let mut dirty = ArrayMap::new(super::NUM_REGISTERS);
         let mut outs: ArrayMap<Out, OutInfo> = df.out_map();
         for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
-            match value {
-                Value::Register(r) => {
-                    let &ri = reg_map.get(&r).expect("Not an allocatable register");
-                    dirty[ri] = Some(out);
-                    outs[out].reg = ri;
-                },
-                Value::Slot(_) => {},
+            if !schedule.first_use(out).is_none() {
+                match value {
+                    Value::Register(r) => {
+                        let &ri = reg_map.get(&r).expect("Not an allocatable register");
+                        dirty[ri] = Some(out);
+                        outs[out].reg = ri;
+                    },
+                    Value::Slot(_) => {},
+                }
+                outs[out].time = 0;
             }
-            outs[out].time = 0;
         }
         // Construct and return.
         let cg = CodeGen {
@@ -116,6 +130,17 @@ impl<'a> CodeGen<'a> {
         self.reg_times[ri] = max(self.reg_times[ri], time);
     }
 
+    /** Spills values until at least `num_required` registers are free. */
+    fn spill_until(&mut self, num_required: usize) {
+        while self.pool.num_clean() < num_required {
+            let schedule = &self.schedule; // Appease borrow-checker.
+            let (ri, out) = self.pool.spill(|&out| schedule.first_use(out));
+            let mut time = self.outs[out].time;
+            self.placer.add_item(Spill(out), SPILL_COST, &mut time);
+            self.use_reg(ri, time);
+        }
+    }
+
     /** Called for each [`Node`] in the [`Schedule`] in forwards order. */
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.schedule.dataflow;
@@ -128,14 +153,7 @@ impl<'a> CodeGen<'a> {
             }
         }
         // Spill until we have enough registers to hold the outputs of `node`.
-        let num_outs = df.num_outs(node);
-        while self.pool.num_clean() < num_outs {
-            let schedule = &self.schedule; // Appease borrow-checker.
-            let (ri, out) = self.pool.spill(|&out| schedule.first_use(out));
-            let mut time = self.outs[out].time;
-            self.placer.add_item(Spill(out), SPILL_COST, &mut time);
-            self.use_reg(ri, time);
-        }
+        self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
         for &dep in df.deps(node) {
             time = max(time, self.node_times[dep]);
@@ -177,13 +195,13 @@ impl<'a> CodeGen<'a> {
      * [`Action`]s, and return them in the order they should be executed in.
      */
     pub fn finish(self, exit_node: Node) -> Vec<Action> {
-        let dataflow = self.schedule.dataflow;
-        let mut num_slots = self.before.slots_used;
+        let df: &'a Dataflow = self.schedule.dataflow;
         // Initialise bindings.
+        let mut num_slots = self.before.slots_used;
         let register_to_index = super::map_from_register_to_index();
-        let mut spills: ArrayMap<Out, Option<Slot>> = dataflow.out_map();
+        let mut spills: ArrayMap<Out, Option<Slot>> = df.out_map();
         let mut regs: ArrayMap<RegIndex, Out> = ArrayMap::new_with(NUM_REGISTERS, || DUMMY_OUT);
-        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&self.before.live_values) {
+        for (out, &value) in df.outs(df.entry_node()).zip(&self.before.live_values) {
             match value {
                 Value::Register(r) => {
                     let ri = *register_to_index.get(&r).expect("Not an allocatable register");
@@ -209,10 +227,7 @@ impl<'a> CodeGen<'a> {
                     Action::Move(slot.into(), ALLOCATABLE_REGISTERS[ri.0].into())
                 },
                 &Node(n) => {
-                    let outs: Vec<Register> = dataflow.outs(n)
-                        .map(|dest| ALLOCATABLE_REGISTERS[self.outs[dest].reg.0])
-                        .collect();
-                    let ins: Vec<Value> = dataflow.ins(n).iter().map(|&src| {
+                    let ins: Vec<Value> = df.ins(n).iter().map(|&src| {
                         let ri = self.outs[src].reg;
                         if ri != DUMMY_REG && regs[ri] == src {
                             ALLOCATABLE_REGISTERS[ri.0].into()
@@ -220,14 +235,37 @@ impl<'a> CodeGen<'a> {
                             spills[src].expect("Value was overwritten but not spilled").into()
                         }
                     }).collect();
-                    Op::to_action(dataflow.op(n), &outs, &ins)
+                    let outs: Vec<Register> = df.outs(n).map(|dest| {
+                        let ri = self.outs[dest].reg;
+                        regs[ri] = dest;
+                        ALLOCATABLE_REGISTERS[ri.0]
+                    }).collect();
+                    Op::to_action(df.op(n), &outs, &ins)
                 },
             }
         }).collect();
-        // TODO: If the ending `Convention` has live `Value`s, generate and
-        // schedule move instructions.
-        let _ = exit_node;
-        let _ = &self.after.live_values;
+        // Move all live values into the expected `Value`s.
+        // TODO: Find a way to schedule these `Move`s properly or eliminate them.
+        let dest_to_src: HashMap<Value, Value> =
+            df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
+                let ri = self.outs[out].reg;
+                let src = if ri != DUMMY_REG && regs[ri] == out {
+                    ALLOCATABLE_REGISTERS[ri.0].into()
+                } else {
+                    spills[out].expect("Value was overwritten but not spilled").into()
+                };
+                (dest, src)
+            }).collect();
+        let temp_reg: Value = ALLOCATABLE_REGISTERS.iter()
+            .map(|&r| Value::from(r))
+            .find(|&r| !dest_to_src.contains_key(&r))
+            .unwrap_or_else(|| {
+                let slot = Slot(num_slots);
+                num_slots += 1;
+                slot.into()
+            });
+        ret.extend(moves(dest_to_src, temp_reg).map(|(dest, src)| Action::Move(dest, src)));
+        // Return.
         ret.shrink_to_fit();
         ret
     }
