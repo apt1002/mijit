@@ -100,7 +100,7 @@ pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> 
 mod tests {
     use std::collections::{HashMap};
     use super::*;
-    use code::{Register, Slot, UnaryOp, BinaryOp, Precision};
+    use code::{Register, Slot, UnaryOp, BinaryOp, AliasMask, Precision, Width};
     use code::tests::{Emulator};
 
     #[test]
@@ -121,18 +121,18 @@ mod tests {
 
     #[test]
     fn one_ops() {
-        const R0: Register = ALLOCATABLE_REGISTERS[0];
-        const R1: Slot = Slot(0);
+        const V0: Register = ALLOCATABLE_REGISTERS[0];
+        const V1: Slot = Slot(0);
         let convention = Convention {
-            live_values: vec![R0.into(), R1.into()],
+            live_values: vec![V0.into(), V1.into()],
             slots_used: 1,
         };
         let emulator = Emulator::new(convention.live_values.clone());
         use Precision::*;
         for action in &[
-            Action::Constant(P64, R0, 924573497),
-            Action::Unary(UnaryOp::Not, P64, R0, R1.into()),
-            Action::Binary(BinaryOp::Add, P64, R0, R0.into(), R1.into()),
+            Action::Constant(P64, V0, 924573497),
+            Action::Unary(UnaryOp::Not, P64, V0, V1.into()),
+            Action::Binary(BinaryOp::Add, P64, V0, V0.into(), V1.into()),
         ] {
             let actions = vec![action.clone()];
             let expected = emulator.execute(&actions);
@@ -150,5 +150,27 @@ mod tests {
                 panic!("Optimized code does not do the same thing as the original");
             }
         }
+    }
+
+    #[test]
+    fn use_after_free() {
+        use Precision::*;
+        use Width::*;
+        const V0: Register = ALLOCATABLE_REGISTERS[0];
+        const V1: Register = ALLOCATABLE_REGISTERS[1];
+        let before = Convention {
+            live_values: vec![V0.into(), V1.into()],
+            slots_used: 1,
+        };
+        let actions = vec![
+            Action::Store(V1.into(), (V0, Four), AliasMask(1)),
+            Action::Constant(P64, V0, 1234),
+        ];
+        let after = Convention {
+            live_values: vec![V0.into()],
+            slots_used: 1,
+        };
+        let _ = optimize(&before, &after, &actions);
+        // Just don't panic!
     }
 }
