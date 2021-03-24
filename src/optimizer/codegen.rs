@@ -10,7 +10,7 @@ use super::{
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::code::{Register, Slot, Value, Action};
-use crate::util::{ArrayMap};
+use crate::util::{ArrayMap, map_filter_max};
 
 //-----------------------------------------------------------------------------
 
@@ -110,7 +110,7 @@ struct CodeGen<'a> {
     /** A `RegInfo` for each `Reg`. */
     regs: ArrayMap<RegIndex, RegInfo>,
     /** The register allocator state. */
-    pool: RegisterPool<Out>,
+    pool: RegisterPool,
 }
 
 impl<'a> CodeGen<'a> {
@@ -126,7 +126,7 @@ impl<'a> CodeGen<'a> {
                 match value {
                     Value::Register(r) => {
                         let &ri = reg_map.get(&r).expect("Not an allocatable register");
-                        dirty[ri] = Some(out);
+                        dirty[ri] = true;
                         regs[ri].out = out;
                         outs[out].ri = ri;
                     },
@@ -163,11 +163,23 @@ impl<'a> CodeGen<'a> {
     /** Spills values until at least `num_required` registers are free. */
     fn spill_until(&mut self, num_required: usize) {
         while self.pool.num_clean() < num_required {
-            let schedule = &self.schedule; // Appease borrow-checker.
-            let (ri, out) = self.pool.spill(|&out| schedule.first_use(out));
+            // Select a register to spill.
+            let i = map_filter_max(0..NUM_REGISTERS, |i| {
+                let ri = RegIndex(i);
+                if self.pool.is_clean(ri) {
+                    None
+                } else {
+                    Some(self.schedule.first_use(self.regs[ri].out))
+                }
+            });
+            let ri = RegIndex(i.expect("No register is dirty"));
+            // Spill the register.
+            let out = self.regs[ri].out;
             let mut time = self.outs[out].time;
             self.placer.add_item(Spill(out), SPILL_COST, &mut time);
             self.use_reg(ri, time);
+            // Free the register.
+            self.pool.free(ri);
         }
     }
 
@@ -178,8 +190,7 @@ impl<'a> CodeGen<'a> {
         // Free every input register that won't be used again.
         for &in_ in df.ins(node) {
             if self.schedule.first_use(in_).is_none() && self.is_reg(in_) {
-                let d = self.pool.free(self.outs[in_].ri);
-                assert_eq!(d, in_);
+                self.pool.free(self.outs[in_].ri);
             }
         }
         // Spill until we have enough registers to hold the outputs of `node`.
@@ -194,7 +205,7 @@ impl<'a> CodeGen<'a> {
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
-            let ri = self.pool.allocate(out);
+            let ri = self.pool.allocate();
             self.outs[out].ri = ri;
             time = max(time, self.regs[ri].time);
         }
