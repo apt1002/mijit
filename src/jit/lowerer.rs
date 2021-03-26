@@ -1,6 +1,6 @@
 use super::{code, x86_64};
 use x86_64::*;
-use code::{Action, TestOp, Precision, Value};
+use code::{Action, TestOp, Precision, Slot, Value};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -41,20 +41,20 @@ impl <'a> Lowerer<'a> {
         }
     }
 
-    /** Returns the offset of slot `index` in the persistent data. */
-    fn slot_offset(&self, index: usize) -> i32 {
+    /** Returns the offset of `slot` in the persistent data. */
+    fn slot_offset(&self, slot: Slot) -> i32 {
         // TODO: Factor out pool index calculation.
-        ((index + 1) * 8) as i32
+        ((slot.0 + 1) * 8) as i32
     }
 
-    /** Load slot `index` into `dest`. */
-    fn load_slot(&mut self, dest: Register, index: usize) {
-        self.a.load(P64, dest, (R8, self.slot_offset(index)));
+    /** Load `slot` into `dest`. */
+    fn load_slot(&mut self, dest: Register, slot: Slot) {
+        self.a.load(P64, dest, (R8, self.slot_offset(slot)));
     }
 
-    /** Store `src` into slot `index`. */
-    fn store_slot(&mut self, index: usize, src: Register) {
-        self.a.store(P64, (R8, self.slot_offset(index)), src);
+    /** Store `src` into `slot`. */
+    fn store_slot(&mut self, slot: Slot, src: Register) {
+        self.a.store(P64, (R8, self.slot_offset(slot)), src);
     }
 
     /**
@@ -64,25 +64,9 @@ impl <'a> Lowerer<'a> {
     fn src_to_register(&mut self, src: Value, reg: Register) -> Register {
         match src {
             Value::Register(src) => src,
-            Value::Slot(index) => {
-                self.load_slot(reg, index);
+            Value::Slot(slot) => {
+                self.load_slot(reg, slot);
                 reg
-            },
-        }
-    }
-
-    /**
-     * If `dest` is a Register, passes it to `callback`, otherwise passes `TEMP`
-     * to `callback` then stores it.
-     */
-    fn dest_to_register(&mut self, dest: Value, callback: impl FnOnce(&mut Lowerer<'a>, Register)) {
-        match dest {
-            Value::Register(dest) => {
-                callback(self, dest);
-            },
-            Value::Slot(index) => {
-                callback(self, TEMP);
-                self.store_slot(index, TEMP);
             },
         }
     }
@@ -412,9 +396,7 @@ impl <'a> Lowerer<'a> {
                 self.a.push(src);
             },
             Action::Pop(dest) => {
-                self.dest_to_register(dest, |l, dest| {
-                    l.a.pop(dest);
-                });
+                self.a.pop(dest);
             },
             Action::Debug(x) => {
                 let x = self.src_to_register(x, TEMP);

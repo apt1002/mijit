@@ -8,9 +8,9 @@ use Register::{RA};
 pub enum State {Start, Loop, Return}
 
 pub mod reg {
-    use super::{Value};
-    pub const N: Value = Value::Slot(0);
-    pub const RESULT: Value = Value::Slot(1);
+    use super::{Slot, Value};
+    pub const N: Value = Value::Slot(Slot(0));
+    pub const RESULT: Value = Value::Slot(Slot(1));
 }
 
 #[derive(Debug)]

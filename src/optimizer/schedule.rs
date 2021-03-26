@@ -1,325 +1,166 @@
-use std::{cmp, fmt};
-use std::collections::{HashMap};
+use std::cmp::{Reverse};
+use std::fmt::{self, Debug, Formatter};
+use std::iter::{Iterator};
+use std::num::{NonZeroUsize};
 
-use crate::util::{RcEq};
-use super::dataflow::{Node, Op};
-use super::pressure::{Life, Pressure};
-
-// TODO: Move to architecture abstraction layer.
-pub const PARALLELISM: usize = 3;
-
-/** Records all information about one cycle of the schedule. */
-#[derive(Debug)]
-struct Cycle {
-    /** Execution resources not yet used in this cycle. */
-    pub available: usize,
-    /** Instructions we intend to execute in this cycle, in reverse order. */
-    pub nodes: Vec<RcEq<Node>>,
-}
-
-impl Cycle {
-    pub fn new() -> Self {
-        Cycle {available: PARALLELISM, nodes: Vec::new()}
-    }
-
-    fn fits(&self, node: &Node) -> bool {
-        self.available >= node.op.cost()
-    }
-}
-
-//-----------------------------------------------------------------------------
+use crate::util::{ArrayMap, CommaSeparated};
+use super::{Dataflow, Node, Out};
 
 /**
- * Time is measured in cycles backwards from the end of the Schedule, and
- * instructions backwards within a cycle.
+ * Represents a place where an [`Out`] is used in a [`Schedule`].
+ * `u < v` means `u` occurs before `v` in the [`Schedule`].
  */
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Time {
-    cycle: cmp::Reverse<usize>,
-    instruction: cmp::Reverse<usize>,
-}
-
-impl fmt::Debug for Time {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.debug_tuple("Time")
-            .field(&self.cycle)
-            .field(&self.instruction)
-            .finish()
-    }
-}
-
-impl std::ops::Sub<usize> for Time {
-    type Output = Self;
-
-    fn sub(self, rhs: usize) -> Self::Output {
-        if rhs == 0 {
-            self
-        } else {
-            Time {
-                cycle: cmp::Reverse(self.cycle.0 + rhs),
-                instruction: cmp::Reverse(0),
-            }
-        }
-    }
-}
-
-pub const EARLY: Time = Time {cycle: cmp::Reverse(usize::MAX), instruction: cmp::Reverse(0)};
-pub const LATE: Time = Time {cycle: cmp::Reverse(0), instruction: cmp::Reverse(0)};
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Use(
+    /** The number of times any `Out` is read after this `Use`. */ 
+    Reverse<usize>,
+);
 
 /**
- * Usage information about a Node in a WorkList. Information is collected
- * incrementally as references to the Node are processed.
+ * Represent a list of places where an [`Out`] is used.
+ * The union of all the `UseList`s for a [`Schedule`] is the numbers from `0`
+ * to `n-1` where `n` is the total number of times any `Out` is read during the
+ * `Schedule`.
  */
-#[derive(Debug)]
-struct Usage {
-    /** The number of Nodes which depend on the Node. */
-    pub num_uses: usize,
-    /** The lifetime of the result of the Node. */
-    pub life: Life<Time>,
-}
+#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
+struct UseList(
+    /** 1 + the first `Use`, if any. */
+    Option<NonZeroUsize>
+);
 
-impl Usage {
-    pub fn new() -> Self {
-        Usage {num_uses: 1, life: Life::new(LATE, EARLY)}
+impl UseList {
+    pub fn new(next: usize) -> Self {
+        UseList(NonZeroUsize::new(next + 1))
+    }
+
+    pub fn first(self) -> Option<Use> {
+        self.0.map(|n| Use(Reverse(n.get() - 1)))
     }
 }
 
-/** Usage information about Nodes in a WorkList. */
-#[derive(Debug)]
-struct WorkList {
-    /** Usage for every Node on which any of the `roots` depends. */
-    // TODO: Rename infos → usages
-    pub infos: HashMap<RcEq<Node>, Usage>,
-    pub inputs: Vec<RcEq<Node>>,
+/**
+ * An approximation of the order in which we'd like to execute some [`Node`]s.
+ *
+ * `Schedule` implements [`Iterator`] and yields the `Node`s in order.
+ *
+ * Schedule also maintains a data structure to keep track of where [`Out`]s
+ * are used. At any point, you can query the `Schedule` and find out all future
+ * [`Use`]s of an `Out`.
+ */
+pub struct Schedule<'a> {
+    pub dataflow: &'a Dataflow,
+    nodes: Vec<Node>,
+    firsts: ArrayMap<Out, UseList>,
+    nexts: Vec<UseList>,
 }
 
-impl WorkList {
-    pub fn new() -> Self {
-        WorkList {infos: HashMap::new(), inputs: Vec::new()}
-    }
-
+impl<'a> Schedule<'a> {
     /**
-     * Ensure that all dependencies of `node` are in `infos`, incrementing
-     * usage counts as we go.
+     * - dataflow - The [`Dataflow`] used to look up information about [`Node`]s.
+     * - nodes - The live [`Node`]s in the order we want to process them.
+     * - exit_node - The [`Node`] representing the [`Convention`] on exit.
      */
-    pub fn find_dependencies(&mut self, node: &RcEq<Node>) {
-        if let Some(usage) = self.infos.get_mut(&node) {
-            // We have already seen this Node.
-            usage.num_uses += 1;
-        } else {
-            for (o, _) in node.op.operands() {
-                self.find_dependencies(o);
-            }
-            for d in node.op.dependencies() {
-                self.find_dependencies(d);
-            }
-            self.infos.insert(node.clone(), Usage::new());
-        }
-    }
-
-    /**
-     * Add `node` and its unshared dependencies to `schedule`, decrementing
-     * usage counts as we go, such that the result of `node` is valid for at
-     * least `life`.
-     */
-    pub fn schedule(
-        &mut self,
-        node: &RcEq<Node>,
-        life: Life<Time>,
-        schedule: &mut Schedule,
-    ) {
-        let usage = self.infos.get_mut(node).unwrap();
-        usage.life |= life;
-        assert!(usage.num_uses > 0);
-        usage.num_uses -= 1;
-        if usage.num_uses > 0 {
-            // We have not yet found all Nodes that depend on `node`.
-            // We will revisit it later, via the other Nodes.
-            return;
-        }
-
-        // We have all the required info about `node`. Schedule it.
-        if let Op::Input(_) = node.op {
-            self.inputs.push(node.clone());
-            return;
-        }
-        schedule.choose_cycle(node, &mut usage.life);
-        schedule.choose_register(node, &usage.life);
-
-        // Operands of `node` must live until the result is born.
-        let dies = usage.life.born;
-
-        // Recursively schedule `node`'s dependencies.
-        let mut queue = Vec::new();
-        for (o, latency) in node.op.operands() {
-            let born = dies - latency;
-            queue.push((o, Life::new(born, dies)));
-        }
-        for d in node.op.dependencies() {
-            queue.push((d, Life::new(dies, dies)));
-        }
-        // TODO: Sort `queue`.
-        for (i, life) in queue {
-            // FIXME: No need to allocate a register for dependencies!
-            self.schedule(i, life, schedule);
-        }
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-#[derive(Debug)]
-struct NodeInfo {
-    /** The lifetime of the result of the Node. */
-    life: Life<Time>,
-    /** The logical register (if any) which will hold the result. */
-    register: Option<usize>,
-}
-
-/** An instruction schedule. */
-pub struct Schedule {
-    /** The Cycles we're allocating, in reverse order: 0 is the last Cycle. */
-    cycles: Vec<Cycle>,
-    /** The Input Nodes, which are notionally at the beginning of time. */
-    inputs: Vec<RcEq<Node>>,
-    /** NodeInfo for every Node in the schedule. */
-    infos: HashMap<RcEq<Node>, NodeInfo>,
-    /** Register pressure as a function of time. */
-    pressure: Pressure<Time, RcEq<Node>>,
-}
-
-impl fmt::Debug for Schedule {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        f.debug_struct("Schedule")
-            .field("cycles", &self.cycles)
-            .field("inputs", &self.inputs)
-            .field("infos", &self.infos)
-            .finish()
-    }
-}
-
-impl Schedule {
-    /**
-     * Compute a Schedule that includes each of `roots` and its dependencies.
-     */
-    pub fn new(roots: Vec<(RcEq<Node>, Time)>) -> Self {
-        let mut work_list = WorkList::new();
-        for &(ref node, _) in &roots {
-            work_list.find_dependencies(node);
-        }
+    pub fn new(dataflow: &'a Dataflow, nodes: &[Node], exit_node: Node) -> Self {
         let mut schedule = Schedule {
-            cycles: Vec::new(),
-            inputs: Vec::new(),
-            infos: HashMap::new(),
-            pressure: Pressure::new(|| LATE),
+            dataflow: dataflow,
+            nodes: Vec::with_capacity(nodes.len()),
+            firsts: dataflow.out_map(),
+            nexts: Vec::new(),
         };
-        for &(ref node, time) in &roots {
-            work_list.schedule(node, Life::new(time, time), &mut schedule);
+        for &in_ in schedule.dataflow.ins(exit_node).iter().rev() {
+            schedule.push(in_);
         }
-        for node in &work_list.inputs {
-            let usage = work_list.infos.get_mut(&node).expect("missing Usage");
-            usage.life.born = EARLY;
-            schedule.choose_register(node, &usage.life);
-            schedule.inputs.push(node.clone());
+        for &node in nodes.iter().rev() {
+            schedule.nodes.push(node);
+            for &in_ in schedule.dataflow.ins(node).iter().rev() {
+                schedule.push(in_);
+            }
         }
         schedule
     }
 
-    fn fits(&self, node: &Node, cycle: usize) -> bool {
-        if cycle >= self.cycles.len() {
-            return true;
-        }
-        self.cycles[cycle].fits(node)
-    }
-
-    pub fn choose_register(
-        &mut self,
-        node: &RcEq<Node>,
-        life: &Life<Time>,
-    ) {
-        let register = self.pressure
-            .allocate_register(life.clone(), node.clone())
-            .map(|(register, previous_node)| {
-                if let Some(previous_node) = previous_node {
-                    // Steal `register` from `previous_node`. Spill the latter.
-                    let mut info = self.infos.get_mut(&previous_node).expect("missing NodeInfo");
-                    assert_eq!(info.register, Some(register));
-                    info.register = None;
-                }
-                register
-            });
-        self.infos.insert(node.clone(), NodeInfo {life: life.clone(), register});
+    /** Push the next `Use` onto the `UseList` for `out`. */
+    fn push(&mut self, out: Out) {
+        let next = self.firsts[out];
+        self.firsts[out] = UseList::new(self.nexts.len());
+        self.nexts.push(next);
     }
 
     /**
-     * Finds a cycle in which `node` can be executed. The chosen cycle will be
-     * as late as possible but no later than `life.born`. `node` is stored in
-     * the Schedule and its execution resources are deducted. `life.born` is
-     * set to the Time just before `node` in the Schedule; `life` will
-     * therefore contain `node`.
+     * Pop the next `Use`, asserting that it is the first `Use` of `out`.
      */
-    pub fn choose_cycle(
-        &mut self,
-        node: &RcEq<Node>,
-        life: &mut Life<Time>,
-    ) {
-        let latest = *self.pressure.latest_time_with_unused_register();
-        assert_ne!(latest, EARLY);
-        life.born = cmp::min(life.born, latest);
-        while !self.fits(&*node, life.born.cycle.0) {
-            life.born = life.born - 1;
-        }
-        while self.cycles.len() <= life.born.cycle.0 {
-            self.cycles.push(Cycle::new());
-        }
-        let mut cycle = &mut self.cycles[life.born.cycle.0];
-        assert!(life.born.instruction.0 <= cycle.nodes.len());
-        cycle.nodes.push(node.clone());
-        life.born.instruction.0 = cycle.nodes.len();
-        cycle.available -= node.op.cost();
+    fn pop(&mut self, out: Out) {
+        let next = self.nexts.pop().expect("Popped from an empty Schedule");
+        assert_eq!(self.firsts[out], UseList::new(self.nexts.len()));
+        self.firsts[out] = next;
     }
 
-    /** Yields the Input Nodes. */
-    pub fn inputs<'a>(&'a self) -> impl 'a + Iterator<Item=(&'a RcEq<Node>, Life<Time>, Option<usize>)> {
-        self.inputs.iter().map(move |node| {
-            let info = self.infos.get(node).expect("missing NodeInfo");
-            (node, info.life, info.register)
-        })
+    pub fn first_use(&self, out: Out) -> Option<Use> {
+        self.firsts[out].first()
     }
+}
 
-    /** Yields the Nodes in the order that we've decided to execute them. */
-    pub fn iter<'a>(&'a self) -> impl 'a + Iterator<Item=(&'a RcEq<Node>, Life<Time>, Option<usize>)> {
-        self.cycles.iter().rev().flat_map(|cycle| {
-            cycle.nodes.iter().rev()
-        }).map(move |node| {
-            let info = self.infos.get(node).expect("missing NodeInfo");
-            (node, info.life, info.register)
+impl<'a> Debug for Schedule<'a> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.debug_struct("Schedule")
+            .field("dataflow", self.dataflow)
+            .field("nodes", &CommaSeparated(|| &self.nodes))
+            .finish()
+    }
+}
+
+impl<'a> Iterator for Schedule<'a> {
+    type Item = Node;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.nodes.pop().map(|node| {
+            for &in_ in self.dataflow.ins(node) {
+                self.pop(in_);
+            }
+            node
         })
     }
 }
 
+//-----------------------------------------------------------------------------
+
 #[cfg(test)]
-pub mod tests {
+mod tests {
     use super::*;
+    use super::super::{Op};
 
     #[test]
-    pub fn time_ord() {
-        const TIMES: [Time; 5] = [
-            EARLY,
-            Time {cycle: cmp::Reverse(2), instruction: cmp::Reverse(2)},
-            Time {cycle: cmp::Reverse(2), instruction: cmp::Reverse(0)},
-            Time {cycle: cmp::Reverse(0), instruction: cmp::Reverse(2)},
-            LATE,
-        ];
-        for i in 0..(TIMES.len()) {
-            for j in 0..(TIMES.len()) {
-                let expected = i <= j;
-                let observed = TIMES[i] <= TIMES[j];
-                if expected != observed {
-                    println!("i = {:#?}, j = {:#?}, expected = {:#?}, observed = {:#?}", i, j, expected, observed);
-                    panic!("expected != observed");
-                }
-            }
-        }
+    /** Test that Schedule keeps track of the uses of `Out`s. */
+    pub fn test() {
+        let mut d = Dataflow::new(2);
+        let mut it = d.outs(d.entry_node());
+        let out0 = it.next().unwrap();
+        let out1 = it.next().unwrap();
+        let node1 = d.add_node(Op::Convention, &[], &[out0, out1], 1);
+        let mut it = d.outs(node1);
+        let out2 = it.next().unwrap();
+        let node2 = d.add_node(Op::Convention, &[], &[out0, out2], 1);
+        let mut it = d.outs(node2);
+        let out3 = it.next().unwrap();
+        let node3 = d.add_node(Op::Convention, &[], &[out2, out3], 1);
+        let mut it = d.outs(node3);
+        let out4 = it.next().unwrap();
+        let exit_node = d.add_node(Op::Convention, &[], &[out4], 0);
+        let mut schedule = Schedule::new(&d, &[node1, node2, node3], exit_node);
+        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(6))));
+        assert_eq!(schedule.first_use(out1), Some(Use(Reverse(5))));
+        assert_eq!(schedule.next(), Some(node1));
+        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(4))));
+        assert_eq!(schedule.first_use(out1), None);
+        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(3))));
+        assert_eq!(schedule.next(), Some(node2));
+        assert_eq!(schedule.first_use(out0), None);
+        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(2))));
+        assert_eq!(schedule.first_use(out3), Some(Use(Reverse(1))));
+        assert_eq!(schedule.next(), Some(node3));
+        assert_eq!(schedule.first_use(out2), None);
+        assert_eq!(schedule.first_use(out3), None);
+        assert_eq!(schedule.first_use(out4), Some(Use(Reverse(0))));
+        assert_eq!(schedule.next(), None);
     }
 }

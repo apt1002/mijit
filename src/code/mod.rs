@@ -18,7 +18,7 @@
  * Booleans results are returned as `0` or `-1`.
  */
 
-use std::fmt::{self, Debug};
+use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 
 pub use super::x86_64::{Register, Precision};
@@ -26,19 +26,35 @@ pub use super::x86_64::{Register, Precision};
 // Not currently used. Planned for #11.
 pub mod clock;
 
+/** A spill slot. */
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Slot(pub usize);
+
+impl Debug for Slot {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Slot({})", self.0)
+    }
+}
+
 /** A spill slot or register. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
-    Slot(usize),
+    Slot(Slot),
     Register(Register),
 }
 
 impl Debug for Value {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str(&match self {
-            Value::Slot(n) => format!("Slot({})", n),
+            Value::Slot(s) => format!("{:#?}", s),
             Value::Register(r) => format!("{:#?}", r),
         })
+    }
+}
+
+impl From<Slot> for Value {
+    fn from(v: Slot) -> Self {
+        Value::Slot(v)
     }
 }
 
@@ -175,7 +191,7 @@ pub enum Action {
     Load(Register, (Value, Width), AliasMask),
     Store(Value, (Register, Width), AliasMask),
     Push(Value),
-    Pop(Value),
+    Pop(Register),
     Debug(Value),
 }
 

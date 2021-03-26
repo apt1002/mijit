@@ -1,256 +1,252 @@
-use std::cmp::{max};
-use std::collections::{HashMap};
-use std::fmt::{Debug};
-use std::hash::{Hash};
-use crate::util::{RcEq};
+use std::fmt::{self, Debug, Formatter};
 
-use super::code::{Value, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
-
-/** The latencies of common instructions, in clock cycles. */
-pub mod latency {
-    pub const ALU: usize = 1;
-    pub const AGU: usize = 3;
-    pub const CMOV: usize = 2;
-    pub const MUL: usize = 3;
-}
+use crate::util::{AsUsize, ArrayMap, CommaSeparated};
+use super::{Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
 
-/**
- * The unit of instruction reordering and scheduling.
- * Ops are often single instructions.
- * R is the type of word-sized operands.
- * T is the type of zero-sized dependencies, e.g. memory ordering.
- */
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum Op<R, T> {
-    Input(Value),
-    Constant(Precision, i64),
-    Unary(UnaryOp, Precision, R),
-    Binary(BinaryOp, Precision, R, R),
-    Load((Width, R), Vec<T>, AliasMask),
-    Store((Width, R), R, Vec<T>, AliasMask),
-    Push(R, Option<T>),
-    Pop(Option<T>),
-    Debug(R, Option<T>),
+/** A node in a Dataflow graph. */
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Node(usize);
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Node({})", self.0)
+    }
 }
-use Op::*;
 
-impl<R, T> Op<R, T> {
-    /** Returns all the operands of this Op, and their latencies in cycles. */
-    pub fn operands(&self) -> Vec<(&R, usize)> {
-        use latency::*;
-        use UnaryOp::*;
-        use BinaryOp::*;
-        match self {
-            &Unary(op, _, ref x) => match op {
-                Abs => vec![(x, latency::CMOV)],
-                Negate | Not => vec![(x, ALU)],
-            },
-            &Binary(op, _, ref x, ref y) => match op {
-                Add | Sub | Lsl | Lsr | Asr | And | Or | Xor => vec![(x, ALU), (y, ALU)],
-                Mul => vec![(x, MUL), (y, MUL)],
-                Lt | Ult | Eq | Max | Min => vec![(x, CMOV), (y, CMOV)],
-            },
-            &Load((_, ref addr), _, _) => vec![(addr, AGU)],
-            &Store((_, ref addr), ref x, _, _) => vec![(addr, AGU), (x, ALU)],
-            &Push(ref x, _) => vec![(x, ALU)],
-            &Debug(ref x, _) => vec![(x, ALU)],
-            _ => vec![],
-        }
+impl AsUsize for Node {
+    fn as_usize(self) -> usize { self.0 }
+}
+
+/** Indicates an absent `Node`. */
+pub const DUMMY_NODE: Node = Node(usize::MAX);
+
+/** A value produced by a [`Node`] in a Dataflow graph. */
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Out(usize);
+
+impl Debug for Out {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Out({})", self.0)
     }
+}
 
-    /** Returns all the non-dataflow dependencies of this Op. */
-    pub fn dependencies(&self) -> Vec<&T> {
-        match self {
-            &Load((_, _), ref ts, _) => ts.iter().collect(),
-            &Store((_, _), _, ref ts, _) => ts.iter().collect(),
-            &Push(_, ref t) => t.iter().collect(),
-            &Pop(ref t) => t.iter().collect(),
-            &Debug(_, ref t) => t.iter().collect(),
-            _ => vec![],
-        }
-    }
+impl AsUsize for Out {
+    fn as_usize(self) -> usize { self.0 }
+}
 
-    /** Returns the amount of execution resources needed to execute this Op. */
-    pub fn cost(&self) -> usize {
-        // For now, just count the x86 instructions in the best case.
-        use UnaryOp::*;
-        use BinaryOp::*;
-        match self {
-            &Input(_) => 0,
-            &Unary(op, _, _) => match op {
-                Abs => 3,
-                Negate => 2,
-                Not => 1,
-            },
-            &Binary(op, _, _, _) => match op {
-                Add | Sub | Mul | Lsl | Lsr | Asr | And | Or | Xor => 1,
-                Lt | Ult | Eq | Max | Min => 3,
-            },
-            &Debug(_, _) => 0, // Pretend that debugging is free.
-            _ => 1,
+/** Indicates an absent `Out`. */
+pub const DUMMY_OUT: Out = Out(usize::MAX);
+
+//-----------------------------------------------------------------------------
+
+/** Helper for `<Dataflow as Debug>::fmt()`. Represents a Node. */
+struct NodeAdapter<'a> {
+    dataflow: &'a Dataflow,
+    node: Node,
+}
+
+impl<'a> Debug for NodeAdapter<'a> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "{:?}: ({:?}) <- {:?} ({:?})",
+            self.node,
+            CommaSeparated(|| self.dataflow.outs(self.node)),
+            self.dataflow.op(self.node),
+            CommaSeparated(|| self.dataflow.ins(self.node)),
+        )?;
+        let deps = self.dataflow.deps(self.node);
+        if deps.len() > 0 {
+            write!(f, " after ({:?})", CommaSeparated(|| deps))?;
         }
+        Ok(())
     }
 }
 
 //-----------------------------------------------------------------------------
 
-/**
- * A node of the dataflow graph represents an Op, and relates it to other Ops
- * that must be executed earlier.
- */
-#[derive(Debug)]
-pub struct Node {
-    /** The Op represented by this Node. */
-    pub op: Op<RcEq<Node>, RcEq<Node>>,
-    /**
-     * The number of clock cycles needed to evaluate this Node and all its
-     * dependencies, given infinite parallelism.
-     */
-    pub depth: usize,
-    /**
-     * The number of stack slots needed to evaluate this Node and all its
-     * dependencies, on a pure sequential stack machine, without sharing any
-     * subexpressions.
-     */
-    pub breadth: usize,
+/** The internal representation of a [`Node`]. */
+#[derive(Clone)]
+struct Info {
+    /** What kind of operation the Node represents. */
+    op: Op,
+    /** A cache of `op_cost(op)`, or `Node` if `op` is `Convention`. */
+    cost: Option<&'static Cost>,
+    /** The index in [`Dataflow::deps`] after the last dep of the Node. */
+    end_dep: usize,
+    /** The index in [`Dataflow::ins`] after the last In of the Node. */
+    end_in: usize,
+    /** The index in [`Dataflow::outs`] after the last Out of the Node. */
+    end_out: usize,
 }
-
-impl Node {
-    pub fn new(
-        op: Op<RcEq<Node>, RcEq<Node>>,
-    ) -> Self {
-        let mut depth = 0;
-        let mut breadths = Vec::new();
-        for (operand, latency) in op.operands() {
-            depth = max(depth, operand.depth + latency);
-            breadths.push(operand.breadth);
-        }
-        breadths.sort();
-        let mut breadth = 0;
-        for i in 0..breadths.len() {
-            breadth = max(breadth, breadths.len() - i + breadths[i]);
-        }
-        Node {op, depth, breadth}
-    }
-}
-
-//-----------------------------------------------------------------------------
 
 /**
- * Represents the state of a simulated execution of some [`Action`]s.
+ * Represents a dataflow graph of some code.
+ * The nodes are [`Node`]s, and edges lead from an [`Out`] to an [`In`].
+ *
+ * There is a dummy `Node` that has an output for each [`Value`] that is live
+ * on entry to the Dataflow.
  */
-#[derive(Debug)]
-pub struct Simulation {
-    /** Maps each Value to the corresponding [`Node`], if any. */
-    bindings: HashMap<Value, RcEq<Node>>,
-    /** The most recent Store instruction, if any. */
-    store: Option<RcEq<Node>>,
-    /** All memory accesses instructions since `store`, including `store`. */
-    loads: Vec<RcEq<Node>>,
-    /** The most recent stack operation, if any. */
-    stack: Option<RcEq<Node>>,
+#[derive(Clone)]
+pub struct Dataflow {
+    /** One per Node. */
+    nodes: Vec<Info>,
+    /** One per non-dataflow dependency. Gives a predecessor Node. */
+    deps: Vec<Node>,
+    /** One per In. Connects the In to the Out. */
+    ins: Vec<Out>,
+    /** One per Out. Gives the Node that generates the Out. */
+    outs: Vec<Node>,
 }
 
-impl Simulation {
-    pub fn new(live_values: &[Value]) -> Self {
-        // TODO: Take a list of live values and make Op::Inputs for them.
-        Simulation {
-            bindings: live_values.iter().map(|&value| {
-                (value, RcEq::new(Node::new(Op::Input(value))))
-            }).collect(),
-            store: None,
-            loads: Vec::new(),
-            stack: None,
-        }
-    }
-
-    /** Bind `value` to `node`. */
-    pub fn bind(&mut self, value: Value, node: RcEq<Node>) {
-        self.bindings.insert(value, node);
-    }
-
-    /** Returns the `Node` bound to `value`, or a fresh `Input`. */
-    pub fn lookup(&self, value: Value) -> RcEq<Node> {
-        self.bindings.get(&value).expect("Read a dead value").clone()
-    }
-
-    /** Returns a Node representing the result of `op`. */
-    fn op(&mut self, op: Op<RcEq<Node>, RcEq<Node>>) -> RcEq<Node> {
-        // TODO: CSE.
-        RcEq::new(Node::new(op))
-    }
-
-    pub fn action(&mut self, action: &Action) {
-        match *action {
-            Action::Move(dest, src) => {
-                let node = self.lookup(src);
-                self.bind(dest, node);
-            },
-            Action::Constant(prec, dest, value) => {
-                let node = self.op(Op::Constant(prec, value));
-                self.bind(dest, node);
-            },
-            Action::Unary(op, prec, dest, src) => {
-                let src = self.lookup(src);
-                let node = self.op(Op::Unary(op, prec, src));
-                self.bind(dest, node);
-            },
-            Action::Binary(op, prec, dest, src1, src2) => {
-                let src1 = self.lookup(src1);
-                let src2 = self.lookup(src2);
-                let node = self.op(Op::Binary(op, prec, src1, src2));
-                self.bind(dest, node);
-            },
-            Action::Load(dest, (addr, width), alias_mask) => {
-                // TODO: Use AliasMask.
-                let addr = self.lookup(addr);
-                let deps: Vec<_> = self.store.iter().cloned().collect();
-                let node = self.op(Op::Load((width, addr), deps, alias_mask));
-                self.loads.push(node.clone());
-                self.bind(dest, node);
-            },
-            Action::Store(src, (addr, width), alias_mask) => {
-                // TODO: Use AliasMask.
-                let src = self.lookup(src);
-                let addr = self.lookup(addr);
-                let mut deps = vec![];
-                std::mem::swap(&mut deps, &mut self.loads);
-                let node = self.op(Op::Store((width, addr), src, deps, alias_mask));
-                self.loads.push(node.clone());
-                self.store = Some(node);
-            },
-            Action::Push(src) => {
-                let src = self.lookup(src);
-                let node = self.op(Op::Push(src, self.stack.clone()));
-                self.stack = Some(node);
-            },
-            Action::Pop(dest) => {
-                let node = self.op(Op::Pop(self.stack.clone()));
-                self.bind(dest, node.clone());
-                self.stack = Some(node);
-            },
-            Action::Debug(src) => {
-                let src = self.lookup(src);
-                let node = self.op(Op::Debug(src, self.stack.clone()));
-                self.stack = Some(node);
-            },
+impl Dataflow {
+    /** Construct a `Dataflow` with `num_inputs` values live on entry. */
+    pub fn new(num_inputs: usize) -> Self {
+        let mut ret = Dataflow {
+            nodes: Vec::new(),
+            deps: Vec::new(),
+            ins: Vec::new(),
+            outs: Vec::new(),
         };
+        ret.add_node(Op::Convention, &[], &[], num_inputs);
+        ret
+    }
+
+    /** Returns the entry [`Node`]. */
+    pub fn entry_node(&self) -> Node {
+        Node(0)
+    }
+
+    /** Returns the [`Info`] about `node`. */
+    fn info(&self, node: Node) -> &Info {
+        &self.nodes[node.as_usize()]
     }
 
     /**
-     * Returns the [`Node`]s that do not compute a result but which must
-     * nonetheless be executed. This includes stores and stack operations.
+     * Returns an [`Op`] indicating what kind of operation `node` represents.
      */
-    pub fn implicit_dependencies(&self) -> Vec<RcEq<Node>> {
-        let mut ret = Vec::new();
-        if let Some(ref node) = self.store {
-            ret.push(node.clone());
+    pub fn op(&self, node: Node) -> Op {
+        self.info(node).op
+    }
+
+    /** Equivalent to `op_cost(self.op(node))` but faster. */
+    pub fn cost(&self, node: Node) -> &'static Cost {
+        self.info(node).cost.expect("Cannot execute Op::Convention")
+    }
+
+    /**
+     * Tests whether `node` is the dummy [`Node`] that represents the Values
+     * that are live on entry to the Dataflow.
+     */
+    pub fn is_entry(&self, node: Node) -> bool {
+        node.as_usize() == 0
+    }
+
+    /** Returns the [`Info`] about the previous `node`, if any. */
+    fn prev(&self, node: Node) -> Option<&Info> {
+        if self.is_entry(node) {
+            None
+        } else {
+            Some(&self.nodes[node.as_usize() - 1])
         }
-        if let Some(ref node) = self.stack {
-            ret.push(node.clone());
-        }
-        ret
+    }
+
+    /** Returns the [`Node`]s which must be executed before `node`. */
+    pub fn deps(&self, node: Node) -> &[Node] {
+        let start_dep = if let Some(prev) = self.prev(node) {
+            prev.end_dep
+        } else {
+            0
+        };
+        &self.deps[start_dep .. self.info(node).end_dep]
+    }
+
+    /** Returns the [`Out`]s which are consumed by the inputs of `node`. */
+    pub fn ins(&self, node: Node) -> &[Out] {
+        let start_in = if let Some(prev) = self.prev(node) {
+            prev.end_in
+        } else {
+            0
+        };
+        &self.ins[start_in .. self.info(node).end_in]
+    }
+
+    /** Returns the number of [`Out`]s which are produced by `node`. */
+    pub fn num_outs(&self, node: Node) -> usize {
+        let start_out = if let Some(prev) = self.prev(node) {
+            prev.end_out
+        } else {
+            0
+        };
+        self.info(node).end_out - start_out
+    }
+
+    /** Returns the [`Out`]s which are produced by `node`. */
+    pub fn outs(&self, node: Node) -> impl Iterator<Item=Out> {
+        let start_out = if let Some(prev) = self.prev(node) {
+            prev.end_out
+        } else {
+            0
+        };
+        (start_out .. self.info(node).end_out).map(|index| Out(index))
+    }
+
+    /**
+     * Returns the [`Node`] which produces `out`, and the index of `out` among
+     * the outputs of the `Node`.
+     */
+    pub fn out(&self, out: Out) -> (Node, usize) {
+        let node = self.outs[out.as_usize()];
+        let start_out = if let Some(prev) = self.prev(node) {
+            prev.end_out
+        } else {
+            0
+        };
+        (node, out.as_usize() - start_out)
+    }
+
+    pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Out], num_outs: usize) -> Node {
+        let node = Node(self.nodes.len());
+        self.deps.extend(deps);
+        self.ins.extend(ins);
+        self.outs.extend((0..num_outs).map(|_| node));
+        self.nodes.push(Info {
+            op: op,
+            cost: op_cost(op),
+            end_dep: self.deps.len(),
+            end_in: self.ins.len(),
+            end_out: self.outs.len(),
+        });
+        node
+    }
+
+    /**
+     * Returns a fresh ArrayMap that initally associates `V::default()` with
+     * each [`Node`] of this Dataflow.
+     */
+    pub fn node_map<V: Default>(&self) -> ArrayMap<Node, V> {
+        ArrayMap::new(self.nodes.len())
+    }
+
+    /**
+     * Returns a fresh ArrayMap that initally associates `V::default()` with
+     * each output of each [`Node`] of this Dataflow.
+     */
+    pub fn out_map<V: Default>(&self) -> ArrayMap<Out, V> {
+        ArrayMap::new(self.outs.len())
+    }
+
+    /** Returns all [`Node`]s in the order they were added. */
+    pub fn all_nodes(&self) -> impl Iterator<Item=Node> {
+        (0..self.nodes.len()).map(|i| Node(i))
+    }
+}
+
+impl Debug for Dataflow {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        f.write_str("Dataflow")?;
+        f.debug_list().entries(self.all_nodes().map(
+            |n| NodeAdapter {dataflow: self, node: n}
+        )).finish()
     }
 }
