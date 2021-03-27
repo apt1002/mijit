@@ -1,3 +1,4 @@
+#[macro_use]
 pub mod util;
 
 pub mod x86_64;

@@ -79,6 +79,72 @@ impl<K: AsUsize, V> std::ops::IndexMut<K> for ArrayMap<K, V> {
         &mut self.0[index.as_usize()]
     }
 }
+
+//-----------------------------------------------------------------------------
+
+/**
+ * Declares a new type that wraps an array index but such that `Option<Self>`
+ * is the same size as `Self`. This is similar to `std::num::NonZeroXXX` except
+ * that the excluded value is the maximum value, not zero.
+ *
+ * Usage:
+ * ```
+ * array_index! {
+ *     /// Documentation.
+ *     #[attributes]
+ *     pub struct MyStruct(NonZeroU16) {
+ *         debug_name: "MyStruct",
+ *         UInt: u16,
+ *     }
+ * }
+ * ```
+ */
+macro_rules! array_index {
+    (
+        $(#[$struct_attributes: meta])*
+        pub struct $Name: ident(
+            $(#[$field_attributes: meta])*
+            $NonZeroUInt: ty
+        ) {
+            debug_name: $debug_name: expr,
+            UInt: $UInt: ty,
+        }
+    ) => {
+        $(#[$struct_attributes])*
+        #[repr(transparent)]
+        pub struct $Name(
+            $(#[$field_attributes])*
+            $NonZeroUInt
+        );
+
+        impl $Name {
+            pub const unsafe fn new_unchecked(index: $UInt) -> Self {
+                Self(<$NonZeroUInt>::new_unchecked(index + 1))
+            }
+
+            pub const fn new(index: $UInt) -> Option<Self> {
+                match <$NonZeroUInt>::new(index + 1) {
+                    Some(index) => Some(Self(index)),
+                    None => None,
+                }
+            }
+        }
+
+        impl std::fmt::Debug for $Name {
+            fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+                use crate::util::AsUsize;
+                write!(f, "{}({:?})", $debug_name, self.as_usize())
+            }
+        }
+
+        impl crate::util::AsUsize for $Name {
+            fn as_usize(self) -> usize {
+                self.0.get() as usize - 1
+            }
+        }
+    }
+}
+
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]

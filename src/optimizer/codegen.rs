@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Formatter};
 use super::{Convention, NUM_REGISTERS, all_registers, Op, Schedule, RegisterPool, Placer, moves};
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
-use super::code::{Register, DUMMY_REG, Slot, Value, Action};
+use super::code::{Register, Slot, Value, Action};
 use crate::util::{ArrayMap, map_filter_max};
 
 //-----------------------------------------------------------------------------
@@ -41,8 +41,8 @@ impl Default for Instruction {
 pub struct OutInfo {
     /** The time at which the `Out` became available, or [`usize::MAX`]. */
     time: usize,
-    /** The `Register` allocated for the `Out`, or [`DUMMY_REG`]. */
-    reg: Register,
+    /** The `Register` allocated for the `Out`. */
+    reg: Option<Register>,
 }
 
 impl Debug for OutInfo {
@@ -55,7 +55,7 @@ impl Default for OutInfo {
     fn default() -> Self {
         OutInfo {
             time: usize::MAX,
-            reg: DUMMY_REG,
+            reg: None,
         }
     }
 }
@@ -122,7 +122,7 @@ impl<'a> CodeGen<'a> {
                     Value::Register(reg) => {
                         dirty[reg] = true;
                         regs[reg].out = out;
-                        outs[out].reg = reg;
+                        outs[out].reg = Some(reg);
                     },
                     Value::Slot(_) => {},
                 }
@@ -143,10 +143,9 @@ impl<'a> CodeGen<'a> {
         cg
     }
 
-    /** `true` if `out` is in a `Register`. */
-    fn is_reg(&self, out: Out) -> bool {
-        let reg = self.outs[out].reg;
-        reg != DUMMY_REG && self.regs[reg].out == out
+    /** Returns the [`Register`] containing `out`, if any. */
+    fn current_reg(&self, out: Out) -> Option<Register> {
+        self.outs[out].reg.filter(|&reg| self.regs[reg].out == out)
     }
 
     /** Record that we used `reg` at `time` (either reading or writing). */
@@ -165,7 +164,7 @@ impl<'a> CodeGen<'a> {
                     Some(self.schedule.first_use(self.regs[reg].out))
                 }
             });
-            let reg = Register::new(i.expect("No register is dirty"));
+            let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
             // Spill the `Register`.
             let out = self.regs[reg].out;
             let mut time = self.outs[out].time;
@@ -182,8 +181,10 @@ impl<'a> CodeGen<'a> {
         let mut time = 0; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
         for &in_ in df.ins(node) {
-            if self.schedule.first_use(in_).is_none() && self.is_reg(in_) {
-                self.pool.free(self.outs[in_].reg);
+            if self.schedule.first_use(in_).is_none() {
+                if let Some(reg) = self.current_reg(in_) {
+                    self.pool.free(reg);
+                }
             }
         }
         // Spill until we have enough registers to hold the outputs of `node`.
@@ -199,12 +200,12 @@ impl<'a> CodeGen<'a> {
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
             let reg = self.pool.allocate();
-            self.outs[out].reg = reg;
+            self.outs[out].reg = Some(reg);
             time = max(time, self.regs[reg].time);
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
-        if df.ins(node).iter().any(|&in_| !self.is_reg(in_)) {
+        if df.ins(node).iter().any(|&in_| self.current_reg(in_).is_none()) {
             // We can't be sure it's not still in a `Register`; this is a guess.
             resources += SLOT_COST;
         }
@@ -213,13 +214,13 @@ impl<'a> CodeGen<'a> {
         self.node_times[node] = time;
         // Record when the inputs were used.
         for &in_ in df.ins(node) {
-            if self.is_reg(in_) {
-                self.use_reg(self.outs[in_].reg, time);
+            if let Some(reg) = self.current_reg(in_) {
+                self.use_reg(reg, time);
             }
         }
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
-            self.regs[self.outs[out].reg] = RegInfo {time, out};
+            self.regs[self.outs[out].reg.unwrap()] = RegInfo {time, out};
             self.outs[out].time = time + latency as usize;
         }
     }
@@ -246,12 +247,16 @@ impl<'a> CodeGen<'a> {
             }
         }
         // Build the list of instructions.
+        let mut ins: Vec<Value> = Vec::new(); // Temporary workspace.
+        let mut outs: Vec<Register> = Vec::new(); // Temporary workspace.
         let mut ret: Vec<_> = self.placer.iter().map(|instruction| {
+            ins.clear();
+            outs.clear();
             match instruction {
                 &Absent => panic!("Absent instruction"),
                 &Spill(out) => {
                     assert!(spills[out].is_none()); // Not yet spilled.
-                    let reg = self.outs[out].reg;
+                    let reg = self.outs[out].reg.expect("Spilled a non-register");
                     assert!(regs[reg] == out); // Not yet overwritten.
                     let slot = Slot(num_slots);
                     num_slots += 1;
@@ -259,37 +264,35 @@ impl<'a> CodeGen<'a> {
                     Action::Move(slot.into(), reg.into())
                 },
                 &Node(n) => {
-                    let ins: Vec<Value> = df.ins(n).iter().map(|&in_| {
-                        let reg = self.outs[in_].reg;
-                        let src = if reg != DUMMY_REG && regs[reg] == in_ {
-                            reg.into()
-                        } else {
-                            spills[in_].expect("Value was overwritten but not spilled").into()
-                        };
-                        src
-                    }).collect();
-                    let outs: Vec<Register> = df.outs(n).map(|out| {
-                        let reg = self.outs[out].reg;
+                    ins.extend(df.ins(n).iter().map(|&in_| {
+                        match self.outs[in_].reg.filter(|&reg| regs[reg] == in_) {
+                            Some(reg) => Value::from(reg),
+                            None => Value::from(spills[in_]
+                                .expect("Value was overwritten but not spilled")
+                            ),
+                        }
+                    }));
+                    outs.extend(df.outs(n).map(|out| {
+                        let reg = self.outs[out].reg.expect("Wrote a non-register");
                         regs[reg] = out;
                         reg
-                    }).collect();
+                    }));
                     Op::to_action(df.op(n), &outs, &ins)
                 },
             }
         }).collect();
-        // Move all live values into the expected `Value`s.
-        // TODO: Find a way to schedule these `Move`s properly or eliminate them.
+        // Work out which live values need to be moved where.
         let dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
-                let reg = self.outs[out].reg;
-                let src = if reg != DUMMY_REG && regs[reg] == out {
-                    reg.into()
-                } else {
-                    spills[out].expect("Value was overwritten but not spilled").into()
+                let src = match self.outs[out].reg.filter(|&reg| regs[reg] == out) {
+                    Some(reg) => reg.into(),
+                    None => spills[out]
+                        .expect("Value was overwritten but not spilled")
+                        .into(),
                 };
                 (dest, src)
             }).collect();
-        // Allocate a temporary `Value` that is not in use.
+        // Allocate a temporary `Value` that is not live.
         // Use a `Register` if possible, otherwise allocate a `Slot`.
         let temp_reg: Value = all_registers()
             .map(|r| Value::from(r))
@@ -299,6 +302,8 @@ impl<'a> CodeGen<'a> {
                 num_slots += 1;
                 slot.into()
             });
+        // Move all live values into the expected `Value`s.
+        // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
         ret.extend(moves(dest_to_src, temp_reg).map(|(dest, src)| Action::Move(dest, src)));
         // Return.
         ret.shrink_to_fit();

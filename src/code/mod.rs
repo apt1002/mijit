@@ -29,50 +29,29 @@ pub mod clock;
 
 //-----------------------------------------------------------------------------
 
-/**
- * An index into [`ALLOCATABLE_REGISTERS`](1). Mijit guarantees a minimum set
- * [`REGISTERS`]. More are available non-portably.
- *
- * [`ALLOCATABLE_REGISTERS`]: `super::jit::lowerer::ALLOCATABLE_REGISTERS`
- */
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Register(u8);
-
-impl Register {
-    pub fn new(index: usize) -> Self {
-        assert_ne!(index, DUMMY_REG.0 as usize);
-        assert!(index <= u8::MAX as usize);
-        Register(index as u8)
-    }
-}
-
-impl Debug for Register {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Register({})", self.as_usize())
-    }
-}
-
-/** Indicates an absent Register. */
-// TODO: Remove this, use `std::num::NonZeroU8` in Register, and use
-// Option<Register> where we might want a Register to be absent.
-pub const DUMMY_REG: Register = Register(u8::MAX);
-
-impl Default for Register {
-    fn default() -> Self { DUMMY_REG }
-}
-
-impl AsUsize for Register {
-    fn as_usize(self) -> usize {
-        self.0 as usize
+array_index! {
+    /**
+     * An index into [`ALLOCATABLE_REGISTERS`](1). Mijit guarantees a minimum
+     * set [`REGISTERS`]. More are available non-portably.
+     *
+     * [`ALLOCATABLE_REGISTERS`]: `super::jit::lowerer::ALLOCATABLE_REGISTERS`
+     */
+    #[derive(Copy, Clone, PartialEq, Eq, Hash)]
+    pub struct Register(std::num::NonZeroU8) {
+        debug_name: "Register",
+        UInt: u8,
     }
 }
 
 /** Some [`Register`]s that are guaranteed to exist on all targets. */
-pub const REGISTERS: [Register; 12] = [
-    Register(0), Register(1), Register(2), Register(3),
-    Register(4), Register(5), Register(6), Register(7),
-    Register(8), Register(9), Register(10), Register(11),
-];
+pub const REGISTERS: [Register; 12] = unsafe {[
+    Register::new_unchecked(0), Register::new_unchecked(1),
+    Register::new_unchecked(2), Register::new_unchecked(3),
+    Register::new_unchecked(4), Register::new_unchecked(5),
+    Register::new_unchecked(6), Register::new_unchecked(7),
+    Register::new_unchecked(8), Register::new_unchecked(9),
+    Register::new_unchecked(10), Register::new_unchecked(11),
+]};
 
 /** A spill slot. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
