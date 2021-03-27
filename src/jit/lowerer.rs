@@ -1,15 +1,18 @@
 use super::{code, x86_64};
-use x86_64::*;
-use code::{Action, TestOp, Precision, Slot, Value};
+
+use crate::util::{AsUsize};
+use x86_64::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
+use code::{Action, TestOp, Slot};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
 use ShiftOp::*;
 
+//-----------------------------------------------------------------------------
 
 /**
  * The registers available for allocation. This differs from
- * `x86_64::ALL_REGISTERS` because:
+ * [`x86_64::ALL_REGISTERS`] because:
  *  - `RC` is used as temporary workspace.
  *  - `R8` holds the pool base address.
  */
@@ -19,21 +22,97 @@ pub const ALLOCATABLE_REGISTERS: [Register; 13] =
 
 const TEMP: Register = R12;
 
+impl From<code::Register> for Register {
+    fn from(r: code::Register) -> Self {
+        ALLOCATABLE_REGISTERS[r.as_usize()]
+    }
+}
+
+impl From<code::Width> for Width {
+    fn from(w: code::Width) -> Self {
+        use code::Width::*;
+        match w {
+            One => Width::U8,
+            Two => Width::U16,
+            Four => Width::U32,
+            Eight => Width::U64,
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+/**
+ * A low-level analogue of `code::Value`, which can hold unallocatable
+ * [`Register`]s.
+ */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+enum Value {
+    Register(Register),
+    Slot(Slot),
+}
+
+impl From<Register> for Value {
+    fn from(r: Register) -> Self {
+        Value::Register(r)
+    }
+}
+
+impl From<Slot> for Value {
+    fn from(s: Slot) -> Self {
+        Value::Slot(s)
+    }
+}
+
+impl From<code::Register> for Value {
+    fn from(r: code::Register) -> Self {
+        Value::Register(r.into())
+    }
+}
+
+impl From<code::Value> for Value {
+    fn from(v: code::Value) -> Self {
+        match v.into() {
+            code::Value::Register(reg) => reg.into(),
+            code::Value::Slot(slot) => slot.into(),
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 pub struct Lowerer<'a> {
+    // TODO: Remove "pub".
     pub a: Assembler<'a>,
 }
 
 impl <'a> Lowerer<'a> {
+    /** Put `value` in `dest`. */
+    fn const_(&mut self, prec: Precision, dest: impl Into<Register>, value: i64) {
+        let dest = dest.into();
+        self.a.const_(prec, dest, value);
+    }
+
+    /** Apply `op` to `dest` and `value`. */
+    fn const_op(&mut self, op: BinaryOp, prec: Precision, dest: impl Into<Register>, value: i32) {
+        let dest = dest.into();
+        self.a.const_op(op, prec, dest, value);
+    }
+
     /** Move `src` to `dest` if they are different. */
-    fn move_(&mut self, dest: Register, src: Register) {
+    fn move_(&mut self, dest: impl Into<Register>, src: impl Into<Register>) {
+        let dest = dest.into();
+        let src = src.into();
         if dest != src {
             self.a.move_(P64, dest, src);
         }
     }
 
     /** Move `src` to `TEMP` if `src` is `dest`. */
-    fn move_away_from(&mut self, src: Value, dest: Register) -> Value {
-        if src == Value::Register(dest) {
+    fn move_away_from(&mut self, src: impl Into<Value>, dest: impl Into<Register>) -> Value {
+        let src = src.into();
+        let dest = dest.into();
+        if src == dest.into() {
             self.move_(TEMP, dest);
             TEMP.into()
         } else {
@@ -48,12 +127,14 @@ impl <'a> Lowerer<'a> {
     }
 
     /** Load `slot` into `dest`. */
-    fn load_slot(&mut self, dest: Register, slot: Slot) {
+    fn load_slot(&mut self, dest: impl Into<Register>, slot: Slot) {
+        let dest = dest.into();
         self.a.load(P64, dest, (R8, self.slot_offset(slot)));
     }
 
     /** Store `src` into `slot`. */
-    fn store_slot(&mut self, slot: Slot, src: Register) {
+    fn store_slot(&mut self, slot: Slot, src: impl Into<Register>) {
+        let src = src.into();
         self.a.store(P64, (R8, self.slot_offset(slot)), src);
     }
 
@@ -61,7 +142,9 @@ impl <'a> Lowerer<'a> {
      * If `src` is a Register, returns it, otherwise loads it into `reg` and
      * returns `reg`.
      */
-    fn src_to_register(&mut self, src: Value, reg: Register) -> Register {
+    fn src_to_register(&mut self, src: impl Into<Value>, reg: impl Into<Register>) -> Register {
+        let src = src.into();
+        let reg = reg.into();
         match src {
             Value::Register(src) => src,
             Value::Slot(slot) => {
@@ -75,7 +158,9 @@ impl <'a> Lowerer<'a> {
      * Calls `a.op()` or `a.load_op()` depending on whether `src` is a Register
      * or a Slot.
      */
-    fn value_op(&mut self, op: BinaryOp, prec: Precision, dest: Register, src: Value) {
+    fn value_op(&mut self, op: BinaryOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Value>) {
+        let dest = dest.into();
+        let src = src.into();
         match src {
             Value::Register(src) => {
                 self.a.op(op, prec, dest, src);
@@ -86,7 +171,9 @@ impl <'a> Lowerer<'a> {
         }
     }
 
-    fn value_move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: Value) {
+    fn value_move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: impl Into<Register>, src: impl Into<Value>) {
+        let dest = dest.into();
+        let src = src.into();
         match src {
             Value::Register(src) => {
                 self.a.move_if(cc, is_true, prec, dest, src);
@@ -109,39 +196,39 @@ impl <'a> Lowerer<'a> {
     ) {
         match test_op {
             TestOp::Bits(discriminant, mask, value) => {
-                self.a.const_(prec, TEMP, mask as i64);
+                self.const_(prec, TEMP, mask as i64);
                 self.value_op(And, prec, TEMP, discriminant);
-                self.a.const_op(Cmp, prec, TEMP, value);
+                self.const_op(Cmp, prec, TEMP, value);
                 self.a.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Lt(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
-                self.a.const_op(Cmp, prec, discriminant, value);
+                self.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::L, false, false_label);
             },
             TestOp::Ge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
-                self.a.const_op(Cmp, prec, discriminant, value);
+                self.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::GE, false, false_label);
             },
             TestOp::Ult(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
-                self.a.const_op(Cmp, prec, discriminant, value);
+                self.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::B, false, false_label);
             },
             TestOp::Uge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
-                self.a.const_op(Cmp, prec, discriminant, value);
+                self.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::AE, false, false_label);
             },
             TestOp::Eq(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
-                self.a.const_op(Cmp, prec, discriminant, value);
+                self.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Ne(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
-                self.a.const_op(Cmp, prec, discriminant, value);
+                self.const_op(Cmp, prec, discriminant, value);
                 self.a.jump_if(Condition::NZ, false, false_label);
             },
             TestOp::Always => {},
@@ -155,25 +242,25 @@ impl <'a> Lowerer<'a> {
         &mut self,
         unary_op: code::UnaryOp,
         prec: Precision,
-        dest: Register,
-        src: Value,
+        dest: code::Register,
+        src: code::Value,
     ) {
         match unary_op {
             code::UnaryOp::Abs => {
                 let src = self.move_away_from(src, dest);
-                self.a.const_(prec, dest, 0);
+                self.const_(prec, dest, 0);
                 self.value_op(Sub, prec, dest, src);
                 self.value_move_if(Condition::L, true, prec, dest, src);
             },
             code::UnaryOp::Negate => {
                 let src = self.move_away_from(src, dest);
-                self.a.const_(prec, dest, 0);
+                self.const_(prec, dest, 0);
                 self.value_op(Sub, prec, dest, src);
             },
             code::UnaryOp::Not => {
                 let src = self.src_to_register(src, dest);
                 self.move_(dest, src);
-                self.a.const_op(Xor, prec, dest, -1);
+                self.const_op(Xor, prec, dest, -1);
             },
         };
     }
@@ -181,11 +268,12 @@ impl <'a> Lowerer<'a> {
     /** Select how to assemble an asymmetric BinaryOp such as `Sub`. */
     fn asymmetric_binary(
         &mut self,
-        dest: Register,
-        src1: Value,
-        src2: Value,
+        dest: impl Into<Register>,
+        src1: impl Into<Value>,
+        src2: impl Into<Value>,
         callback: impl FnOnce(&mut Self, Register, Value),
     ) {
+        let dest = dest.into();
         let src2 = self.move_away_from(src2, dest);
         let src1 = self.src_to_register(src1, dest);
         self.move_(dest, src1);
@@ -195,11 +283,14 @@ impl <'a> Lowerer<'a> {
     /** Select how to assemble a symmetric BinaryOp such as `Add`. */
     fn symmetric_binary(
         &mut self,
-        dest: Register,
-        src1: Value,
-        src2: Value,
+        dest: impl Into<Register>,
+        src1: impl Into<Value>,
+        src2: impl Into<Value>,
         callback: impl FnOnce(&mut Self, Register, Value),
     ) {
+        let dest = dest.into();
+        let src1 = src1.into();
+        let src2 = src2.into();
         if let Value::Slot(_) = src1 {
             // We get better code if `src1` is not a Slot, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
@@ -212,7 +303,10 @@ impl <'a> Lowerer<'a> {
     }
 
     /** Select how to assemble a shift BinaryOp such as `Shl`. */
-    fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: Register, src1: Value, src2: Value) {
+    fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Value>, src2: impl Into<Value>) {
+        let dest = dest.into();
+        let src1 = src1.into();
+        let src2 = src2.into();
         let save_rc = src2 != Value::Register(RC);
         if save_rc {
             self.move_(TEMP, RC);
@@ -231,12 +325,14 @@ impl <'a> Lowerer<'a> {
     fn compare_binary(
         &mut self,
         prec: Precision,
-        dest: Register,
-        src1: Value,
-        src2: Value,
+        dest: impl Into<Register>,
+        src1: impl Into<Value>,
+        src2: impl Into<Value>,
         callback: impl FnOnce(&mut Self, Register, Register),
     ) {
+        let dest = dest.into();
         let src1 = self.src_to_register(src1, TEMP);
+        let src2 = src2.into();
         self.value_op(Cmp, prec, src1, src2);
         callback(self, dest, src1);
     }
@@ -248,9 +344,9 @@ impl <'a> Lowerer<'a> {
         &mut self,
         binary_op: code::BinaryOp,
         prec: Precision,
-        dest: Register,
-        src1: Value,
-        src2: Value,
+        dest: code::Register,
+        src1: code::Value,
+        src2: code::Value,
     ) {
         match binary_op {
             code::BinaryOp::Add => {
@@ -333,16 +429,6 @@ impl <'a> Lowerer<'a> {
         };
     }
 
-    fn lower_width(width: code::Width) -> x86_64::Width {
-        use code::Width::*;
-        match width {
-            One => x86_64::Width::U8,
-            Two => x86_64::Width::U16,
-            Four => x86_64::Width::U32,
-            Eight => x86_64::Width::U64,
-        }
-    }
-
     /**
      * Assemble code to perform the given `action`.
      */
@@ -354,26 +440,24 @@ impl <'a> Lowerer<'a> {
             Action::Move(dest, src) => {
                 // `dest_to_register()` would generate less efficient code.
                 match dest {
-                    Value::Register(dest) => {
+                    code::Value::Register(dest) => {
                         match src {
-                            Value::Register(src) => {
-                                if dest != src {
-                                    self.a.move_(P64, dest, src);
-                                }
+                            code::Value::Register(src) => {
+                                self.move_(dest, src);
                             },
-                            Value::Slot(index) => {
+                            code::Value::Slot(index) => {
                                 self.load_slot(dest, index);
                             },
                         }
                     },
-                    Value::Slot(index) => {
+                    code::Value::Slot(index) => {
                         let src = self.src_to_register(src, TEMP);
                         self.store_slot(index, src);
                     },
                 }
             },
             Action::Constant(prec, dest, value) => {
-                self.a.const_(prec, dest, value);
+                self.const_(prec, dest, value);
             },
             Action::Unary(op, prec, dest, src) => {
                 self.lower_unary_op(op, prec, dest, src);
@@ -382,13 +466,15 @@ impl <'a> Lowerer<'a> {
                 self.lower_binary_op(op, prec, dest, src1, src2);
             },
             Action::Load(dest, (addr, width), _) => {
-                let width = Self::lower_width(width);
+                let dest = dest.into();
                 let addr = self.src_to_register(addr, dest);
+                let width = width.into();
                 self.a.load_narrow(P64, width, dest, (addr, 0));
             },
             Action::Store(src, (addr, width), _) => {
-                let width = Self::lower_width(width);
                 let src = self.src_to_register(src, TEMP);
+                let addr = addr.into();
+                let width = width.into();
                 self.a.store_narrow(width, (addr, 0), src);
             },
             Action::Push(src) => {
@@ -396,6 +482,7 @@ impl <'a> Lowerer<'a> {
                 self.a.push(src);
             },
             Action::Pop(dest) => {
+                let dest = dest.into();
                 self.a.pop(dest);
             },
             Action::Debug(x) => {

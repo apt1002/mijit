@@ -2,7 +2,8 @@ use super::code::*;
 use Action::*;
 use BinaryOp::*;
 use Precision::*;
-use Register::{RA};
+
+const R0: Register = REGISTERS[0];
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum State {Start, Loop, Return}
@@ -31,19 +32,19 @@ impl super::code::Machine for Machine {
         match state {
             State::Start => {vec![
                 ((TestOp::Always, P32), vec![
-                    Constant(P32, RA, 1),
-                    Move(reg::RESULT, RA.into()),
+                    Constant(P32, R0, 1),
+                    Move(reg::RESULT, R0.into()),
                 ], State::Loop),
             ]},
             State::Loop => {vec![
                 ((TestOp::Eq(reg::N, 0), P32), vec![
                 ], State::Return),
                 ((TestOp::Ne(reg::N, 0), P32), vec![
-                    Binary(Mul, P32, RA, reg::RESULT, reg::N),
-                    Move(reg::RESULT, RA.into()),
-                    Constant(P32, RA.into(), 1),
-                    Binary(Sub, P32, RA, reg::N, RA.into()),
-                    Move(reg::N, RA.into()),
+                    Binary(Mul, P32, R0, reg::RESULT, reg::N),
+                    Move(reg::RESULT, R0.into()),
+                    Constant(P32, R0.into(), 1),
+                    Binary(Sub, P32, R0, reg::N, R0.into()),
+                    Move(reg::N, R0.into()),
                 ], State::Loop),
             ]},
             State::Return => {vec![]},

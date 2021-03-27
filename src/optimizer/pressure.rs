@@ -37,7 +37,7 @@ impl<T: Copy + Ord> Pressure<T> {
     }
 
     /**
-     * Increments the Register pressure in the interval from (at most) `low`
+     * Increments the register pressure in the interval from (at most) `low`
      * to `high`.
      */
     pub fn allocate_register(&mut self, low: T, mut high: T) {

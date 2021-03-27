@@ -1,47 +1,10 @@
-use std::collections::{HashMap};
-use std::fmt::{self, Debug, Formatter};
-
-use crate::util::{AsUsize};
 use super::code::{self, Register, Action};
 use super::jit::{Convention};
-use super::jit::lowerer::{ALLOCATABLE_REGISTERS};
 
-//-----------------------------------------------------------------------------
+const NUM_REGISTERS: usize = super::jit::lowerer::ALLOCATABLE_REGISTERS.len();
 
-/** `ALLOCATABLE_REGISTERS.len()`. */
-pub const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
-
-/** An index into [`ALLOCATABLE_REGISTERS`]. */
-// TODO: Move into `code`? See #23.
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-pub struct RegIndex(usize);
-
-impl Debug for RegIndex {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "RI{}", self.0)
-    }
-}
-
-/** Indicates an absent RegIndex. */
-pub const DUMMY_REG: RegIndex = RegIndex(usize::MAX);
-
-impl Default for RegIndex {
-    fn default() -> Self { DUMMY_REG }
-}
-
-impl AsUsize for RegIndex {
-    fn as_usize(self) -> usize {
-        self.0
-    }
-}
-
-/** Returns a fresh map from Register to RegIndex. */
-// TODO: Delete. See #23.
-pub fn map_from_register_to_index() -> HashMap<Register, RegIndex> {
-    ALLOCATABLE_REGISTERS.iter()
-        .enumerate()
-        .map(|(i, &r)| (r, RegIndex(i)))
-        .collect()
+fn all_registers() -> impl Iterator<Item=Register> {
+    (0..NUM_REGISTERS).map(|i| Register::new(i))
 }
 
 //-----------------------------------------------------------------------------
@@ -100,7 +63,7 @@ pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> 
 mod tests {
     use std::collections::{HashMap};
     use super::*;
-    use code::{Register, Slot, UnaryOp, BinaryOp, AliasMask, Precision, Width};
+    use code::{Register, REGISTERS, Slot, UnaryOp, BinaryOp, AliasMask, Precision, Width};
     use code::tests::{Emulator};
 
     #[test]
@@ -121,7 +84,7 @@ mod tests {
 
     #[test]
     fn one_ops() {
-        const V0: Register = ALLOCATABLE_REGISTERS[0];
+        const V0: Register = REGISTERS[0];
         const V1: Slot = Slot(0);
         let convention = Convention {
             live_values: vec![V0.into(), V1.into()],
@@ -156,8 +119,8 @@ mod tests {
     fn use_after_free() {
         use Precision::*;
         use Width::*;
-        const V0: Register = ALLOCATABLE_REGISTERS[0];
-        const V1: Register = ALLOCATABLE_REGISTERS[1];
+        const V0: Register = REGISTERS[0];
+        const V1: Register = REGISTERS[1];
         let before = Convention {
             live_values: vec![V0.into(), V1.into()],
             slots_used: 1,

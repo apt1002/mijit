@@ -32,7 +32,7 @@ pub struct Cost {
     pub resources: Resources,
 }
 
-/** The resources needed to move a value from one register to another. */
+/** The resources needed to move a value from one `Register` to another. */
 pub const MOVE_COST: Cost = Cost {
     input_latencies: &[0],
     output_latencies: &[0],

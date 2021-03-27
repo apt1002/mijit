@@ -1,69 +1,68 @@
 use crate::util::{ArrayMap};
-use super::{NUM_REGISTERS, RegIndex};
+use super::{NUM_REGISTERS, all_registers};
+use super::code::{Register};
 
 /**
- * A pool of allocatable Registers.
+ * A pool of allocatable [`Register`]s.
  *
- * Every register is classified as "clean" or "dirty". A register is dirty
+ * Every `Register` is classified as "clean" or "dirty". A `Register` is dirty
  * if it holds the only copy of some value. If it is unused or if it has been
  * spilled then it is clean.
  */
 #[derive(Debug)]
 pub struct RegisterPool {
-    /** For each register, `true` if dirty. */
-    dirty: ArrayMap<RegIndex, bool>,
+    /** For each [`Register`], `true` if dirty. */
+    dirty: ArrayMap<Register, bool>,
     /** All clean registers in the order they became clean. */
-    clean: Vec<RegIndex>,
+    clean: Vec<Register>,
 }
 
 impl RegisterPool {
     /**
      * Initialise a `RegisterPool` with specified dirty [`Value`]s.
      * Non-Registers are ignored.
-     * Each clean register `ri` is annotated with `c(ri)`.
      */
-    pub fn new(dirty: ArrayMap<RegIndex, bool>) -> Self {
+    pub fn new(dirty: ArrayMap<Register, bool>) -> Self {
         // Enumerate the clean registers.
         let mut clean = Vec::with_capacity(NUM_REGISTERS);
-        for i in 0..NUM_REGISTERS {
-            let ri = RegIndex(i);
-            if !dirty[ri] {
-                clean.push(ri);
+        for reg in all_registers() {
+            if !dirty[reg] {
+                clean.push(reg);
             }
         }
         // Return.
         RegisterPool {dirty, clean}
     }
 
-    /** Tests whether the specified register is clean. */
-    pub fn is_clean(&self, ri: RegIndex) -> bool {
-        !self.dirty[ri]
+    /** Tests whether the specified [`Register`] is clean. */
+    pub fn is_clean(&self, reg: Register) -> bool {
+        !self.dirty[reg]
     }
 
     /**
-     * Returns the number of clean registers. The rest are dirty.
+     * Returns the number of clean [`Register`]s. The rest are dirty.
      * Decreased by `allocate()`. Increased by `spill()`.
      */
     pub fn num_clean(&self) -> usize { self.clean.len() }
 
     /**
-     * Allocates and returns a register, which it marks as dirty.
-     * Registers are allocated in LIFO order.
-     * Panics if there is no clean register available.
+     * Allocates and returns a [`Register`], which it marks as dirty.
+     * `Register`s are allocated in LIFO order.
+     * Panics if there is no clean `Register` available.
      */
-    pub fn allocate(&mut self) -> RegIndex {
-        let ri = self.clean.pop().expect("No register is clean");
-        assert!(!self.dirty[ri]);
-        self.dirty[ri] = true;
-        ri
+    pub fn allocate(&mut self) -> Register {
+        let reg = self.clean.pop().expect("No register is clean");
+        assert!(!self.dirty[reg]);
+        self.dirty[reg] = true;
+        reg
     }
 
     /**
-     * Marks the specified register as clean. Panics if `ri` is not dirty.
+     * Marks the specified [`Register`] as clean. Panics if `reg` is not dirty.
      */
-    pub fn free(&mut self, ri: RegIndex) {
-        assert!(self.dirty[ri]);
-        self.dirty[ri] = false;
-        self.clean.push(ri);
+    pub fn free(&mut self, reg: Register) {
+        assert!(self.dirty[reg]);
+        self.dirty[reg] = false;
+        self.clean.push(reg);
     }
 }

@@ -2,14 +2,10 @@ use std::cmp::{max};
 use std::collections::{HashMap};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{
-    Convention,
-    NUM_REGISTERS, ALLOCATABLE_REGISTERS, RegIndex, map_from_register_to_index, DUMMY_REG,
-    Op, Schedule, RegisterPool, Placer, moves,
-};
+use super::{Convention, NUM_REGISTERS, all_registers, Op, Schedule, RegisterPool, Placer, moves};
 use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
 use super::cost::{SPILL_COST, SLOT_COST};
-use super::code::{Register, Slot, Value, Action};
+use super::code::{Register, DUMMY_REG, Slot, Value, Action};
 use crate::util::{ArrayMap, map_filter_max};
 
 //-----------------------------------------------------------------------------
@@ -45,13 +41,13 @@ impl Default for Instruction {
 pub struct OutInfo {
     /** The time at which the `Out` became available, or [`usize::MAX`]. */
     time: usize,
-    /** The register allocated for the `Out`, or [`DUMMY_REG`]. */
-    ri: RegIndex,
+    /** The `Register` allocated for the `Out`, or [`DUMMY_REG`]. */
+    reg: Register,
 }
 
 impl Debug for OutInfo {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "OutInfo {{time: {:?}, ri: {:?}}}", self.time, self.ri)
+        write!(f, "OutInfo {{time: {:?}, reg: {:?}}}", self.time, self.reg)
     }
 }
 
@@ -59,16 +55,16 @@ impl Default for OutInfo {
     fn default() -> Self {
         OutInfo {
             time: usize::MAX,
-            ri: DUMMY_REG,
+            reg: DUMMY_REG,
         }
     }
 }
 
-/** The information that a [`CodeGen`] stores about each [`RegIndex`]. */
+/** The information that a [`CodeGen`] stores about each [`Register`]. */
 pub struct RegInfo {
     /** The last time at which each [`Reg`] is used, or zero. */
     time: usize,
-    /** The contents of the register at the current time. */
+    /** The contents of the `Register` at the current time. */
     out: Out,
 }
 
@@ -108,8 +104,8 @@ struct CodeGen<'a> {
     /** The time at which each [`Node`] was executed. */
     node_times: ArrayMap<Node, usize>,
     /** A `RegInfo` for each `Reg`. */
-    regs: ArrayMap<RegIndex, RegInfo>,
-    /** The register allocator state. */
+    regs: ArrayMap<Register, RegInfo>,
+    /** The `Register` allocator state. */
     pool: RegisterPool,
 }
 
@@ -117,18 +113,16 @@ impl<'a> CodeGen<'a> {
     pub fn new(before: &'a Convention, after: &'a Convention, schedule: Schedule<'a>) -> Self {
         let df: &'a Dataflow = schedule.dataflow;
         // Initialize the data structures with the live registers of `before`.
-        let reg_map = map_from_register_to_index();
-        let mut dirty = ArrayMap::new(super::NUM_REGISTERS);
+        let mut dirty = ArrayMap::new(NUM_REGISTERS);
         let mut outs: ArrayMap<Out, OutInfo> = df.out_map();
-        let mut regs: ArrayMap<RegIndex, RegInfo> = ArrayMap::new(super::NUM_REGISTERS);
+        let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
             if !schedule.first_use(out).is_none() {
                 match value {
-                    Value::Register(r) => {
-                        let &ri = reg_map.get(&r).expect("Not an allocatable register");
-                        dirty[ri] = true;
-                        regs[ri].out = out;
-                        outs[out].ri = ri;
+                    Value::Register(reg) => {
+                        dirty[reg] = true;
+                        regs[reg].out = out;
+                        outs[out].reg = reg;
                     },
                     Value::Slot(_) => {},
                 }
@@ -149,37 +143,36 @@ impl<'a> CodeGen<'a> {
         cg
     }
 
-    /** `true` if `out` is in a register. */
+    /** `true` if `out` is in a `Register`. */
     fn is_reg(&self, out: Out) -> bool {
-        let ri = self.outs[out].ri;
-        ri != DUMMY_REG && self.regs[ri].out == out
+        let reg = self.outs[out].reg;
+        reg != DUMMY_REG && self.regs[reg].out == out
     }
 
-    /** Record that we used `ri` at `time` (either reading or writing). */
-    fn use_reg(&mut self, ri: RegIndex, time: usize) {
-        self.regs[ri].time = max(self.regs[ri].time, time);
+    /** Record that we used `reg` at `time` (either reading or writing). */
+    fn use_reg(&mut self, reg: Register, time: usize) {
+        self.regs[reg].time = max(self.regs[reg].time, time);
     }
 
     /** Spills values until at least `num_required` registers are free. */
     fn spill_until(&mut self, num_required: usize) {
         while self.pool.num_clean() < num_required {
-            // Select a register to spill.
-            let i = map_filter_max(0..NUM_REGISTERS, |i| {
-                let ri = RegIndex(i);
-                if self.pool.is_clean(ri) {
+            // Select a `Register` to spill.
+            let i = map_filter_max(all_registers(), |reg| {
+                if self.pool.is_clean(reg) {
                     None
                 } else {
-                    Some(self.schedule.first_use(self.regs[ri].out))
+                    Some(self.schedule.first_use(self.regs[reg].out))
                 }
             });
-            let ri = RegIndex(i.expect("No register is dirty"));
-            // Spill the register.
-            let out = self.regs[ri].out;
+            let reg = Register::new(i.expect("No register is dirty"));
+            // Spill the `Register`.
+            let out = self.regs[reg].out;
             let mut time = self.outs[out].time;
             self.placer.add_item(Spill(out), SPILL_COST, &mut time);
-            self.use_reg(ri, time);
-            // Free the register.
-            self.pool.free(ri);
+            self.use_reg(reg, time);
+            // Free the `Register`.
+            self.pool.free(reg);
         }
     }
 
@@ -187,10 +180,10 @@ impl<'a> CodeGen<'a> {
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.schedule.dataflow;
         let mut time = 0; // Earliest time (in cycles) when we can place `node`.
-        // Free every input register that won't be used again.
+        // Free every input `Register` that won't be used again.
         for &in_ in df.ins(node) {
             if self.schedule.first_use(in_).is_none() && self.is_reg(in_) {
-                self.pool.free(self.outs[in_].ri);
+                self.pool.free(self.outs[in_].reg);
             }
         }
         // Spill until we have enough registers to hold the outputs of `node`.
@@ -205,14 +198,14 @@ impl<'a> CodeGen<'a> {
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
-            let ri = self.pool.allocate();
-            self.outs[out].ri = ri;
-            time = max(time, self.regs[ri].time);
+            let reg = self.pool.allocate();
+            self.outs[out].reg = reg;
+            time = max(time, self.regs[reg].time);
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
         if df.ins(node).iter().any(|&in_| !self.is_reg(in_)) {
-            // We can't be sure it's not still in a register; this is a guess.
+            // We can't be sure it's not still in a `Register`; this is a guess.
             resources += SLOT_COST;
         }
         self.placer.add_item(Node(node), resources, &mut time);
@@ -221,12 +214,12 @@ impl<'a> CodeGen<'a> {
         // Record when the inputs were used.
         for &in_ in df.ins(node) {
             if self.is_reg(in_) {
-                self.use_reg(self.outs[in_].ri, time);
+                self.use_reg(self.outs[in_].reg, time);
             }
         }
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
-            self.regs[self.outs[out].ri] = RegInfo {time, out};
+            self.regs[self.outs[out].reg] = RegInfo {time, out};
             self.outs[out].time = time + latency as usize;
         }
     }
@@ -239,14 +232,12 @@ impl<'a> CodeGen<'a> {
         let df: &'a Dataflow = self.schedule.dataflow;
         // Initialise bindings.
         let mut num_slots = self.before.slots_used;
-        let register_to_index = super::map_from_register_to_index();
         let mut spills: ArrayMap<Out, Option<Slot>> = df.out_map();
-        let mut regs: ArrayMap<RegIndex, Out> = ArrayMap::new_with(NUM_REGISTERS, || DUMMY_OUT);
+        let mut regs: ArrayMap<Register, Out> = ArrayMap::new_with(NUM_REGISTERS, || DUMMY_OUT);
         for (out, &value) in df.outs(df.entry_node()).zip(&self.before.live_values) {
             match value {
-                Value::Register(r) => {
-                    let ri = *register_to_index.get(&r).expect("Not an allocatable register");
-                    regs[ri] = out;
+                Value::Register(reg) => {
+                    regs[reg] = out;
                 },
                 Value::Slot(s) => {
                     assert!(s.0 < num_slots);
@@ -260,28 +251,27 @@ impl<'a> CodeGen<'a> {
                 &Absent => panic!("Absent instruction"),
                 &Spill(out) => {
                     assert!(spills[out].is_none()); // Not yet spilled.
-                    let ri = self.outs[out].ri;
-                    assert!(regs[ri] == out); // Not yet overwritten.
+                    let reg = self.outs[out].reg;
+                    assert!(regs[reg] == out); // Not yet overwritten.
                     let slot = Slot(num_slots);
                     num_slots += 1;
                     spills[out] = Some(slot);
-                    Action::Move(slot.into(), ALLOCATABLE_REGISTERS[ri.0].into())
+                    Action::Move(slot.into(), reg.into())
                 },
                 &Node(n) => {
                     let ins: Vec<Value> = df.ins(n).iter().map(|&in_| {
-                        let ri = self.outs[in_].ri;
-                        let src = if ri != DUMMY_REG && regs[ri] == in_ {
-                            ALLOCATABLE_REGISTERS[ri.0].into()
+                        let reg = self.outs[in_].reg;
+                        let src = if reg != DUMMY_REG && regs[reg] == in_ {
+                            reg.into()
                         } else {
                             spills[in_].expect("Value was overwritten but not spilled").into()
                         };
                         src
                     }).collect();
                     let outs: Vec<Register> = df.outs(n).map(|out| {
-                        let ri = self.outs[out].ri;
-                        regs[ri] = out;
-                        let dest = ALLOCATABLE_REGISTERS[ri.0];
-                        dest
+                        let reg = self.outs[out].reg;
+                        regs[reg] = out;
+                        reg
                     }).collect();
                     Op::to_action(df.op(n), &outs, &ins)
                 },
@@ -291,17 +281,19 @@ impl<'a> CodeGen<'a> {
         // TODO: Find a way to schedule these `Move`s properly or eliminate them.
         let dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
-                let ri = self.outs[out].ri;
-                let src = if ri != DUMMY_REG && regs[ri] == out {
-                    ALLOCATABLE_REGISTERS[ri.0].into()
+                let reg = self.outs[out].reg;
+                let src = if reg != DUMMY_REG && regs[reg] == out {
+                    reg.into()
                 } else {
                     spills[out].expect("Value was overwritten but not spilled").into()
                 };
                 (dest, src)
             }).collect();
-        let temp_reg: Value = ALLOCATABLE_REGISTERS.iter()
-            .map(|&r| Value::from(r))
-            .find(|&r| !dest_to_src.contains_key(&r))
+        // Allocate a temporary `Value` that is not in use.
+        // Use a `Register` if possible, otherwise allocate a `Slot`.
+        let temp_reg: Value = all_registers()
+            .map(|r| Value::from(r))
+            .find(|r| !dest_to_src.contains_key(&r))
             .unwrap_or_else(|| {
                 let slot = Slot(num_slots);
                 num_slots += 1;

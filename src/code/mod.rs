@@ -21,10 +21,58 @@
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 
-pub use super::x86_64::{Register, Precision};
+pub use crate::util::{AsUsize};
+pub use super::x86_64::{Precision}; // TODO: Abstract.
 
 // Not currently used. Planned for #11.
 pub mod clock;
+
+//-----------------------------------------------------------------------------
+
+/**
+ * An index into [`ALLOCATABLE_REGISTERS`](1). Mijit guarantees a minimum set
+ * [`REGISTERS`]. More are available non-portably.
+ *
+ * [`ALLOCATABLE_REGISTERS`]: `super::jit::lowerer::ALLOCATABLE_REGISTERS`
+ */
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Register(u8);
+
+impl Register {
+    pub fn new(index: usize) -> Self {
+        assert_ne!(index, DUMMY_REG.0 as usize);
+        assert!(index <= u8::MAX as usize);
+        Register(index as u8)
+    }
+}
+
+impl Debug for Register {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Register({})", self.0)
+    }
+}
+
+/** Indicates an absent Register. */
+// TODO: Remove this, use `std::num::NonZeroU8` in Register, and use
+// Option<Register> where we might want a Register to be absent.
+pub const DUMMY_REG: Register = Register(u8::MAX);
+
+impl Default for Register {
+    fn default() -> Self { DUMMY_REG }
+}
+
+impl AsUsize for Register {
+    fn as_usize(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/** Some [`Register`]s that are guaranteed to exist on all targets. */
+pub const REGISTERS: [Register; 12] = [
+    Register(0), Register(1), Register(2), Register(3),
+    Register(4), Register(5), Register(6), Register(7),
+    Register(8), Register(9), Register(10), Register(11),
+];
 
 /** A spill slot. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -64,7 +112,6 @@ impl From<Register> for Value {
     }
 }
 
-
 /**
  * "impl IntoValue" is useful as the type of function arguments. It accepts
  * both Registers and Values.
@@ -72,6 +119,8 @@ impl From<Register> for Value {
 pub trait IntoValue: Copy + Into<Value> {}
 
 impl<T: Copy + Into<Value>> IntoValue for T {}
+
+//-----------------------------------------------------------------------------
 
 /** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
@@ -127,6 +176,8 @@ pub enum Width {
     Eight = 3,
 }
 
+//-----------------------------------------------------------------------------
+
 /**
  * Indicates which parts of memory overlap with each other. More precisely,
  * indicates whether the value loaded from one address can be affected by a
@@ -177,6 +228,8 @@ impl std::ops::BitXor for AliasMask {
         AliasMask(self.0 ^ rhs.0)
     }
 }
+
+//-----------------------------------------------------------------------------
 
 /**
  * An imperative instruction.
