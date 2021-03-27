@@ -48,7 +48,7 @@ impl Register {
 
 impl Debug for Register {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Register({})", self.0)
+        write!(f, "Register({})", self.as_usize())
     }
 }
 

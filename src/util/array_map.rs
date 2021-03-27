@@ -79,3 +79,58 @@ impl<K: AsUsize, V> std::ops::IndexMut<K> for ArrayMap<K, V> {
         &mut self.0[index.as_usize()]
     }
 }
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    use std::num::NonZeroU8;
+
+    #[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+    #[repr(transparent)]
+    struct Foo(NonZeroU8);
+
+    impl Foo {
+        fn new(index: u8) -> Self {
+            let index = NonZeroU8::new(index + 1).expect("Not a valid array index");
+            Self(index)
+        }
+    }
+
+    impl std::fmt::Debug for Foo {
+        fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+            write!(f, "Foo({:?})", self.as_usize())
+        }
+    }
+
+    impl AsUsize for Foo {
+        fn as_usize(self) -> usize {
+            self.0.get() as usize - 1
+        }
+    }
+
+    #[test]
+    fn array_map() {
+        assert_eq!(std::mem::size_of::<Foo>(), 1);
+        assert_eq!(std::mem::size_of::<Option<Foo>>(), 1);
+        let i = Foo::new(1);
+        assert_eq!(i.0.get(), 2);
+        assert_eq!(i.as_usize(), 1);
+        assert_eq!(format!("{:#?}", i), "Foo(1)");
+        let mut a = ArrayMap::new(2);
+        assert_eq!(a.as_ref(), &[false, false]);
+        assert_eq!(a.as_mut(), &[false, false]);
+        a[i] = true;
+        assert_eq!(a.as_ref(), &[false, true]);
+        for (i, r) in a.iter().enumerate() {
+            assert_eq!(*r, i>0);
+        }
+        for r in &mut a {
+            *r = !*r;
+        }
+        assert_eq!(a.as_ref(), &[true, false]);
+        a.as_mut()[1] = true;
+        assert_eq!(a.as_ref(), &[true, true]);
+    }
+}
