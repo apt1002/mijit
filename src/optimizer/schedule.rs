@@ -1,4 +1,3 @@
-use std::cmp::{Reverse};
 use std::fmt::{self, Debug, Formatter};
 use std::iter::{Iterator};
 use std::num::{NonZeroUsize};
@@ -8,12 +7,12 @@ use super::{Dataflow, Node, Out};
 
 /**
  * Represents a place where an [`Out`] is used in a [`Schedule`].
- * `u < v` means `u` occurs before `v` in the [`Schedule`].
+ * `u < v` means `u` occurs after `v` in the [`Schedule`].
  */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Use(
     /** The number of times any `Out` is read after this `Use`. */ 
-    Reverse<usize>,
+    usize,
 );
 
 /**
@@ -34,7 +33,7 @@ impl UseList {
     }
 
     pub fn first(self) -> Option<Use> {
-        self.0.map(|n| Use(Reverse(n.get() - 1)))
+        self.0.map(|n| Use(n.get() - 1))
     }
 }
 
@@ -147,20 +146,20 @@ mod tests {
         let out4 = it.next().unwrap();
         let exit_node = d.add_node(Op::Convention, &[], &[out4], 0);
         let mut schedule = Schedule::new(&d, &[node1, node2, node3], exit_node);
-        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(6))));
-        assert_eq!(schedule.first_use(out1), Some(Use(Reverse(5))));
+        assert_eq!(schedule.first_use(out0), Some(Use(6)));
+        assert_eq!(schedule.first_use(out1), Some(Use(5)));
         assert_eq!(schedule.next(), Some(node1));
-        assert_eq!(schedule.first_use(out0), Some(Use(Reverse(4))));
+        assert_eq!(schedule.first_use(out0), Some(Use(4)));
         assert_eq!(schedule.first_use(out1), None);
-        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(3))));
+        assert_eq!(schedule.first_use(out2), Some(Use(3)));
         assert_eq!(schedule.next(), Some(node2));
         assert_eq!(schedule.first_use(out0), None);
-        assert_eq!(schedule.first_use(out2), Some(Use(Reverse(2))));
-        assert_eq!(schedule.first_use(out3), Some(Use(Reverse(1))));
+        assert_eq!(schedule.first_use(out2), Some(Use(2)));
+        assert_eq!(schedule.first_use(out3), Some(Use(1)));
         assert_eq!(schedule.next(), Some(node3));
         assert_eq!(schedule.first_use(out2), None);
         assert_eq!(schedule.first_use(out3), None);
-        assert_eq!(schedule.first_use(out4), Some(Use(Reverse(0))));
+        assert_eq!(schedule.first_use(out4), Some(Use(0)));
         assert_eq!(schedule.next(), None);
     }
 }

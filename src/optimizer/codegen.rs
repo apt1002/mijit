@@ -153,6 +153,7 @@ impl<'a> CodeGen<'a> {
                 self.regs[reg].out
                     .filter(|_| !self.pool.is_clean(reg))
                     .map(|out| self.schedule.first_use(out))
+                    .map(std::cmp::Reverse)
             });
             let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
             // Spill the `Register`.
