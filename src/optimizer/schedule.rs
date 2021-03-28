@@ -1,39 +1,21 @@
 use std::fmt::{self, Debug, Formatter};
 use std::iter::{Iterator};
-use std::num::{NonZeroUsize};
 
-use crate::util::{ArrayMap, CommaSeparated};
+use crate::util::{ArrayMap, AsUsize, CommaSeparated};
 use super::{Dataflow, Node, Out};
 
-/**
- * Represents a place where an [`Out`] is used in a [`Schedule`].
- * `u < v` means `u` occurs after `v` in the [`Schedule`].
- */
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
-pub struct Use(
-    /** The number of times any `Out` is read after this `Use`. */ 
-    usize,
-);
-
-/**
- * Represent a list of places where an [`Out`] is used.
- * The union of all the `UseList`s for a [`Schedule`] is the numbers from `0`
- * to `n-1` where `n` is the total number of times any `Out` is read during the
- * `Schedule`.
- */
-#[derive(Debug, Copy, Clone, Default, PartialEq, Eq)]
-struct UseList(
-    /** 1 + the first `Use`, if any. */
-    Option<NonZeroUsize>
-);
-
-impl UseList {
-    pub fn new(next: usize) -> Self {
-        UseList(NonZeroUsize::new(next + 1))
-    }
-
-    pub fn first(self) -> Option<Use> {
-        self.0.map(|n| Use(n.get() - 1))
+array_index! {
+    /**
+     * Represents a place where an [`Out`] is used in a [`Schedule`].
+     * `u < v` means `u` occurs after `v` in the [`Schedule`].
+     */
+    #[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+    pub struct Use(
+        /** The number of times any `Out` is read after this `Use`. */ 
+        std::num::NonZeroUsize
+    ) {
+        debug_name: "Use",
+        UInt: usize,
     }
 }
 
@@ -49,8 +31,8 @@ impl UseList {
 pub struct Schedule<'a> {
     pub dataflow: &'a Dataflow,
     nodes: Vec<Node>,
-    firsts: ArrayMap<Out, UseList>,
-    nexts: Vec<UseList>,
+    firsts: ArrayMap<Out, Option<Use>>,
+    nexts: Vec<Option<Use>>, // Indexed by `Use`.
 }
 
 impl<'a> Schedule<'a> {
@@ -81,7 +63,7 @@ impl<'a> Schedule<'a> {
     /** Push the next `Use` onto the `UseList` for `out`. */
     fn push(&mut self, out: Out) {
         let next = self.firsts[out];
-        self.firsts[out] = UseList::new(self.nexts.len());
+        self.firsts[out] = Use::new(self.nexts.len());
         self.nexts.push(next);
     }
 
@@ -90,12 +72,16 @@ impl<'a> Schedule<'a> {
      */
     fn pop(&mut self, out: Out) {
         let next = self.nexts.pop().expect("Popped from an empty Schedule");
-        assert_eq!(self.firsts[out], UseList::new(self.nexts.len()));
+        assert_eq!(self.firsts[out], Use::new(self.nexts.len()));
         self.firsts[out] = next;
     }
 
     pub fn first_use(&self, out: Out) -> Option<Use> {
-        self.firsts[out].first()
+        self.firsts[out]
+    }
+
+    pub fn next_use(&self, use_: Use) -> Option<Use> {
+        self.nexts[use_.as_usize()]
     }
 }
 
@@ -128,6 +114,18 @@ mod tests {
     use super::*;
     use super::super::{Op};
 
+    fn all_uses(schedule: &Schedule, out: Out) -> Vec<usize> {
+        let mut ret = Vec::new();
+        if let Some(mut use_) = schedule.first_use(out) {
+            ret.push(use_.as_usize());
+            while let Some(next) = schedule.next_use(use_) {
+                use_ = next;
+                ret.push(use_.as_usize());
+            }
+        }
+        ret
+    }
+
     #[test]
     /** Test that Schedule keeps track of the uses of `Out`s. */
     pub fn test() {
@@ -146,20 +144,20 @@ mod tests {
         let out4 = it.next().unwrap();
         let exit_node = d.add_node(Op::Convention, &[], &[out4], 0);
         let mut schedule = Schedule::new(&d, &[node1, node2, node3], exit_node);
-        assert_eq!(schedule.first_use(out0), Some(Use(6)));
-        assert_eq!(schedule.first_use(out1), Some(Use(5)));
+        assert_eq!(all_uses(&schedule, out0), [6, 4]);
+        assert_eq!(all_uses(&schedule, out1), [5]);
         assert_eq!(schedule.next(), Some(node1));
-        assert_eq!(schedule.first_use(out0), Some(Use(4)));
-        assert_eq!(schedule.first_use(out1), None);
-        assert_eq!(schedule.first_use(out2), Some(Use(3)));
+        assert_eq!(all_uses(&schedule, out0), [4]);
+        assert_eq!(all_uses(&schedule, out1), []);
+        assert_eq!(all_uses(&schedule, out2), [3, 2]);
         assert_eq!(schedule.next(), Some(node2));
-        assert_eq!(schedule.first_use(out0), None);
-        assert_eq!(schedule.first_use(out2), Some(Use(2)));
-        assert_eq!(schedule.first_use(out3), Some(Use(1)));
+        assert_eq!(all_uses(&schedule, out0), []);
+        assert_eq!(all_uses(&schedule, out2), [2]);
+        assert_eq!(all_uses(&schedule, out3), [1]);
         assert_eq!(schedule.next(), Some(node3));
-        assert_eq!(schedule.first_use(out2), None);
-        assert_eq!(schedule.first_use(out3), None);
-        assert_eq!(schedule.first_use(out4), Some(Use(0)));
+        assert_eq!(all_uses(&schedule, out2), []);
+        assert_eq!(all_uses(&schedule, out3), []);
+        assert_eq!(all_uses(&schedule, out4), [0]);
         assert_eq!(schedule.next(), None);
     }
 }
