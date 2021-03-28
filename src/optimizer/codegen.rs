@@ -3,7 +3,7 @@ use std::collections::{HashMap};
 use std::fmt::{self, Debug, Formatter};
 
 use super::{Convention, NUM_REGISTERS, all_registers, Op, Schedule, RegisterPool, Placer, moves};
-use super::dataflow::{Dataflow, Out, DUMMY_OUT, Node};
+use super::dataflow::{Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::code::{Register, Slot, Value, Action};
 use crate::util::{ArrayMap, map_filter_max};
@@ -61,25 +61,17 @@ impl Default for OutInfo {
 }
 
 /** The information that a [`CodeGen`] stores about each [`Register`]. */
+#[derive(Default)]
 pub struct RegInfo {
-    /** The last time at which each [`Reg`] is used, or zero. */
+    /** The last time at which each [`Register`] is used, or zero. */
     time: usize,
     /** The contents of the `Register` at the current time. */
-    out: Out,
+    out: Option<Out>,
 }
 
 impl Debug for RegInfo {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(f, "RegInfo {{time: {:?}, out: {:?}}}", self.time, self.out)
-    }
-}
-
-impl Default for RegInfo {
-    fn default() -> Self {
-        RegInfo {
-            time: 0,
-            out: DUMMY_OUT,
-        }
     }
 }
 
@@ -121,7 +113,7 @@ impl<'a> CodeGen<'a> {
                 match value {
                     Value::Register(reg) => {
                         dirty[reg] = true;
-                        regs[reg].out = out;
+                        regs[reg].out = Some(out);
                         outs[out].reg = Some(reg);
                     },
                     Value::Slot(_) => {},
@@ -145,7 +137,7 @@ impl<'a> CodeGen<'a> {
 
     /** Returns the [`Register`] containing `out`, if any. */
     fn current_reg(&self, out: Out) -> Option<Register> {
-        self.outs[out].reg.filter(|&reg| self.regs[reg].out == out)
+        self.outs[out].reg.filter(|&reg| self.regs[reg].out == Some(out))
     }
 
     /** Record that we used `reg` at `time` (either reading or writing). */
@@ -158,15 +150,13 @@ impl<'a> CodeGen<'a> {
         while self.pool.num_clean() < num_required {
             // Select a `Register` to spill.
             let i = map_filter_max(all_registers(), |reg| {
-                if self.pool.is_clean(reg) {
-                    None
-                } else {
-                    Some(self.schedule.first_use(self.regs[reg].out))
-                }
+                self.regs[reg].out
+                    .filter(|_| !self.pool.is_clean(reg))
+                    .map(|out| self.schedule.first_use(out))
             });
             let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
             // Spill the `Register`.
-            let out = self.regs[reg].out;
+            let out = self.regs[reg].out.unwrap();
             let mut time = self.outs[out].time;
             self.placer.add_item(Spill(out), SPILL_COST, &mut time);
             self.use_reg(reg, time);
@@ -220,7 +210,7 @@ impl<'a> CodeGen<'a> {
         }
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
-            self.regs[self.outs[out].reg.unwrap()] = RegInfo {time, out};
+            self.regs[self.outs[out].reg.unwrap()] = RegInfo {time: time, out: Some(out)};
             self.outs[out].time = time + latency as usize;
         }
     }
@@ -234,11 +224,11 @@ impl<'a> CodeGen<'a> {
         // Initialise bindings.
         let mut num_slots = self.before.slots_used;
         let mut spills: ArrayMap<Out, Option<Slot>> = df.out_map();
-        let mut regs: ArrayMap<Register, Out> = ArrayMap::new_with(NUM_REGISTERS, || DUMMY_OUT);
+        let mut regs: ArrayMap<Register, Option<Out>> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&self.before.live_values) {
             match value {
                 Value::Register(reg) => {
-                    regs[reg] = out;
+                    regs[reg] = Some(out);
                 },
                 Value::Slot(s) => {
                     assert!(s.0 < num_slots);
@@ -257,7 +247,7 @@ impl<'a> CodeGen<'a> {
                 &Spill(out) => {
                     assert!(spills[out].is_none()); // Not yet spilled.
                     let reg = self.outs[out].reg.expect("Spilled a non-register");
-                    assert!(regs[reg] == out); // Not yet overwritten.
+                    assert!(regs[reg] == Some(out)); // Not yet overwritten.
                     let slot = Slot(num_slots);
                     num_slots += 1;
                     spills[out] = Some(slot);
@@ -265,7 +255,7 @@ impl<'a> CodeGen<'a> {
                 },
                 &Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
-                        match self.outs[in_].reg.filter(|&reg| regs[reg] == in_) {
+                        match self.outs[in_].reg.filter(|&reg| regs[reg] == Some(in_)) {
                             Some(reg) => Value::from(reg),
                             None => Value::from(spills[in_]
                                 .expect("Value was overwritten but not spilled")
@@ -274,7 +264,7 @@ impl<'a> CodeGen<'a> {
                     }));
                     outs.extend(df.outs(n).map(|out| {
                         let reg = self.outs[out].reg.expect("Wrote a non-register");
-                        regs[reg] = out;
+                        regs[reg] = Some(out);
                         reg
                     }));
                     Op::to_action(df.op(n), &outs, &ins)
@@ -284,7 +274,7 @@ impl<'a> CodeGen<'a> {
         // Work out which live values need to be moved where.
         let dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
-                let src = match self.outs[out].reg.filter(|&reg| regs[reg] == out) {
+                let src = match self.outs[out].reg.filter(|&reg| regs[reg] == Some(out)) {
                     Some(reg) => reg.into(),
                     None => spills[out]
                         .expect("Value was overwritten but not spilled")

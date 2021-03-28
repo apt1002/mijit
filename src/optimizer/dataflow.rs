@@ -5,39 +5,23 @@ use super::{Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
 
-/** A node in a Dataflow graph. */
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Node(usize);
-
-impl Debug for Node {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Node({})", self.0)
+array_index! {
+    /** A node in a Dataflow graph. */
+    #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+    pub struct Node(std::num::NonZeroUsize) {
+        debug_name: "Node",
+        UInt: usize,
     }
 }
 
-impl AsUsize for Node {
-    fn as_usize(self) -> usize { self.0 }
-}
-
-/** Indicates an absent `Node`. */
-pub const DUMMY_NODE: Node = Node(usize::MAX);
-
-/** A value produced by a [`Node`] in a Dataflow graph. */
-#[derive(Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Out(usize);
-
-impl Debug for Out {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Out({})", self.0)
+array_index! {
+    /** A value produced by a [`Node`] in a Dataflow graph. */
+    #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+    pub struct Out(std::num::NonZeroUsize) {
+        debug_name: "Out",
+        UInt: usize,
     }
 }
-
-impl AsUsize for Out {
-    fn as_usize(self) -> usize { self.0 }
-}
-
-/** Indicates an absent `Out`. */
-pub const DUMMY_OUT: Out = Out(usize::MAX);
 
 //-----------------------------------------------------------------------------
 
@@ -114,7 +98,7 @@ impl Dataflow {
 
     /** Returns the entry [`Node`]. */
     pub fn entry_node(&self) -> Node {
-        Node(0)
+        Node::new(0).unwrap()
     }
 
     /** Returns the [`Info`] about `node`. */
@@ -188,7 +172,7 @@ impl Dataflow {
         } else {
             0
         };
-        (start_out .. self.info(node).end_out).map(|index| Out(index))
+        (start_out .. self.info(node).end_out).map(|index| Out::new(index).unwrap())
     }
 
     /**
@@ -206,7 +190,7 @@ impl Dataflow {
     }
 
     pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Out], num_outs: usize) -> Node {
-        let node = Node(self.nodes.len());
+        let node = Node::new(self.nodes.len()).unwrap();
         self.deps.extend(deps);
         self.ins.extend(ins);
         self.outs.extend((0..num_outs).map(|_| node));
@@ -238,7 +222,7 @@ impl Dataflow {
 
     /** Returns all [`Node`]s in the order they were added. */
     pub fn all_nodes(&self) -> impl Iterator<Item=Node> {
-        (0..self.nodes.len()).map(|i| Node(i))
+        (0..self.nodes.len()).map(|i| Node::new(i).unwrap())
     }
 }
 

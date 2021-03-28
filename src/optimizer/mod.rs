@@ -19,7 +19,7 @@ mod cost;
 pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
 
 mod dataflow;
-pub use dataflow::{Dataflow, Node, DUMMY_NODE, Out, DUMMY_OUT};
+pub use dataflow::{Dataflow, Node, Out};
 
 mod simulation;
 pub use simulation::{Simulation};
