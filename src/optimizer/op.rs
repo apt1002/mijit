@@ -21,7 +21,6 @@ impl Op {
      * Aggregates this [`Op`] with the specified output and input [`Value`]s to
      * make an [`Action`].
      * Returns `None` if `self` is [`Op::Convention`].
-     * Panics if the address of an [`Op::Store`] is not a [`Register`].
      * Panics if the `Op` is a `Convention`.
      */
     pub fn to_action(self, outs: &[Register], ins: &[Value]) -> Action {
@@ -48,17 +47,9 @@ impl Op {
                 Action::Load(outs[0], (ins[0], width), alias)
             },
             Op::Store(width, alias) => {
-                assert_eq!(outs.len(), 0);
+                assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 2);
-                // FIXME: Add a destination [`Register`] to [`Action::Store`],
-                // and allow the address operand to be a general [`Value`].
-                // The address gets copied into the destination `Register`.
-                match ins[1] {
-                    Value::Register(addr) => {
-                        Action::Store(ins[0], (addr, width), alias)
-                    },
-                    Value::Slot(_) => panic!("Address must be a Register"),
-                }
+                Action::Store(outs[0], ins[0], (ins[1], width), alias)
             },
             Op::Push => {
                 assert_eq!(outs.len(), 0);

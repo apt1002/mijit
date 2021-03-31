@@ -471,9 +471,11 @@ impl <'a> Lowerer<'a> {
                 let width = width.into();
                 self.a.load_narrow(P64, width, dest, (addr, 0));
             },
-            Action::Store(src, (addr, width), _) => {
+            Action::Store(dest, src, (addr, width), _) => {
+                let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP);
-                let addr = addr.into();
+                let addr = self.src_to_register(addr, dest);
+                self.move_(dest, addr);
                 let width = width.into();
                 self.a.store_narrow(width, (addr, 0), src);
             },

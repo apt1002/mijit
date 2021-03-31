@@ -126,8 +126,27 @@ mod tests {
             slots_used: 1,
         };
         let actions = vec![
-            Action::Store(V1.into(), (V0, Four), AliasMask(1)),
+            Action::Store(V0, V1.into(), (V0.into(), Four), AliasMask(1)),
             Action::Constant(P64, V0, 1234),
+        ];
+        let after = Convention {
+            live_values: vec![V0.into()],
+            slots_used: 1,
+        };
+        let _ = optimize(&before, &after, &actions);
+        // Just don't panic!
+    }
+
+    #[test]
+    fn moves() {
+        const V0: Register = REGISTERS[0];
+        const V1: Register = REGISTERS[1];
+        let before = Convention {
+            live_values: vec![V1.into()],
+            slots_used: 1,
+        };
+        let actions = vec![
+            Action::Move(V0.into(), V1.into()),
         ];
         let after = Convention {
             live_values: vec![V0.into()],
