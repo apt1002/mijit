@@ -189,7 +189,7 @@ impl Builder {
     fn store(&mut self, src: impl IntoValue, addr: impl IntoValue) {
         assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src.into(), (TEMP, Four), MEMORY));
+        self.0.push(Store(TEMP, src.into(), (TEMP.into(), Four), MEMORY));
     }
 
     /**
@@ -211,7 +211,7 @@ impl Builder {
     fn store_byte(&mut self, src: impl IntoValue, addr: impl IntoValue) {
         assert_ne!(src.into(), TEMP.into());
         self.native_address(TEMP, addr);
-        self.0.push(Store(src.into(), (TEMP.into(), One), MEMORY));
+        self.0.push(Store(TEMP, src.into(), (TEMP.into(), One), MEMORY));
     }
 
     /**

@@ -79,8 +79,9 @@ impl Action {
             Action::Load(_, (addr, _), _) => {
                 f(addr);
             },
-            Action::Store(src, (_, _), _) => {
+            Action::Store(_, src, (addr, _), _) => {
                 f(src);
+                f(addr);
             },
             Action::Push(src) => {
                 f(src);

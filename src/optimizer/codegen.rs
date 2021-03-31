@@ -273,6 +273,7 @@ impl<'a> CodeGen<'a> {
             }
         }).collect();
         // Work out which live values need to be moved where.
+        let mut is_used = ArrayMap::new(NUM_REGISTERS);
         let dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
                 let src = match self.outs[out].reg.filter(|&reg| regs[reg] == Some(out)) {
@@ -281,13 +282,15 @@ impl<'a> CodeGen<'a> {
                         .expect("Value was overwritten but not spilled")
                         .into(),
                 };
+                if let Value::Register(r) = dest { is_used[r] = true; }
+                if let Value::Register(r) = src { is_used[r] = true; }
                 (dest, src)
             }).collect();
         // Allocate a temporary `Value` that is not live.
         // Use a `Register` if possible, otherwise allocate a `Slot`.
         let temp_reg: Value = all_registers()
+            .find(|&r| !is_used[r])
             .map(|r| Value::from(r))
-            .find(|r| !dest_to_src.contains_key(&r))
             .unwrap_or_else(|| {
                 let slot = Slot(num_slots);
                 num_slots += 1;
@@ -295,6 +298,9 @@ impl<'a> CodeGen<'a> {
             });
         // Move all live values into the expected `Value`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
+        println!("ret = {:#?}", ret);
+        println!("dest_to_src = {:#?}", dest_to_src);
+        println!("temp_reg = {:#?}", temp_reg);
         ret.extend(moves(dest_to_src, temp_reg).map(|(dest, src)| Action::Move(dest, src)));
         // Return.
         ret.shrink_to_fit();

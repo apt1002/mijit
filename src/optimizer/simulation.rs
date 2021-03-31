@@ -45,7 +45,10 @@ impl Simulation {
         self.bindings.get(&value).expect("Read a dead value").clone()
     }
 
-    /** Returns a Node representing the result of `op`. */
+    /**
+     * Returns a [`Node`] representing `op` applied to `ins`, depending on
+     * `deps`. Binds `outs` to the `Node`'s outputs.
+     */
     fn op(&mut self, op: Op, deps: &[Node], ins: &[Value], outs: &[Register]) -> Node {
         let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
         // TODO: Common subexpression elimination.
@@ -57,12 +60,17 @@ impl Simulation {
         node
     }
 
+    /** Binds `dest` to the same [`Value`] as `src`. */
+    fn move_(&mut self, dest: Value, src: Value) {
+        let out = self.lookup(src);
+        self.bindings.insert(dest, out);
+    }
+
     /** Simulate executing `action`. */
     pub fn action(&mut self, action: &Action) {
         match *action {
             Action::Move(dest, src) => {
-                let out = self.lookup(src);
-                self.bindings.insert(dest.into(), out);
+                self.move_(dest, src);
             },
             Action::Constant(prec, dest, mut value) => {
                 if prec == Precision::P32 {
@@ -82,11 +90,12 @@ impl Simulation {
                 let node = self.op(Op::Load(width, alias_mask), &[self.store], &[addr], &[dest]);
                 self.loads.push(node);
             },
-            Action::Store(src, (addr, width), alias_mask) => {
+            Action::Store(dest, src, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
                 let mut deps = Vec::new();
                 std::mem::swap(&mut deps, &mut self.loads);
-                let node = self.op(Op::Store(width, alias_mask), &deps, &[src, addr.into()], &[]);
+                let node = self.op(Op::Store(width, alias_mask), &deps, &[src, addr], &[dest]);
+                self.move_(dest.into(), src);
                 self.store = node;
                 self.loads.push(node);
             },
