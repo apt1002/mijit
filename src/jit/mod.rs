@@ -60,40 +60,6 @@ type RunFn = extern "C" fn(
     /* current_index */  usize,
 ) -> /* new_index */ usize;
 
-impl Action {
-    /** Call `f` on every Value mentioned in Action. */
-    fn for_each_value(&self, mut f: impl FnMut(Value)) {
-        match *self {
-            Action::Move(dest, src) => {
-                f(dest);
-                f(src);
-            },
-            Action::Constant(_, _, _) => {},
-            Action::Unary(_, _, _, src) => {
-                f(src);
-            },
-            Action::Binary(_, _, _, src1, src2) => {
-                f(src1);
-                f(src2);
-            },
-            Action::Load(_, (addr, _), _) => {
-                f(addr);
-            },
-            Action::Store(_, src, (addr, _), _) => {
-                f(src);
-                f(addr);
-            },
-            Action::Push(src) => {
-                f(src);
-            },
-            Action::Pop(_) => {},
-            Action::Debug(src) => {
-                f(src);
-            },
-        }
-    }
-}
-
 //-----------------------------------------------------------------------------
 
 /**
@@ -130,31 +96,26 @@ pub struct Jit<M: Machine> {
 impl<M: Machine> Jit<M> {
     pub fn new(machine: M, code_size: usize) -> Self {
         // Enumerate the reachable states in FIFO order.
-        // Simultaneously, find the largest used slot number.
         let mut states: IndexSet<M::State> = machine.initial_states().into_iter().collect();
-        let mut num_slots = machine.num_globals();
+        let persistent_values = machine.values();
         let mut done = 0;
         while let Some(state) = states.get_index(done) {
-            for (_test_op, actions, new_state) in machine.get_code(state.clone()) {
+            for (_test_op, _actions, new_state) in machine.get_code(state.clone()) {
                 states.insert(new_state);
-                for action in actions {
-                    action.for_each_value(|v: Value| {
-                        match v {
-                            Value::Register(_) => {},
-                            Value::Slot(Slot(index)) => {
-                                num_slots = std::cmp::max(num_slots, index + 1);
-                            },
-                        }
-                    });
-                }
             }
             done += 1;
         }
+        let slots_used = persistent_values.iter().fold(0, |acc, &v| {
+            match v {
+                Value::Register(_r) => acc,
+                Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
+            }
+        });
+        // TODO: Use one convention for each state, rather than sharing one.
         let convention = Convention {
-            live_values: (0..num_slots).map(|i| Value::Slot(Slot(i))).collect(),
-            slots_used: num_slots,
+            live_values: persistent_values.to_vec(),
+            slots_used: slots_used,
         };
-
         // Assemble the function prologue.
         let mut fetch_labels: Vec<Label> = (0..states.len()).map(|_| Label::new(None)).collect();
         let mut retire_labels: Vec<Label> = (0..states.len()).map(|_| Label::new(None)).collect();
@@ -190,7 +151,7 @@ impl<M: Machine> Jit<M> {
         // Construct the Jit.
         let used = a.get_pos();
         // TODO: Factor out pool index calculation.
-        let pool = vec![0; num_slots + 1 + 1000]; // FIXME: replace "1000" by dynamically-calculated value.
+        let pool = vec![0; slots_used + 1 + 1000]; // FIXME: replace "1000" by dynamically-calculated value.
         let mut jit = Jit {machine, states, convention, fetch_labels, retire_labels, buffer, used, pool};
 
         // Construct the root Histories.

@@ -48,13 +48,13 @@ impl From<Global> for Value {
 
 use Global::*;
 
+const NUM_GLOBALS: usize = 17;
+
 /** Beetle's registers. Only these values are live in State::Root. */
 pub const ALL_REGISTERS: [Global; 10] = [
     BEP, BA, BSP, BRP, BS0, BR0,
     BThrow, BBad, BNotAddress, BMemory,
 ];
-
-const NUM_GLOBALS: usize = 17;
 
 /** Beetle's address space is unified, so we always use the same AliasMask. */
 const MEMORY: code::AliasMask = code::AliasMask(0x1);
@@ -252,8 +252,8 @@ pub struct Machine;
 impl code::Machine for Machine {
     type State = State;
 
-    fn num_globals(&self) -> usize {
-        NUM_GLOBALS
+    fn values(&self) -> Vec<Value> {
+        (0..NUM_GLOBALS).map(|i| Slot(i).into()).collect()
     }
 
     fn get_code(&self, state: Self::State) -> Vec<((TestOp, Precision), Vec<Action>, Self::State)> {

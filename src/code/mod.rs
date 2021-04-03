@@ -241,8 +241,8 @@ pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
 
-    /** The number of spill slots reserved for the Machine's globals. */
-    fn num_globals(&self) -> usize;
+    /** The [`Value`]s that persist when the Machine is not running. */
+    fn values(&self) -> Vec<Value>;
 
     /**
      * Defines the transitions of the finite state machine.

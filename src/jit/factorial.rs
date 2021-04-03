@@ -20,7 +20,9 @@ pub struct Machine;
 impl super::code::Machine for Machine {
     type State = State;
 
-    fn num_globals(&self) -> usize { 2 }
+    fn values(&self) -> Vec<Value> {
+        vec![reg::N, reg::RESULT]
+    }
     
     fn get_code(&self, state: Self::State) ->
         Vec<(
