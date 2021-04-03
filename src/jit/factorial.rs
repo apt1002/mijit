@@ -24,32 +24,46 @@ impl super::code::Machine for Machine {
         vec![reg::N, reg::RESULT]
     }
     
-    fn get_code(&self, state: Self::State) ->
-        Vec<(
-            (TestOp, Precision),
-            Vec<Action>,
-            Self::State,
-        )>
-    {
+    fn get_code(&self, state: Self::State) -> (u64, Vec<Case<Self::State>>) {
         match state {
-            State::Start => {vec![
-                ((TestOp::Always, P32), vec![
-                    Constant(P32, R0, 1),
-                    Move(reg::RESULT, R0.into()),
-                ], State::Loop),
-            ]},
-            State::Loop => {vec![
-                ((TestOp::Eq(reg::N, 0), P32), vec![
-                ], State::Return),
-                ((TestOp::Ne(reg::N, 0), P32), vec![
-                    Binary(Mul, P32, R0, reg::RESULT, reg::N),
-                    Move(reg::RESULT, R0.into()),
-                    Constant(P32, R0.into(), 1),
-                    Binary(Sub, P32, R0, reg::N, R0.into()),
-                    Move(reg::N, R0.into()),
-                ], State::Loop),
-            ]},
-            State::Return => {vec![]},
+            State::Start => (
+                0x1, // N
+                vec![
+                    Case {
+                        condition: (TestOp::Always, P32),
+                        actions: vec![
+                            Constant(P32, R0, 1),
+                            Move(reg::RESULT, R0.into()),
+                        ],
+                        new_state: State::Loop,
+                    },
+                ],
+            ),
+            State::Loop => (
+                0x3, // N, RESULT
+                vec![
+                    Case {
+                        condition: (TestOp::Eq(reg::N, 0), P32),
+                        actions: vec![],
+                        new_state: State::Return,
+                    },
+                    Case {
+                        condition: (TestOp::Ne(reg::N, 0), P32),
+                        actions: vec![
+                            Binary(Mul, P32, R0, reg::RESULT, reg::N),
+                            Move(reg::RESULT, R0.into()),
+                            Constant(P32, R0.into(), 1),
+                            Binary(Sub, P32, R0, reg::N, R0.into()),
+                            Move(reg::N, R0.into()),
+                        ],
+                        new_state: State::Loop,
+                    },
+                ],
+            ),
+            State::Return => (
+                0x2, // RESULT
+                vec![],
+            ),
         }
     }
 

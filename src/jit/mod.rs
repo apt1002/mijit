@@ -100,8 +100,8 @@ impl<M: Machine> Jit<M> {
         let persistent_values = machine.values();
         let mut done = 0;
         while let Some(state) = states.get_index(done) {
-            for (_test_op, _actions, new_state) in machine.get_code(state.clone()) {
-                states.insert(new_state);
+            for case in machine.get_code(state.clone()).1 {
+                states.insert(case.new_state);
             }
             done += 1;
         }
@@ -157,10 +157,12 @@ impl<M: Machine> Jit<M> {
         // Construct the root Histories.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
         for old_state in all_states {
-            for ((test_op, prec), actions, new_state) in jit.machine.get_code(old_state.clone()) {
+            let (_value_mask, cases) = jit.machine.get_code(old_state.clone());
+            for case in cases {
+                let (test_op, prec) = case.condition;
                 let old_index = jit.states.get_index_of(&old_state).unwrap();
-                let new_index = jit.states.get_index_of(&new_state).unwrap();
-                jit.insert_history(old_index, test_op, prec, actions, new_index);
+                let new_index = jit.states.get_index_of(&case.new_state).unwrap();
+                jit.insert_history(old_index, test_op, prec, case.actions, new_index);
             }
         }
 

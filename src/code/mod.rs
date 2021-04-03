@@ -237,6 +237,18 @@ pub enum Action {
     Debug(Value),
 }
 
+pub struct Case<S> {
+    /**
+     * When to use the transition. Mijit selects the first transition with a
+     * true condition.
+     */
+    pub condition: (TestOp, Precision),
+    /** Code to execute when the transition is selected. */
+    pub actions: Vec<Action>,
+    /** The destination state. */
+    pub new_state: S,
+}
+
 pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
@@ -247,19 +259,10 @@ pub trait Machine: Debug {
     /**
      * Defines the transitions of the finite state machine.
      *  - state - the source State.
-     * Returns a (condition, actions, new_state) for each transition from
-     * `state`:
-     *  - condition - when to use the transition. Mijit selects the first
-     *    transition with a true condition.
-     *  - actions - code to execute when the transition is selected.
-     *  - new_state - the destination State.
+     * Returns a u64 bitmask indicating which [`values()`] are live in `state`
+     * and a [`Case`] for each transition from `state`.
      */
-    fn get_code(&self, state: Self::State) ->
-        Vec<(
-            (TestOp, Precision),
-            Vec<Action>,
-            Self::State,
-        )>;
+    fn get_code(&self, state: Self::State) -> (u64, Vec<Case<Self::State>>);
 
     /** Returns some States from which all others are reachable. */
     fn initial_states(&self) -> Vec<Self::State>;
