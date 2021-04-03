@@ -118,3 +118,5 @@ Clearly there must be a base case: an exceptional "least" specialisation, which 
 Assumption 2 implies that every specialisation is reachable from the least specialisation using only fetches, and assumption 1 implies that this path to each specialisation is unique. In other words, the specialisations form a tree, which I call the "fetch tree", with the least specialisation at the root. Analogously, the specialisations form a "retire tree", also with the least specialisation at the root. Thus, we have a beautiful double tree structure.
 
 The double tree structure provides an organising principle for specialisations. It is a useful restriction on the control-flow graph of the interpreter. It gives us a concrete representation of the graph, vocabulary for describing the relationships between specialisations, and the mutation operations that the compiler needs in order to create new specialisations.
+
+The diagram "specialisation.svg" shows the reationships of a single specialisation to its control-flow neighbours, and defines some terminology.
