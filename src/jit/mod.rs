@@ -76,7 +76,7 @@ pub struct Jit<M: Machine> {
     // TODO: One Convention per History.
     convention: Convention,
     /**
-     * The locations of the compiled code for all retire transitions,
+     * The locations of the compiled code for all fetch transitions,
      * and of all instructions that jump to them.
      */
     fetch_labels: Vec<Label>,
@@ -107,7 +107,7 @@ impl<M: Machine> Jit<M> {
         }
         let slots_used = persistent_values.iter().fold(0, |acc, &v| {
             match v {
-                Value::Register(_r) => acc,
+                Value::Register(_r) => panic!("Persisting registers is not yet implemented"),
                 Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
             }
         });
