@@ -43,7 +43,7 @@ mod codegen;
 pub use codegen::{codegen};
 
 /** Optimizes a basic block. */
-pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> Vec<Action> {
+pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
     let mut simulation = Simulation::new(&before.live_values);
     for action in actions {
         simulation.action(action);
@@ -78,8 +78,8 @@ mod tests {
             slots_used: 0,
         };
         let observed = optimize(&before, &after, &actions);
-        let expected: Vec<Action> = vec![];
-        assert_eq!(observed.as_slice(), expected.as_slice());
+        let expected: Box<[Action]> = Box::new([]);
+        assert_eq!(observed, expected);
     }
 
     #[test]

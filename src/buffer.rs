@@ -23,7 +23,7 @@ impl Buffer {
      * is gone. T can itself be a Result if necessary to represent errors
      * returned by `callback`
      */
-    pub fn execute<T>(mut self, callback: impl Fn(&[u8]) -> T)
+    pub fn execute<T>(mut self, callback: impl FnOnce(&[u8]) -> T)
     -> std::io::Result<(Self, T)> {
         let executable_memory = self.memory.make_exec()?;
         let result = callback(&executable_memory);

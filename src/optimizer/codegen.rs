@@ -220,7 +220,7 @@ impl<'a> CodeGen<'a> {
      * Allocate spill slots, resolve operands, convert all instructions to
      * [`Action`]s, and return them in the order they should be executed in.
      */
-    pub fn finish(self, exit_node: Node) -> Vec<Action> {
+    pub fn finish(self, exit_node: Node) -> Box<[Action]> {
         let df: &'a Dataflow = self.schedule.dataflow;
         // Initialise bindings.
         let mut num_slots = self.before.slots_used;
@@ -298,17 +298,13 @@ impl<'a> CodeGen<'a> {
             });
         // Move all live values into the expected `Value`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
-        println!("ret = {:#?}", ret);
-        println!("dest_to_src = {:#?}", dest_to_src);
-        println!("temp_reg = {:#?}", temp_reg);
         ret.extend(moves(dest_to_src, temp_reg).map(|(dest, src)| Action::Move(dest, src)));
         // Return.
-        ret.shrink_to_fit();
-        ret
+        ret.into()
     }
 }
 
-pub fn codegen(before: &Convention, after: &Convention, schedule: Schedule, exit_node: Node) -> Vec<Action> {
+pub fn codegen(before: &Convention, after: &Convention, schedule: Schedule, exit_node: Node) -> Box<[Action]> {
     let mut codegen = CodeGen::new(before, after, schedule);
     while let Some(node) = codegen.schedule.next() {
         codegen.add_node(node);
