@@ -21,10 +21,10 @@ use Instruction::*;
 
 impl Debug for Instruction {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        match self {
-            &Absent => write!(f, "Absent"),
-            &Spill(out) => out.fmt(f),
-            &Node(node) => node.fmt(f),
+        match *self {
+            Absent => write!(f, "Absent"),
+            Spill(out) => out.fmt(f),
+            Node(node) => node.fmt(f),
         }
     }
 }
@@ -243,9 +243,9 @@ impl<'a> CodeGen<'a> {
         let mut ret: Vec<_> = self.placer.iter().map(|instruction| {
             ins.clear();
             outs.clear();
-            match instruction {
-                &Absent => panic!("Absent instruction"),
-                &Spill(out) => {
+            match *instruction {
+                Absent => panic!("Absent instruction"),
+                Spill(out) => {
                     assert!(spills[out].is_none()); // Not yet spilled.
                     let reg = self.outs[out].reg.expect("Spilled a non-register");
                     assert!(regs[reg] == Some(out)); // Not yet overwritten.
@@ -254,7 +254,7 @@ impl<'a> CodeGen<'a> {
                     spills[out] = Some(slot);
                     Action::Move(slot.into(), reg.into())
                 },
-                &Node(n) => {
+                Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
                         match self.outs[in_].reg.filter(|&reg| regs[reg] == Some(in_)) {
                             Some(reg) => Value::from(reg),
