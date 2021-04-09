@@ -290,7 +290,7 @@ impl<'a> CodeGen<'a> {
         // Use a `Register` if possible, otherwise allocate a `Slot`.
         let temp_reg: Value = all_registers()
             .find(|&r| !is_used[r])
-            .map(|r| Value::from(r))
+            .map(Value::from)
             .unwrap_or_else(|| {
                 let slot = Slot(num_slots);
                 num_slots += 1;
