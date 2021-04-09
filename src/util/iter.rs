@@ -10,7 +10,7 @@ pub fn map_filter_max<I: IntoIterator, T: Ord> (
     while let Some((i, x)) = it.next() {
         if let Some(fx) = f(x) {
             let mut best = (i, fx);
-            while let Some((j, y)) = it.next() {
+            for (j, y) in it {
                 if let Some(fy) = f(y) {
                     if fy > best.1 {
                         best = (j, fy);
