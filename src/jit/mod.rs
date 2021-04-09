@@ -346,7 +346,7 @@ impl<M: Machine> Jit<M> {
                     slots_used: slots_used,
                 },
                 Box::new([
-                    Action::Constant(P32, reg_ret.into(), index as i64),
+                    Action::Constant(P32, reg_ret, index as i64),
                 ]),
             );
             roots.push(specialization);

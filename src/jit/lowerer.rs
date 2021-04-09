@@ -72,7 +72,7 @@ impl From<code::Register> for Value {
 
 impl From<code::Value> for Value {
     fn from(v: code::Value) -> Self {
-        match v.into() {
+        match v {
             code::Value::Register(reg) => reg.into(),
             code::Value::Slot(slot) => slot.into(),
         }

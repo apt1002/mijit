@@ -42,7 +42,7 @@ impl Simulation {
 
     /** Returns the `Out` that is bound to `value`. */
     fn lookup(&self, value: Value) -> Out {
-        self.bindings.get(&value).expect("Read a dead value").clone()
+        *self.bindings.get(&value).expect("Read a dead value")
     }
 
     /**

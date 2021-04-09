@@ -53,7 +53,7 @@ pub mod tests {
     fn rceq() {
         let payload = String::from("payload");
         let a = RcEq::new(payload.clone());
-        let b = RcEq::new(payload.clone());
+        let b = RcEq::new(payload);
         assert_ne!(a, b);
         let c = a.clone();
         assert_eq!(a, c);

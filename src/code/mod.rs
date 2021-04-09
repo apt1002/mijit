@@ -290,7 +290,7 @@ pub mod tests {
 
         pub fn execute(&self, actions: &[Action]) -> HashMap<Value, i64> {
             let mut state: HashMap<Value, i64> = self.values.iter().enumerate().map(|(i, value)| {
-                (value.clone(), 1000 + i as i64)
+                (*value, 1000 + i as i64)
             }).collect();
             for action in actions {
                 match action {

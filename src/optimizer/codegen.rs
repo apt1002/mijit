@@ -109,7 +109,7 @@ impl<'a> CodeGen<'a> {
         let mut outs: ArrayMap<Out, OutInfo> = df.out_map();
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
-            if !schedule.first_use(out).is_none() {
+            if schedule.first_use(out).is_some() {
                 match value {
                     Value::Register(reg) => {
                         dirty[reg] = true;

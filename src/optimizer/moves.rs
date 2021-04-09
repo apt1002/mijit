@@ -77,13 +77,13 @@ mod tests {
                 }
             }
             // Construct the expected output.
-            let mut expected = input.clone();
+            let mut expected = input;
             for (&dest, &src) in &dest_to_src {
                 expected[dest] = input[src]
             }
             // Construct the observed output.
             let pairs: Vec<_> = moves(dest_to_src, N).collect();
-            let mut observed = input.clone();
+            let mut observed = input;
             for &(dest, src) in &pairs {
                 observed[dest] = observed[src];
             }

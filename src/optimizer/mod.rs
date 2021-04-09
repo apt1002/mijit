@@ -97,7 +97,7 @@ mod tests {
             Action::Unary(UnaryOp::Not, P64, V0, V1.into()),
             Action::Binary(BinaryOp::Add, P64, V0, V0.into(), V1.into()),
         ] {
-            let actions = vec![action.clone()];
+            let actions = vec![*action];
             let expected = emulator.execute(&actions);
             let optimized = optimize(&convention, &convention, &actions);
             let observed_with_temporaries = emulator.execute(&optimized);

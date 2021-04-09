@@ -52,7 +52,7 @@ impl super::code::Machine for Machine {
                         actions: vec![
                             Binary(Mul, P32, R0, reg::RESULT, reg::N),
                             Move(reg::RESULT, R0.into()),
-                            Constant(P32, R0.into(), 1),
+                            Constant(P32, R0, 1),
                             Binary(Sub, P32, R0, reg::N, R0.into()),
                             Move(reg::N, R0.into()),
                         ],
