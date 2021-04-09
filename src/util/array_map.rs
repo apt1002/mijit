@@ -31,6 +31,8 @@ impl<K: AsUsize, V> ArrayMap<K, V> {
         Self::new_with(length, Default::default)
     }
 
+    pub fn is_empty(&self) -> bool { self.0.len() == 0 }
+
     pub fn len(&self) -> usize { self.0.len() }
 
     pub fn iter(&self) -> std::slice::Iter<V> { self.0.iter() }
