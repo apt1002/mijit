@@ -120,6 +120,14 @@ macro_rules! array_index {
         );
 
         impl $Name {
+            /**
+             * Safety
+             *
+             * We reserve the maximum value rather than zero.
+             * The maximum value is not usable as an array index anyway,
+             * because it is not less than the maximum length.
+             */
+            #[allow(clippy::missing_safety_doc)] // Work around bug in clippy.
             pub const unsafe fn new_unchecked(index: $UInt) -> Self {
                 Self(<$NonZeroUInt>::new_unchecked(index + 1))
             }
