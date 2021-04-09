@@ -354,7 +354,7 @@ impl<M: Machine> Jit<M> {
 
         // Construct the Jit.
         let used = lo.a.get_pos();
-        let mut jit = Jit {inner, machine, states, roots, buffer, used};
+        let mut jit = Jit {inner, machine, buffer, used, states, roots};
 
         // Construct the root Histories.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
