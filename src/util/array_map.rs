@@ -133,6 +133,7 @@ macro_rules! array_index {
             }
 
             pub const fn new(index: $UInt) -> Option<Self> {
+                #[allow(clippy::manual_map)] // Work around bug in clippy.
                 match <$NonZeroUInt>::new(index + 1) {
                     Some(index) => Some(Self(index)),
                     None => None,
