@@ -28,7 +28,7 @@ impl<K: AsUsize, V> ArrayMap<K, V> {
     }
 
     pub fn new(length: usize) -> Self where V: Default {
-        Self::new_with(length, || Default::default())
+        Self::new_with(length, Default::default)
     }
 
     pub fn len(&self) -> usize { self.0.len() }
