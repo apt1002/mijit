@@ -26,6 +26,7 @@ use std::ops::{DerefMut};
  */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum Register {
     RA = 0,
     RC = 1,

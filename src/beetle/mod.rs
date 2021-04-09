@@ -20,6 +20,7 @@ const R5: Register = code::REGISTERS[5];
 /** Beetle's registers and other globals. */
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum Global {
     BEP = 0,
     BA = 1,
