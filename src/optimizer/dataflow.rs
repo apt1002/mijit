@@ -40,7 +40,7 @@ impl<'a> Debug for NodeAdapter<'a> {
             CommaSeparated(|| self.dataflow.ins(self.node)),
         )?;
         let deps = self.dataflow.deps(self.node);
-        if deps.len() > 0 {
+        if !deps.is_empty() {
             write!(f, " after ({:?})", CommaSeparated(|| deps))?;
         }
         Ok(())
