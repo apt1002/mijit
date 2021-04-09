@@ -122,7 +122,7 @@ impl<'a> CodeGen<'a> {
             }
         }
         // Construct and return.
-        let cg = CodeGen {
+        CodeGen {
             before: before,
             after: after,
             schedule: schedule,
@@ -131,8 +131,7 @@ impl<'a> CodeGen<'a> {
             node_times: df.node_map(),
             regs: regs,
             pool: RegisterPool::new(dirty),
-        };
-        cg
+        }
     }
 
     /** Returns the [`Register`] containing `out`, if any. */
