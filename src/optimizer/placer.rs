@@ -42,6 +42,12 @@ pub struct Placer<T: Debug + Default> {
     cycles: Vec<Cycle<T>>,
 }
 
+impl<T: Debug + Default> Default for Placer<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Debug + Default> Placer<T> {
     pub fn new() -> Self {
         Placer {
