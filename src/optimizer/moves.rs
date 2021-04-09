@@ -33,7 +33,7 @@ pub fn moves<V: Debug + Clone + Hash + Eq>(
         }
         // If the chain ended with a non-trivial cycle, break it.
         let cycle = chain.iter().find(|&dest: &&V| dest == &current).cloned();
-        if let Some(_) = cycle {
+        if cycle.is_some() {
             current = temp.clone();
         }
         // Process the chain.
