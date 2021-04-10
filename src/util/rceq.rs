@@ -14,7 +14,7 @@ impl<T> RcEq<T> {
 
 impl<T> std::ops::Deref for RcEq<T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target { self.0.deref() }
+    fn deref(&self) -> &Self::Target { &*self.0 }
 }
 
 impl<T: Debug> Debug for RcEq<T> {
