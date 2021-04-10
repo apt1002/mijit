@@ -257,6 +257,7 @@ impl code::Machine for Machine {
         (0..NUM_GLOBALS).map(|i| Slot(i).into()).collect()
     }
 
+    #[allow(clippy::too_many_lines)]
     fn get_code(&self, state: Self::State) -> (u64, Vec<Case<Self::State>>) {
         let mut register_mask = 0;
         for &r in &ALL_REGISTERS {
