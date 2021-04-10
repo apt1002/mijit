@@ -198,6 +198,7 @@ pub const ALL_SHIFT_OPS: [ShiftOp; 7] =
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum Condition {
     O  = 0x0,
     NO = 0x1,
