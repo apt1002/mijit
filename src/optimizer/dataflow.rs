@@ -137,41 +137,25 @@ impl Dataflow {
 
     /** Returns the [`Node`]s which must be executed before `node`. */
     pub fn deps(&self, node: Node) -> &[Node] {
-        let start_dep = if let Some(prev) = self.prev(node) {
-            prev.end_dep
-        } else {
-            0
-        };
+        let start_dep = self.prev(node).map_or(0, |prev| prev.end_dep);
         &self.deps[start_dep .. self.info(node).end_dep]
     }
 
     /** Returns the [`Out`]s which are consumed by the inputs of `node`. */
     pub fn ins(&self, node: Node) -> &[Out] {
-        let start_in = if let Some(prev) = self.prev(node) {
-            prev.end_in
-        } else {
-            0
-        };
+        let start_in = self.prev(node).map_or(0, |prev| prev.end_in);
         &self.ins[start_in .. self.info(node).end_in]
     }
 
     /** Returns the number of [`Out`]s which are produced by `node`. */
     pub fn num_outs(&self, node: Node) -> usize {
-        let start_out = if let Some(prev) = self.prev(node) {
-            prev.end_out
-        } else {
-            0
-        };
+        let start_out = self.prev(node).map_or(0, |prev| prev.end_out);
         self.info(node).end_out - start_out
     }
 
     /** Returns the [`Out`]s which are produced by `node`. */
     pub fn outs(&self, node: Node) -> impl Iterator<Item=Out> {
-        let start_out = if let Some(prev) = self.prev(node) {
-            prev.end_out
-        } else {
-            0
-        };
+        let start_out = self.prev(node).map_or(0, |prev| prev.end_out);
         (start_out .. self.info(node).end_out).map(|index| Out::new(index).unwrap())
     }
 
@@ -181,11 +165,7 @@ impl Dataflow {
      */
     pub fn out(&self, out: Out) -> (Node, usize) {
         let node = self.outs[out.as_usize()];
-        let start_out = if let Some(prev) = self.prev(node) {
-            prev.end_out
-        } else {
-            0
-        };
+        let start_out = self.prev(node).map_or(0, |prev| prev.end_out);
         (node, out.as_usize() - start_out)
     }
 

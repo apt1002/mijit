@@ -341,7 +341,7 @@ const UNKNOWN_DISP: i32 = -0x80000000;
 
 /** Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`. */
 pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
-    if let Some(to) = to { disp32(from, to) } else { UNKNOWN_DISP }
+    to.map_or(UNKNOWN_DISP, |to| disp32(from, to))
 }
 
 #[no_mangle]
