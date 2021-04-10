@@ -431,7 +431,7 @@ impl<'a> Assembler<'a> {
         let mut bytes: u64 = 0;
         for i in (0..len).rev() {
             bytes <<= 8;
-            bytes |= self.read_byte(pos + i) as u64;
+            bytes |= u64::from(self.read_byte(pos + i));
         }
         bytes
     }
@@ -453,12 +453,12 @@ impl<'a> Assembler<'a> {
 
     /** Writes an 8-bit signed immediate constant. */
     pub fn write_imm8(&mut self, immediate: i8) {
-        self.write((immediate as u8) as u64, 1);
+        self.write(u64::from(immediate as u8), 1);
     }
 
     /** Writes a 32-bit signed immediate constant. */
     pub fn write_imm32(&mut self, immediate: i32) {
-        self.write((immediate as u32) as u64, 4);
+        self.write(u64::from(immediate as u32), 4);
     }
 
     /** Writes a 64-bit signed immediate constant. */
@@ -572,10 +572,10 @@ impl<'a> Assembler<'a> {
         if prec == P32 {
             imm &= 0xFFFFFFFF;
         }
-        if imm as u32 as i64 == imm {
+        if i64::from(imm as u32) == imm {
             self.write_ro_1(0xB840, P32, dest);
             self.write_imm32(imm as i32);
-        } else if imm as i32 as i64 == imm {
+        } else if i64::from(imm as i32) == imm {
             self.write_rom_1(0xC0C740, P64, dest);
             self.write_imm32(imm as i32);
         } else {

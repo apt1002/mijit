@@ -196,7 +196,7 @@ impl <'a> Lowerer<'a> {
     ) {
         match test_op {
             TestOp::Bits(discriminant, mask, value) => {
-                self.const_(prec, TEMP, mask as i64);
+                self.const_(prec, TEMP, i64::from(mask));
                 self.value_op(And, prec, TEMP, discriminant);
                 self.const_op(Cmp, prec, TEMP, value);
                 self.a.jump_if(Condition::Z, false, false_label);

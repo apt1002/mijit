@@ -93,7 +93,7 @@ pub enum State {
 
 //-----------------------------------------------------------------------------
 
-fn opcode(c: u8) -> TestOp { TestOp::Bits(Opcode.into(), 0xFF, c as i32) }
+fn opcode(c: u8) -> TestOp { TestOp::Bits(Opcode.into(), 0xFF, i32::from(c)) }
 fn lt(v: impl IntoValue, c: i32) -> TestOp { TestOp::Lt(v.into(), c) }
 fn ge(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ge(v.into(), c) }
 fn ult(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ult(v.into(), c) }
@@ -285,7 +285,7 @@ impl code::Machine for Machine {
                 let mut pick = Vec::new();
                 for u in 0..4 {
                     pick.push(build(eq(Stack0, u), |b| {
-                        b.const_binary(Add, R2, BSP, cell_bytes(u as i64 + 1));
+                        b.const_binary(Add, R2, BSP, cell_bytes(i64::from(u) + 1));
                         b.load(R2, R2);
                         b.store(R2, BSP);
                     }, State::Root));
@@ -1261,7 +1261,7 @@ pub mod tests {
 
         /** Write a register. */
         pub fn set(&mut self, global: Global, value: u32) {
-            *self.jit.slot(global) = value as u64
+            *self.jit.slot(global) = u64::from(value)
         }
 
         /**
@@ -1271,7 +1271,7 @@ pub mod tests {
         pub fn allocate(&mut self, cells: u32) -> u32 {
             assert!(cells <= self.free_cells);
             self.free_cells -= cells;
-            cell_bytes(self.free_cells as i64) as u32
+            cell_bytes(i64::from(self.free_cells)) as u32
         }
 
         /**
