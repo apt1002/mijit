@@ -3,7 +3,7 @@ set -e  # halt on error
 
 FIX_OPTIONS=''
 if [ "$FIX" = 1 ]; then
-  FIX_OPTIONS='--fix -Z unstable-options'
+  FIX_OPTIONS='--fix -Z unstable-options --allow-staged'
 fi
 
 PEDANTIC_OPTIONS=''
