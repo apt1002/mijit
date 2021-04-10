@@ -44,8 +44,8 @@ impl<T: Ord> Range<T> {
     /**
      * `x` is in the range iff `x < start` xor `x < end` xor `end < start`.
      */
-    pub fn contains(&self, x: T) -> bool {
-        (x < self.0) ^ (x < self.1) ^ (self.1 < self.0)
+    pub fn contains(&self, x: &T) -> bool {
+        (*x < self.0) ^ (*x < self.1) ^ (self.1 < self.0)
     }
 }
 

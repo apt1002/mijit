@@ -297,7 +297,7 @@ impl<'a> CodeGen<'a> {
             });
         // Move all live values into the expected `Value`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
-        ret.extend(moves(dest_to_src, temp_reg).map(|(dest, src)| Action::Move(dest, src)));
+        ret.extend(moves(dest_to_src, &temp_reg).map(|(dest, src)| Action::Move(dest, src)));
         // Return.
         ret.into()
     }

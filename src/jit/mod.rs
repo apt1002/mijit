@@ -362,7 +362,7 @@ impl<M: Machine> Jit<M> {
         for old_state in all_states {
             let (_value_mask, cases) = jit.machine.get_code(old_state.clone());
             for case in cases {
-                jit.compile(old_state.clone(), case.condition, &case.actions, case.new_state);
+                jit.compile(&old_state, case.condition, &case.actions, &case.new_state);
             }
         }
 
@@ -383,17 +383,17 @@ impl<M: Machine> Jit<M> {
 
     pub fn compile(
         &mut self,
-        old_state: M::State,
+        old_state: &M::State,
         guard: (TestOp, Precision),
         actions: &[Action],
-        new_state: M::State,
+        new_state: &M::State,
     ) -> Specialization {
         let mut lo = Lowerer {a: Assembler::new(&mut self.buffer)};
         lo.a.set_pos(self.used);
         let ret = self.inner.compile(
             &mut lo,
-            self.roots[self.states.get_index_of(&old_state).unwrap()],
-            self.roots[self.states.get_index_of(&new_state).unwrap()],
+            self.roots[self.states.get_index_of(old_state).unwrap()],
+            self.roots[self.states.get_index_of(new_state).unwrap()],
             guard,
             actions,
         );
@@ -401,8 +401,8 @@ impl<M: Machine> Jit<M> {
         ret
     }
 
-    pub fn execute(mut self, state: M::State) -> (Self, M::State) {
-        let index = self.states.get_index_of(&state).expect("invalid state");
+    pub fn execute(mut self, state: &M::State) -> (Self, M::State) {
+        let index = self.states.get_index_of(state).expect("invalid state");
         let inner = &mut self.inner;
         let (buffer, new_index) = self.buffer.execute(|bytes| {
             inner.execute(bytes, index)
@@ -442,7 +442,7 @@ pub mod tests {
 
         // Run some "code".
         *jit.slot(reg::N) = 5;
-        let (mut jit, final_state) = jit.execute(Start);
+        let (mut jit, final_state) = jit.execute(&Start);
         assert_eq!(final_state, Return);
         assert_eq!(*jit.slot(reg::RESULT), 120);
     }

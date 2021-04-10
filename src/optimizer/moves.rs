@@ -11,11 +11,11 @@ use std::hash::{Hash};
  */
 pub fn moves<V: Debug + Clone + Hash + Eq>(
     mut dest_to_src: HashMap<V, V>,
-    temp: V,
+    temp: &V,
 ) -> impl Iterator<Item=(V, V)> {
     // Make a work list that won't change as we remove elements from the map.
     let dests: Vec<V> = dest_to_src.iter().map(|(dest, src)| {
-        assert_ne!(src, &temp);
+        assert_ne!(src, temp);
         dest.clone()
     }).collect();
     // Loop through the work list.
@@ -82,7 +82,7 @@ mod tests {
                 expected[dest] = input[src]
             }
             // Construct the observed output.
-            let pairs: Vec<_> = moves(dest_to_src, N).collect();
+            let pairs: Vec<_> = moves(dest_to_src, &N).collect();
             let mut observed = input;
             for &(dest, src) in &pairs {
                 observed[dest] = observed[src];

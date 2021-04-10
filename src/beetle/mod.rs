@@ -1334,7 +1334,7 @@ pub mod tests {
         pub fn run(mut self, ep: u32) -> Self {
             assert!(Self::is_aligned(ep));
             self.set(BEP, ep);
-            let (jit, state) = self.jit.execute(State::Root);
+            let (jit, state) = self.jit.execute(&State::Root);
 	    assert_eq!(state, State::Halt);
             self.jit = jit;
             self
