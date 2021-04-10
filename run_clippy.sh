@@ -18,4 +18,5 @@ cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::cast_possible_truncation \
   -A clippy::cast_possible_wrap \
   -A clippy::cast_sign_loss \
+  -A clippy::must_use_candidate \
   "$@"
