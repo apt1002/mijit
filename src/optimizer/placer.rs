@@ -57,6 +57,7 @@ impl<T: Debug + Default> Placer<T> {
 
     /** Find a cycle that can afford `cost`, and subtract `cost` from it. */
     fn choose_cycle(&mut self, cost: Resources, cycle: &mut usize) {
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
         while *cycle < self.cycles.len() && !(cost <= self.cycles[*cycle].remaining) {
             *cycle += 1;
         }
