@@ -179,7 +179,7 @@ pub struct AliasMask(pub u32);
 
 impl AliasMask {
     /** Tests whether `self` and `other` have any bits in common. */
-    pub fn can_alias(&self, other: &Self) -> bool {
+    pub fn can_alias(self, other: Self) -> bool {
         self.0 & other.0 != 0
     }
 }
