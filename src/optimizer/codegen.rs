@@ -276,7 +276,7 @@ impl<'a> CodeGen<'a> {
         let dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
                 let src = match self.outs[out].reg.filter(|&reg| regs[reg] == Some(out)) {
-                    Some(reg) => reg.into(),
+                    Some(r) => r.into(),
                     None => spills[out]
                         .expect("Value was overwritten but not spilled")
                         .into(),
