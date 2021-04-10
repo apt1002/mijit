@@ -9,6 +9,7 @@ use std::hash::{Hash};
  *  - dest_to_src - for each destination V, the corresponding source V.
  *  - temp - a temporary location used to break cycles.
  */
+#[allow(clippy::implicit_hasher)]
 pub fn moves<V: Debug + Clone + Hash + Eq>(
     mut dest_to_src: HashMap<V, V>,
     temp: &V,
