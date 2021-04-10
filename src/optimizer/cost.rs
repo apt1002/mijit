@@ -93,9 +93,9 @@ pub const DEBUG_COST: Cost = Cost {
 /** Returns the [`Cost`] of `op`, or `None` if `op` is [`Op::Convention`]. */
 #[allow(clippy::module_name_repetitions)]
 pub fn op_cost(op: Op) -> Option<&'static Cost> {
-    if op == Op::Convention { return None; }
     use Op::*;
     use super::code::{UnaryOp::*, BinaryOp::*};
+    if op == Op::Convention { return None; }
     Some(match op {
         Convention => panic!("Cannot execute Op::Convention"),
         Constant(n) => if n == 0 { &MOVE_COST } else { &ALU_COST },
