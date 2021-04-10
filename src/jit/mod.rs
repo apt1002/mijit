@@ -92,6 +92,7 @@ type RunFn = extern "C" fn(
  * The state of the JIT compiler. This includes the memory allocated for the
  * compiled code, and all house-keeping data.
  */
+#[allow(clippy::module_name_repetitions)]
 pub struct JitInner {
     /**
      * The specializations in the order they were compiled, including the

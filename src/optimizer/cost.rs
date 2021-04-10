@@ -91,6 +91,7 @@ pub const DEBUG_COST: Cost = Cost {
 //-----------------------------------------------------------------------------
 
 /** Returns the [`Cost`] of `op`, or `None` if `op` is [`Op::Convention`]. */
+#[allow(clippy::module_name_repetitions)]
 pub fn op_cost(op: Op) -> Option<&'static Cost> {
     if op == Op::Convention { return None; }
     use Op::*;

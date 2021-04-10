@@ -10,6 +10,7 @@ use super::code::{Register};
  * spilled then it is clean.
  */
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub struct RegisterPool {
     /** For each [`Register`], `true` if dirty. */
     dirty: ArrayMap<Register, bool>,
