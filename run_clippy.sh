@@ -1,0 +1,21 @@
+#!/bin/sh
+set -e  # halt on error
+
+FIX_OPTIONS=''
+if [ "$FIX" = 1 ]; then
+  FIX_OPTIONS='--fix -Z unstable-options'
+fi
+
+PEDANTIC_OPTIONS=''
+if [ "$PEDANTIC" = 1 ]; then
+  PEDANTIC_OPTIONS='-W clippy::pedantic'
+fi
+
+cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
+  -A clippy::unreadable_literal \
+  -A clippy::redundant_field_names \
+  -A clippy::missing_panics_doc \
+  -A clippy::cast_possible_truncation \
+  -A clippy::cast_possible_wrap \
+  -A clippy::cast_sign_loss \
+  "$@"
