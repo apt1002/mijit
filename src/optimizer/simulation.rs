@@ -108,7 +108,7 @@ impl Simulation {
                 self.stack = node;
             },
             Action::Debug(src) => {
-                let node = self.op(Op::Push, &[self.stack], &[src], &[]);
+                let node = self.op(Op::Debug, &[self.stack], &[src], &[]);
                 self.stack = node;
             },
         };
