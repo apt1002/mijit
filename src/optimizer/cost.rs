@@ -101,8 +101,7 @@ pub fn op_cost(op: Op) -> Option<&'static Cost> {
         Constant(n) => if n == 0 { &MOVE_COST } else { &ALU_COST },
         Unary(_, op) => match op {
             Abs => &CONDITIONAL_COST,
-            Negate => &ALU_COST,
-            Not => &ALU_COST,
+            Negate | Not => &ALU_COST,
         },
         Binary(_, op) => match op {
             Add | Sub | And| Or| Xor => &ALU_COST,
@@ -110,10 +109,8 @@ pub fn op_cost(op: Op) -> Option<&'static Cost> {
             Lsl | Lsr | Asr => &SHIFT_COST,
             Lt | Ult | Eq | Max | Min => &CONDITIONAL_COST,
         },
-        Load(_, _) => &LOAD_COST,
-        Store(_, _) => &STORE_COST,
-        Push => &STORE_COST,
-        Pop => &LOAD_COST,
+        Load(_, _) | Pop => &LOAD_COST,
+        Store(_, _) | Push => &STORE_COST,
         Debug => &DEBUG_COST,
     })
 }
