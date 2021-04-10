@@ -14,6 +14,7 @@ fi
 cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::unreadable_literal \
   -A clippy::redundant_field_names \
+  -A clippy::missing_errors_doc \
   -A clippy::missing_panics_doc \
   -A clippy::cast_possible_truncation \
   -A clippy::cast_possible_wrap \
