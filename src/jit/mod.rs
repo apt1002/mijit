@@ -77,9 +77,9 @@ struct Compiled {
 
 /**
  * The type of the generated code.
- *  - current_index - the index of the current M::State in `states`.
+ *  - `current_index` - the index of the current `M::State` in `states`.
  * Returns:
- *  - new_index - updated `current_index`.
+ *  - `new_index` - updated `current_index`.
  */
 type RunFn = extern "C" fn(
     /* pool */ *mut u64,

@@ -11,7 +11,7 @@ pub trait AsUsize: Debug + Copy + Hash + Eq {
 
 /**
  * A map that is implemented as an array.
- * This is preferable to a HashMap when possible.
+ * This is preferable to a `HashMap` when possible.
  */
 #[derive(Clone)]
 pub struct ArrayMap<K: AsUsize, V>(

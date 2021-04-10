@@ -265,7 +265,7 @@ impl <'a> Lowerer<'a> {
         };
     }
 
-    /** Select how to assemble an asymmetric BinaryOp such as `Sub`. */
+    /** Select how to assemble an asymmetric `BinaryOp` such as `Sub`. */
     fn asymmetric_binary(
         &mut self,
         dest: impl Into<Register>,
@@ -280,7 +280,7 @@ impl <'a> Lowerer<'a> {
         callback(self, dest, src2);
     }
 
-    /** Select how to assemble a symmetric BinaryOp such as `Add`. */
+    /** Select how to assemble a symmetric `BinaryOp` such as `Add`. */
     fn symmetric_binary(
         &mut self,
         dest: impl Into<Register>,
@@ -302,7 +302,7 @@ impl <'a> Lowerer<'a> {
         }
     }
 
-    /** Select how to assemble a shift BinaryOp such as `Shl`. */
+    /** Select how to assemble a shift `BinaryOp` such as `Shl`. */
     fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Value>, src2: impl Into<Value>) {
         let dest = dest.into();
         let src1 = src1.into();
@@ -321,7 +321,7 @@ impl <'a> Lowerer<'a> {
         }
     }
 
-    /** Select how to assemble a conditional BinaryOp such as `Lt` or `Max`. */
+    /** Select how to assemble a conditional `BinaryOp` such as `Lt` or `Max`. */
     fn compare_binary(
         &mut self,
         prec: Precision,

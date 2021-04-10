@@ -51,13 +51,13 @@ use Global::*;
 
 const NUM_GLOBALS: usize = 17;
 
-/** Beetle's registers. Only these values are live in State::Root. */
+/** Beetle's registers. Only these values are live in `State::Root`. */
 pub const ALL_REGISTERS: [Global; 10] = [
     BEP, BA, BSP, BRP, BS0, BR0,
     BThrow, BBad, BNotAddress, BMemory,
 ];
 
-/** Beetle's address space is unified, so we always use the same AliasMask. */
+/** Beetle's address space is unified, so we always use the same `AliasMask`. */
 const MEMORY: code::AliasMask = code::AliasMask(0x1);
 
 /** Computes the number of bytes in `n` cells. */

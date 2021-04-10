@@ -92,7 +92,7 @@ impl From<Register> for Value {
 }
 
 /**
- * "impl IntoValue" is useful as the type of function arguments. It accepts
+ * `impl IntoValue` is useful as the type of function arguments. It accepts
  * both Registers and Values.
  */
 pub trait IntoValue: Copy + Into<Value> {}
@@ -163,16 +163,16 @@ pub enum Width {
  * store to another address.
  *
  * Every [`Action::Load`] and [`Action::Store`] instruction is annotated with
- * an AliasMask, which is internally a bitmask. If the AliasMasks of two
+ * an `AliasMask`, which is internally a bitmask. If the `AliasMask`s of two
  * memory accesses have any set bits in common, and one of them is a `Store`,
  * and if the optmizer cannot prove that they access different addresses, then
  * the optimizer will not reorder the two instructions.
  *
- * It is allowed, but unhelpful, for every AliasMask to have all bits set.
+ * It is allowed, but unhelpful, for every `AliasMask` to have all bits set.
  * This will force all memory accesses to occur in the order they are written.
  *
  * If all stores to some address precede all loads from it, then it is
- * encouraged to give all those memory accesses an AliasMask of zero.
+ * encouraged to give all those memory accesses an `AliasMask` of zero.
  */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct AliasMask(pub u32);
