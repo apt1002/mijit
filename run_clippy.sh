@@ -11,6 +11,10 @@ if [ "$PEDANTIC" = 1 ]; then
   PEDANTIC_OPTIONS='-W clippy::pedantic'
 fi
 
+# Work around clippy's cache bug.
+# One of these paths is probably right.
+touch -c src/lib.rs lib.rs ../lib.rs ../../lib.rs
+
 cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::unreadable_literal \
   -A clippy::redundant_field_names \
@@ -22,4 +26,5 @@ cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::must_use_candidate \
   -A clippy::enum_glob_use \
   -A clippy::doc_markdown \
+  -A clippy::unused_self \
   "$@"
