@@ -7,7 +7,7 @@ use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Precision::*;
 
 pub mod lowerer;
-use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};
+use lowerer::{Lowerer};
 
 /**
  * Represents the convention by which code passes values to a label. The
@@ -94,6 +94,23 @@ type RunFn = extern "C" fn(
     /* pool */ *mut u64,
     /* current_index */ usize,
 ) -> /* new_index */ usize;
+
+/**
+ * The [`code::Register`] which conventionally holds the first function
+ * argument.
+ */
+pub const ARG0: code::Register = unsafe {code::Register::new_unchecked(6)};
+
+/**
+ * The [`code::Register`] which conventionally holds the second function
+ * argument.
+ */
+pub const ARG1: code::Register = unsafe {code::Register::new_unchecked(5)};
+
+/**
+ * The [`code::Register`] which conventionally holds the first return value.
+ */
+pub const RET0: code::Register = unsafe {code::Register::new_unchecked(0)};
 
 //-----------------------------------------------------------------------------
 
@@ -304,6 +321,9 @@ pub struct Jit<M: Machine> {
     inner: JitInner,
     /** The [`Machine`]. */
     machine: M,
+    /** The [`Convention`] used in the root states. */
+    // TODO: One per state.
+    convention: Convention,
     /** The mmapped memory buffer containing the compiled code. */
     buffer: Buffer,
     /** The number of bytes of `buffer` already occupied. */
@@ -327,47 +347,26 @@ impl<M: Machine> Jit<M> {
                 Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
             }
         });
-        let mut inner = JitInner::new(&mut lo, slots_used);
+        let inner = JitInner::new(&mut lo, slots_used);
+
+        // Construct the Jit.
+        let convention = Convention {live_values: persistent_values, slots_used: slots_used};
+        let used = lo.a.get_pos();
+        let states = IndexSet::new();
+        let roots = Vec::new();
+        let mut jit = Jit {inner, machine, convention, buffer, used, states, roots};
 
         // Enumerate the reachable states in FIFO order.
-        let mut states: IndexSet<M::State> = machine.initial_states().into_iter().collect();
+        for state in jit.machine.initial_states() {
+            jit.ensure_root(state);
+        }
         let mut done = 0;
-        while let Some(state) = states.get_index(done) {
-            for case in machine.get_code(state.clone()).1 {
-                states.insert(case.new_state);
+        while let Some(state) = jit.states.get_index(done).cloned() {
+            for case in jit.machine.get_code(state).1 {
+                jit.ensure_root(case.new_state);
             }
             done += 1;
         }
-
-        // Construct the root Specializations.
-        let reg_arg0 = unsafe {code::Register::new_unchecked(6)};
-        let reg_arg1 = unsafe {code::Register::new_unchecked(5)};
-        let reg_ret = unsafe {code::Register::new_unchecked(0)};
-        assert_eq!(x86_64::Register::RDI, ALLOCATABLE_REGISTERS[reg_arg0.as_usize()]);
-        assert_eq!(x86_64::Register::RSI, ALLOCATABLE_REGISTERS[reg_arg1.as_usize()]);
-        assert_eq!(x86_64::Register::RA, ALLOCATABLE_REGISTERS[reg_ret.as_usize()]);
-        let mut roots = Vec::new();
-        for (index, _state) in states.iter().enumerate() {
-            let specialization = inner.compile_inner(
-                &mut lo,
-                None,
-                None,
-                (TestOp::Eq(reg_arg1.into(), index as i32), P32),
-                Box::new([]),
-                Convention {
-                    live_values: persistent_values.clone(), // TODO: Refine.
-                    slots_used: slots_used,
-                },
-                Box::new([
-                    Action::Constant(P32, reg_ret, index as i64),
-                ]),
-            );
-            roots.push(specialization);
-        }
-
-        // Construct the Jit.
-        let used = lo.a.get_pos();
-        let mut jit = Jit {inner, machine, buffer, used, states, roots};
 
         // Construct the control-flow graph of the `Machine`.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
@@ -393,6 +392,33 @@ impl<M: Machine> Jit<M> {
         self.inner.slot(slot)
     }
 
+    /** Ensure there is a root [`Specialization`] for `state`. */
+    pub fn ensure_root(&mut self, state: M::State) {
+        let index = self.roots.len();
+        assert_eq!(index, self.states.len());
+        if self.states.insert(state) {
+            // Make a new root `Specialization`.
+            let mut lo = Lowerer {a: Assembler::new(&mut self.buffer)};
+            lo.a.set_pos(self.used);
+            self.roots.push(self.inner.compile_inner(
+                &mut lo,
+                None,
+                None,
+                (TestOp::Eq(ARG1.into(), index as i32), P32),
+                Box::new([]),
+                self.convention.clone(),
+                Box::new([
+                    Action::Constant(P32, RET0, index as i64),
+                ]),
+            ));
+            self.used = lo.a.get_pos();
+        }
+    }
+
+    /**
+     * Insert a control-flow arc from `old_state` to `new_state` with the
+     * specified `guard` and `actions`.
+     */
     pub fn compile(
         &mut self,
         old_state: &M::State,
@@ -433,9 +459,18 @@ pub mod factorial;
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use lowerer::{ALLOCATABLE_REGISTERS};
 
     /** An amount of code space suitable for running tests. */
     pub const CODE_SIZE: usize = 1 << 20;
+
+    #[test]
+    pub fn calling_regs() {
+        // TODO: Move this and the values it tests somewhere more appropriate.
+        assert_eq!(x86_64::Register::RDI, ALLOCATABLE_REGISTERS[ARG0.as_usize()]);
+        assert_eq!(x86_64::Register::RSI, ALLOCATABLE_REGISTERS[ARG1.as_usize()]);
+        assert_eq!(x86_64::Register::RA, ALLOCATABLE_REGISTERS[RET0.as_usize()]);
+    }
 
     #[test]
     pub fn factorial() {
