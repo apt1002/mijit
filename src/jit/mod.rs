@@ -49,9 +49,9 @@ array_index! {
  * See "doc/theory" for terminology.
  */
 struct Relatives {
-    /** The fetch parent, or `None` if this is the least specialization. */
+    /** The fetch parent. `None` means the least specialization. */
     pub fetch_parent: Option<Specialization>,
-    /** The retire parent, or `None` if this is the least specialization. */
+    /** The retire parent. `None` means the least specialization. */
     pub retire_parent: Option<Specialization>,
     /** The fetch children. */
     pub fetch_children: Vec<Specialization>,
@@ -65,11 +65,20 @@ struct Compiled {
     pub guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
     pub fetch_code: Box<[Action]>,
-    /** The address just after `fetch`. Retire children jump here. */
+    /**
+     * The address just after `fetch_code`.
+     * Retire children jump here.
+     */
     pub fetch_label: Label,
-    /** The interface from `fetch` to `retire`. Obeyed by children. */
+    /**
+     * The interface from `fetch_code` to `retire_code`.
+     * Obeyed by children.
+     */
     pub convention: Convention,
-    /** The address just before `retire`. The last fetch child jumps here. */
+    /**
+     * The address just before `retire_code`.
+     * The last fetch child jumps here.
+     */
     pub retire_label: Label,
     /** The retire code that was compiled for this specialization. */
     pub retire_code: Box<[Action]>,
@@ -95,24 +104,36 @@ type RunFn = extern "C" fn(
 #[allow(clippy::module_name_repetitions)]
 pub struct JitInner {
     /**
-     * The specializations in the order they were compiled, including the
+     * The specializations in the order they were compiled, excluding the
      * least specialization. Indexed by [`Specialization`].
      */
     specializations: Vec<(Relatives, Compiled)>,
+    /**
+     * Reached when a root specialization doesn't know what to do.
+     * Can be viewed as the `fetch_label` of the least specialization.
+     * We expect the caller to handle the situation then re-enter Mijit.
+     */
+    pub fetch_label: Label,
+    /**
+     * Reached if none of the root specializations' guards pass.
+     * Can be viewed as the `retire_label` of the least specialization.
+     * We return `-1` to the caller.
+     */
+    pub retire_label: Label,
     /** The pool of mutable storage locations. */
     pool: Vec<u64>,
 }
 
 impl JitInner {
     pub fn new(lo: &mut Lowerer, slots_used: usize) -> Self {
-        let specializations = Vec::new();
-        // TODO: Factor out pool index calculation.
-        let pool = vec![0; slots_used + 1 + 1000]; // FIXME: replace "1000" by dynamically-calculated value.
-        let mut this = JitInner {specializations, pool};
+        let mut this = JitInner {
+            specializations: Vec::new(),
+            fetch_label: Label::new(None),
+            retire_label: Label::new(None),
+            pool: vec![0; slots_used + 1 + 1000], // FIXME: replace "1000" by dynamically-calculated value.
+        };
 
         // Assemble the function prologue and epilogue.
-        let mut fetch_label = Label::new(None);
-        let mut retire_label = Label::new(None);
         if CALLEE_SAVES.len() & 1 != 1 {
             // Adjust alignment of RSP is 16-byte aligned.
             lo.a.push(CALLEE_SAVES[0]);
@@ -121,11 +142,11 @@ impl JitInner {
             lo.a.push(r);
         }
         lo.a.move_(P64, x86_64::Register::R8, x86_64::Register::RDI);
-        lo.a.const_(P32, x86_64::Register::RA, -1);
-        lo.a.const_jump(&mut retire_label);
+        lo.a.const_jump(&mut this.retire_label);
         // Root specializations are inserted here.
-        lo.a.define(&mut retire_label);
-        lo.a.define(&mut fetch_label);
+        lo.a.define(&mut this.retire_label);
+        lo.a.const_(P32, x86_64::Register::RA, -1);
+        lo.a.define(&mut this.fetch_label);
         for &r in CALLEE_SAVES.iter().rev() {
             lo.a.pop(r);
         }
@@ -134,17 +155,6 @@ impl JitInner {
             lo.a.pop(CALLEE_SAVES[0]);
         }
         lo.a.ret();
-
-        // Only `fetch_label` and `retire_label` matter.
-        let compiled = Compiled {
-            guard: (TestOp::Always, P64),
-            fetch_code: Box::new([]),
-            fetch_label: fetch_label,
-            convention: Convention {live_values: Vec::new(), slots_used},
-            retire_label: retire_label,
-            retire_code: Box::new([]),
-        };
-        this.new_specialization(None, None, compiled);
         this
     }
 
@@ -156,19 +166,25 @@ impl JitInner {
         }
     }
 
-    /** Returns the least [`Specialization`]. */
-    pub const fn least_specialization(&self) -> Specialization {
-        unsafe { Specialization::new_unchecked(0) }
+    /** Returns the `convention` of `s`. */
+    fn convention(&self, s: Specialization) -> &Convention {
+        &self.specializations[s.as_usize()].1.convention
     }
 
-    /** Returns the [`Relatives`] of a [`Specialization`]. */
-    fn relatives(&mut self, s: Specialization) -> &mut Relatives {
-        &mut self.specializations[s.as_usize()].0
+    /** Returns the `fetch_label` of `s`, or of the least specialization. */
+    fn fetch_label(&mut self, s: Option<Specialization>) -> &mut Label {
+        match s {
+            None => &mut self.fetch_label,
+            Some(s) => &mut self.specializations[s.as_usize()].1.fetch_label,
+        }
     }
 
-    /** Returns the [`Compiled`] of a [`Specialization`]. */
-    fn compiled(&mut self, s: Specialization) -> &mut Compiled {
-        &mut self.specializations[s.as_usize()].1
+    /** Returns the `retire_label` of `s`, or of the least specialization. */
+    fn retire_label(&mut self, s: Option<Specialization>) -> &mut Label {
+        match s {
+            None => &mut self.retire_label,
+            Some(s) => &mut self.specializations[s.as_usize()].1.retire_label,
+        }
     }
 
     /** Constructs a new specialization and informs its relatives. */
@@ -180,10 +196,10 @@ impl JitInner {
     ) -> Specialization {
         let this = Specialization::new(self.specializations.len()).unwrap();
         if let Some(parent) = fetch_parent {
-            self.relatives(parent).fetch_children.push(this);
+            self.specializations[parent.as_usize()].0.fetch_children.push(this);
         }
         if let Some(parent) = retire_parent {
-            self.relatives(parent).retire_children.push(this);
+            self.specializations[parent.as_usize()].0.retire_children.push(this);
         }
         let relatives = Relatives {
             fetch_parent: fetch_parent,
@@ -203,8 +219,8 @@ impl JitInner {
     pub fn compile_inner(
         &mut self,
         lo: &mut Lowerer,
-        fetch_parent: Specialization,
-        retire_parent: Specialization,
+        fetch_parent: Option<Specialization>,
+        retire_parent: Option<Specialization>,
         guard: (TestOp, Precision),
         fetch_code: Box<[Action]>,
         convention: Convention,
@@ -212,11 +228,10 @@ impl JitInner {
     ) -> Specialization {
         let mut fetch_label = Label::new(None);
         let mut retire_label = Label::new(None);
+        let if_fail = self.retire_label(fetch_parent);
         let here = lo.a.get_pos(); // Keep borrow-checker happy.
-        let if_fail = &mut self.compiled(fetch_parent).retire_label;
         *if_fail = if_fail.patch(&mut lo.a, here);
-        let (test_op, prec) = guard;
-        lo.lower_test_op(test_op, prec, if_fail);
+        lo.lower_test_op(guard, if_fail);
         for &action in fetch_code.iter() {
             lo.lower_action(action);
         }
@@ -228,11 +243,11 @@ impl JitInner {
         for &action in retire_code.iter() {
             lo.lower_action(action);
         }
-        lo.a.const_jump(&mut self.compiled(retire_parent).fetch_label);
+        lo.a.const_jump(self.fetch_label(retire_parent));
         let compiled = Compiled {
             guard, fetch_code, fetch_label, convention, retire_label, retire_code,
         };
-        self.new_specialization(Some(fetch_parent), Some(retire_parent), compiled)
+        self.new_specialization(fetch_parent, retire_parent, compiled)
     }
 
     /**
@@ -252,21 +267,18 @@ impl JitInner {
         guard: (TestOp, Precision),
         actions: &[Action],
     ) -> Specialization {
-        let fetch_convention = self.compiled(fetch_parent).convention.clone();
-        let retire_convention = self.compiled(retire_parent).convention.clone();
         let fetch_code = optimizer::optimize(
-            &fetch_convention,
-            &retire_convention,
+            self.convention(fetch_parent),
+            self.convention(retire_parent),
            actions,
         );
-        let convention = self.compiled(retire_parent).convention.clone();
         self.compile_inner(
             lo,
-            fetch_parent,
-            retire_parent,
+            Some(fetch_parent),
+            Some(retire_parent),
             guard,
             fetch_code,
-            convention,
+            self.convention(retire_parent).clone(),
             Box::new([]),
         )
     }
@@ -338,8 +350,8 @@ impl<M: Machine> Jit<M> {
         for (index, _state) in states.iter().enumerate() {
             let specialization = inner.compile_inner(
                 &mut lo,
-                inner.least_specialization(),
-                inner.least_specialization(),
+                None,
+                None,
                 (TestOp::Eq(reg_arg1.into(), index as i32), P32),
                 Box::new([]),
                 Convention {
@@ -357,7 +369,7 @@ impl<M: Machine> Jit<M> {
         let used = lo.a.get_pos();
         let mut jit = Jit {inner, machine, buffer, used, states, roots};
 
-        // Construct the root Histories.
+        // Construct the control-flow graph of the `Machine`.
         let all_states: Vec<_> = jit.states.iter().cloned().collect();
         for old_state in all_states {
             let (_value_mask, cases) = jit.machine.get_code(old_state.clone());

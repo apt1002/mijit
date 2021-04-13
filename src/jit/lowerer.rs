@@ -190,10 +190,10 @@ impl <'a> Lowerer<'a> {
      */
     pub fn lower_test_op(
         &mut self,
-        test_op: code::TestOp,
-        prec: Precision,
+        guard: (code::TestOp, Precision),
         false_label: &mut Label,
     ) {
+        let (test_op, prec) = guard;
         match test_op {
             TestOp::Bits(discriminant, mask, value) => {
                 self.const_(prec, TEMP, i64::from(mask));
