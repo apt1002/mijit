@@ -356,25 +356,19 @@ impl<M: Machine> Jit<M> {
         let roots = Vec::new();
         let mut jit = Jit {inner, machine, convention, buffer, used, states, roots};
 
-        // Enumerate the reachable states in FIFO order.
+        // Enumerate the reachable states in FIFO order and
+        // construct the control-flow graph of the `Machine`.
         for state in jit.machine.initial_states() {
             jit.ensure_root(state);
         }
         let mut done = 0;
-        while let Some(state) = jit.states.get_index(done).cloned() {
-            for case in jit.machine.get_code(state).1 {
-                jit.ensure_root(case.new_state);
-            }
-            done += 1;
-        }
-
-        // Construct the control-flow graph of the `Machine`.
-        let all_states: Vec<_> = jit.states.iter().cloned().collect();
-        for old_state in all_states {
+        while let Some(old_state) = jit.states.get_index(done).cloned() {
             let (_value_mask, cases) = jit.machine.get_code(old_state.clone());
             for case in cases {
+                jit.ensure_root(case.new_state.clone());
                 jit.compile(&old_state, case.condition, &case.actions, &case.new_state);
             }
+            done += 1;
         }
 
         jit
