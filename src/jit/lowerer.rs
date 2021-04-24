@@ -1,7 +1,6 @@
-use std::ops::{DerefMut};
-
 use super::{code, x86_64};
 
+use super::super::{Buffer};
 use crate::util::{AsUsize};
 use x86_64::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
 use code::{Action, TestOp, Slot};
@@ -83,12 +82,12 @@ impl From<code::Value> for Value {
 
 //-----------------------------------------------------------------------------
 
-pub struct Lowerer<B: DerefMut<Target=[u8]>> {
+pub struct Lowerer<B: Buffer> {
     // TODO: Remove "pub".
     pub a: Assembler<B>,
 }
 
-impl<B: DerefMut<Target=[u8]>> Lowerer<B> {
+impl<B: Buffer> Lowerer<B> {
     /** Apply `callback` to the contained [`Assembler`]. */
     pub fn use_assembler<T>(
         mut self,

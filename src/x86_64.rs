@@ -11,7 +11,7 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 use std::mem;
-use std::ops::{DerefMut};
+use super::{Buffer};
 
 //-----------------------------------------------------------------------------
 
@@ -296,7 +296,7 @@ impl Label {
      * Returns the old target of this Label as a fresh Label. This is useful
      * if you want to assemble some new code that jumps to the old code.
      */
-    pub fn patch<B: DerefMut<Target=[u8]>>(&mut self, a: &mut Assembler<B>, target: usize) -> Label {
+    pub fn patch<B: Buffer>(&mut self, a: &mut Assembler<B>, target: usize) -> Label {
         let old = Label::new(self.target);
         self.target = Some(target);
         for &mut patch in &mut self.patches {
@@ -309,7 +309,7 @@ impl Label {
      * Adds a control-flow instruction to `patches`, patching it to point to
      * this Label. Its previous target must be `DISP_UNKNOWN`.
      */
-    fn push<B: DerefMut<Target=[u8]>>(&mut self, a: &mut Assembler<B>, patch: Patch) {
+    fn push<B: Buffer>(&mut self, a: &mut Assembler<B>, patch: Patch) {
         a.patch(patch, self.target, None);
         self.patches.push(patch)
     }
@@ -384,14 +384,14 @@ pub extern fn debug_word(x: u64) {
  * To generate a jump or call to an as-yet unknown constant destination, use
  * `None` as the target, and fill in the returned `Patch` later.
  */
-pub struct Assembler<B: DerefMut<Target=[u8]>> {
+pub struct Assembler<B: Buffer> {
     /// The area we're filling with code.
     pub buffer: B,
     /// The assembly pointer: an index into `buffer`.
     pub pos: usize,
 }
 
-impl<B: DerefMut<Target=[u8]>> Assembler<B> {
+impl<B: Buffer> Assembler<B> {
     /** Construct an Assembler that writes to `buffer` */
     pub fn new(buffer: B) -> Self {
         Assembler {buffer: buffer, pos: 0}

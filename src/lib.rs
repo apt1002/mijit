@@ -30,7 +30,7 @@ pub mod tests {
         use BinaryOp::*;
         use Precision::*;
 
-        let buffer = Buffer::new(0x1000).expect("Couldn't allocate");
+        let buffer = buffer::Mmap::new(0x1000).expect("Couldn't allocate");
         let mut a = Assembler::new(buffer);
         a.move_(P64, RA, RDI);
         a.const_op(Add, P64, RA, 5);

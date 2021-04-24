@@ -1,7 +1,8 @@
 use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
-use super::{Buffer, code, optimizer, x86_64};
+use super::{code, optimizer, x86_64};
+use super::buffer::{Mmap};
 use x86_64::{Label, Assembler, CALLEE_SAVES};
 use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Precision::*;
@@ -192,7 +193,7 @@ impl Internals {
 #[allow(clippy::module_name_repetitions)]
 pub struct JitInner {
     /** The code compiled so far. */
-    lowerer: Lowerer<Buffer>,
+    lowerer: Lowerer<Mmap>,
     /** This nested struct can be borrowed independently of `lowerer`. */
     internals: Internals,
     /** The pool of mutable storage locations. */
@@ -201,7 +202,7 @@ pub struct JitInner {
 
 impl JitInner {
     pub fn new(code_size: usize, slots_used: usize) -> Self {
-        let buffer = Buffer::new(code_size).expect("couldn't allocate memory");
+        let buffer = Mmap::new(code_size).expect("couldn't allocate memory");
         JitInner {
             lowerer: Lowerer {a: Assembler::new(buffer)},
             internals: Internals {
