@@ -3,7 +3,7 @@ use super::{Buffer};
 /** Allocates a new empty Buffer. */
 #[no_mangle]
 pub extern fn mijit_new(capacity: usize) -> Option<Box<Buffer>> {
-    Buffer::new(capacity).map(Box::new)
+    Buffer::new(capacity).ok().map(Box::new)
 }
 
 /** Frees a Buffer. */

@@ -1,3 +1,5 @@
+use std::ops::{DerefMut};
+
 use super::{code, x86_64};
 
 use crate::util::{AsUsize};
@@ -81,12 +83,22 @@ impl From<code::Value> for Value {
 
 //-----------------------------------------------------------------------------
 
-pub struct Lowerer<'a> {
+pub struct Lowerer<B: DerefMut<Target=[u8]>> {
     // TODO: Remove "pub".
-    pub a: Assembler<'a>,
+    pub a: Assembler<B>,
 }
 
-impl <'a> Lowerer<'a> {
+impl<B: DerefMut<Target=[u8]>> Lowerer<B> {
+    /** Apply `callback` to the contained [`Assembler`]. */
+    pub fn use_assembler<T>(
+        mut self,
+        callback: impl FnOnce(Assembler<B>) -> std::io::Result<(Assembler<B>, T)>,
+    ) -> std::io::Result<(Self, T)> {
+        let (a, ret) = callback(self.a)?;
+        self.a = a;
+        Ok((self, ret))
+    }
+
     /** Put `value` in `dest`. */
     fn const_(&mut self, prec: Precision, dest: impl Into<Register>, value: i64) {
         let dest = dest.into();

@@ -115,11 +115,10 @@ pub const RET0: code::Register = unsafe {code::Register::new_unchecked(0)};
 //-----------------------------------------------------------------------------
 
 /**
- * The state of the JIT compiler. This includes the memory allocated for the
- * compiled code, and all house-keeping data.
+ * This only exists to keep the borrow checker happy.
+ * We might need to modify these fields while generating code.
  */
-#[allow(clippy::module_name_repetitions)]
-pub struct JitInner {
+struct Internals {
     /**
      * The specializations in the order they were compiled, excluding the
      * least specialization. Indexed by [`Specialization`].
@@ -137,73 +136,9 @@ pub struct JitInner {
      * We return `-1` to the caller.
      */
     pub retire_label: Label,
-    /** The pool of mutable storage locations. */
-    pool: Vec<u64>,
 }
 
-impl JitInner {
-    pub fn new(lo: &mut Lowerer, slots_used: usize) -> Self {
-        let mut this = JitInner {
-            specializations: Vec::new(),
-            fetch_label: Label::new(None),
-            retire_label: Label::new(None),
-            pool: vec![0; slots_used + 1 + 1000], // FIXME: replace "1000" by dynamically-calculated value.
-        };
-
-        // Assemble the function prologue and epilogue.
-        if CALLEE_SAVES.len() & 1 != 1 {
-            // Adjust alignment of RSP is 16-byte aligned.
-            lo.a.push(CALLEE_SAVES[0]);
-        }
-        for &r in &CALLEE_SAVES {
-            lo.a.push(r);
-        }
-        lo.a.move_(P64, x86_64::Register::R8, x86_64::Register::RDI);
-        lo.a.const_jump(&mut this.retire_label);
-        // Root specializations are inserted here.
-        lo.a.define(&mut this.retire_label);
-        lo.a.const_(P32, x86_64::Register::RA, -1);
-        lo.a.define(&mut this.fetch_label);
-        for &r in CALLEE_SAVES.iter().rev() {
-            lo.a.pop(r);
-        }
-        if CALLEE_SAVES.len() & 1 != 1 {
-            // Adjust alignment of RSP is 16-byte aligned.
-            lo.a.pop(CALLEE_SAVES[0]);
-        }
-        lo.a.ret();
-        this
-    }
-
-    pub fn slot(&mut self, slot: impl IntoValue) -> &mut u64 {
-        match slot.into() {
-            Value::Register(_) => panic!("Not a Slot"),
-            // TODO: Factor out pool index calculation.
-            Value::Slot(Slot(index)) => &mut self.pool[index + 1],
-        }
-    }
-
-    /** Returns the `convention` of `s`. */
-    fn convention(&self, s: Specialization) -> &Convention {
-        &self.specializations[s.as_usize()].1.convention
-    }
-
-    /** Returns the `fetch_label` of `s`, or of the least specialization. */
-    fn fetch_label(&mut self, s: Option<Specialization>) -> &mut Label {
-        match s {
-            None => &mut self.fetch_label,
-            Some(s) => &mut self.specializations[s.as_usize()].1.fetch_label,
-        }
-    }
-
-    /** Returns the `retire_label` of `s`, or of the least specialization. */
-    fn retire_label(&mut self, s: Option<Specialization>) -> &mut Label {
-        match s {
-            None => &mut self.retire_label,
-            Some(s) => &mut self.specializations[s.as_usize()].1.retire_label,
-        }
-    }
-
+impl Internals {
     /** Constructs a new specialization and informs its relatives. */
     fn new_specialization(
         &mut self,
@@ -228,6 +163,91 @@ impl JitInner {
         this
     }
 
+    /** Returns the `convention` of `s`. */
+    fn convention(&self, s: Specialization) -> &Convention {
+        &self.specializations[s.as_usize()].1.convention
+    }
+
+    /** Returns the `fetch_label` of `s`, or of the least specialization. */
+    fn fetch_label(&mut self, s: Option<Specialization>) -> &mut Label {
+        match s {
+            None => &mut self.fetch_label,
+            Some(s) => &mut self.specializations[s.as_usize()].1.fetch_label,
+        }
+    }
+
+    /** Returns the `retire_label` of `s`, or of the least specialization. */
+    fn retire_label(&mut self, s: Option<Specialization>) -> &mut Label {
+        match s {
+            None => &mut self.retire_label,
+            Some(s) => &mut self.specializations[s.as_usize()].1.retire_label,
+        }
+    }
+}
+
+/**
+ * The state of the JIT compiler. This includes the memory allocated for the
+ * compiled code, and all house-keeping data.
+ */
+#[allow(clippy::module_name_repetitions)]
+pub struct JitInner {
+    /** The code compiled so far. */
+    lowerer: Lowerer<Buffer>,
+    /** This nested struct can be borrowed independently of `lowerer`. */
+    internals: Internals,
+    /** The pool of mutable storage locations. */
+    pool: Vec<u64>,
+}
+
+impl JitInner {
+    pub fn new(code_size: usize, slots_used: usize) -> Self {
+        let buffer = Buffer::new(code_size).expect("couldn't allocate memory");
+        JitInner {
+            lowerer: Lowerer {a: Assembler::new(buffer)},
+            internals: Internals {
+                specializations: Vec::new(),
+                fetch_label: Label::new(None),
+                retire_label: Label::new(None),
+            },
+            pool: vec![0; slots_used + 1 + 1000], // FIXME: replace "1000" by dynamically-calculated value.
+        }._init()
+    }
+
+    fn _init(mut self) -> Self {
+        let lo = &mut self.lowerer;
+        // Assemble the function prologue and epilogue.
+        if CALLEE_SAVES.len() & 1 != 1 {
+            // Adjust alignment of RSP is 16-byte aligned.
+            lo.a.push(CALLEE_SAVES[0]);
+        }
+        for &r in &CALLEE_SAVES {
+            lo.a.push(r);
+        }
+        lo.a.move_(P64, x86_64::Register::R8, x86_64::Register::RDI);
+        lo.a.const_jump(&mut self.internals.retire_label);
+        // Root specializations are inserted here.
+        lo.a.define(&mut self.internals.retire_label);
+        lo.a.const_(P32, x86_64::Register::RA, -1);
+        lo.a.define(&mut self.internals.fetch_label);
+        for &r in CALLEE_SAVES.iter().rev() {
+            lo.a.pop(r);
+        }
+        if CALLEE_SAVES.len() & 1 != 1 {
+            // Adjust alignment of RSP is 16-byte aligned.
+            lo.a.pop(CALLEE_SAVES[0]);
+        }
+        lo.a.ret();
+        self
+    }
+
+    pub fn slot(&mut self, slot: impl IntoValue) -> &mut u64 {
+        match slot.into() {
+            Value::Register(_) => panic!("Not a Slot"),
+            // TODO: Factor out pool index calculation.
+            Value::Slot(Slot(index)) => &mut self.pool[index + 1],
+        }
+    }
+
     /**
      * Compile code for a new [`Specialization`].
      * Unlike `compile()`, this method does not do any optimization. The caller
@@ -235,7 +255,6 @@ impl JitInner {
      */
     pub fn compile_inner(
         &mut self,
-        lo: &mut Lowerer,
         fetch_parent: Option<Specialization>,
         retire_parent: Option<Specialization>,
         guard: (TestOp, Precision),
@@ -243,9 +262,10 @@ impl JitInner {
         convention: Convention,
         retire_code: Box<[Action]>,
     ) -> Specialization {
+        let lo = &mut self.lowerer;
         let mut fetch_label = Label::new(None);
         let mut retire_label = Label::new(None);
-        let if_fail = self.retire_label(fetch_parent);
+        let if_fail = self.internals.retire_label(fetch_parent);
         let here = lo.a.get_pos(); // Keep borrow-checker happy.
         *if_fail = if_fail.patch(&mut lo.a, here);
         lo.lower_test_op(guard, if_fail);
@@ -260,11 +280,11 @@ impl JitInner {
         for &action in retire_code.iter() {
             lo.lower_action(action);
         }
-        lo.a.const_jump(self.fetch_label(retire_parent));
+        lo.a.const_jump(self.internals.fetch_label(retire_parent));
         let compiled = Compiled {
             guard, fetch_code, fetch_label, convention, retire_label, retire_code,
         };
-        self.new_specialization(fetch_parent, retire_parent, compiled)
+        self.internals.new_specialization(fetch_parent, retire_parent, compiled)
     }
 
     /**
@@ -278,24 +298,22 @@ impl JitInner {
      */
     pub fn compile(
         &mut self,
-        lo: &mut Lowerer,
         fetch_parent: Specialization,
         retire_parent: Specialization,
         guard: (TestOp, Precision),
         actions: &[Action],
     ) -> Specialization {
         let fetch_code = optimizer::optimize(
-            self.convention(fetch_parent),
-            self.convention(retire_parent),
+            self.internals.convention(fetch_parent),
+            self.internals.convention(retire_parent),
            actions,
         );
         self.compile_inner(
-            lo,
             Some(fetch_parent),
             Some(retire_parent),
             guard,
             fetch_code,
-            self.convention(retire_parent).clone(),
+            self.internals.convention(retire_parent).clone(),
             Box::new([]),
         )
     }
@@ -304,12 +322,20 @@ impl JitInner {
      * Call the compiled code, passing `&mut pool` and `argument`.
      * - bytes - the compiled code.
      */
-    pub fn execute(&mut self, bytes: &[u8], argument: usize) -> usize {
+    pub fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
         // FIXME: assert we are on x86_64 at compile time.
-        let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
         let pool = self.pool.as_mut_ptr();
-        // Here is a good place to set a gdb breakpoint.
-        f(pool, argument)
+        let (lowerer, ret) = self.lowerer.use_assembler(|a| {
+            a.use_buffer(|b| {
+                b.execute(|bytes| {
+                    let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
+                    // Here is a good place to set a gdb breakpoint.
+                    f(pool, argument)
+                })
+            })
+        })?;
+        self.lowerer = lowerer;
+        Ok((self, ret))
     }
 }
 
@@ -324,10 +350,6 @@ pub struct Jit<M: Machine> {
     /** The [`Convention`] used in the root states. */
     // TODO: One per state.
     convention: Convention,
-    /** The mmapped memory buffer containing the compiled code. */
-    buffer: Buffer,
-    /** The number of bytes of `buffer` already occupied. */
-    used: usize,
     /** Numbering of all [`M::States`]. */
     states: IndexSet<M::State>,
     /** The [`Specialization`] corresponding to each [`M::State`]. */
@@ -336,10 +358,7 @@ pub struct Jit<M: Machine> {
 
 impl<M: Machine> Jit<M> {
     pub fn new(machine: M, code_size: usize) -> Self {
-        let mut buffer = Buffer::new(code_size).expect("couldn't allocate memory");
-
         // Construct the `JitInner`.
-        let mut lo = Lowerer {a: Assembler::new(&mut buffer)};
         let persistent_values = machine.values();
         let slots_used = persistent_values.iter().fold(0, |acc, &v| {
             match v {
@@ -347,14 +366,13 @@ impl<M: Machine> Jit<M> {
                 Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
             }
         });
-        let inner = JitInner::new(&mut lo, slots_used);
+        let inner = JitInner::new(code_size, slots_used);
 
         // Construct the Jit.
         let convention = Convention {live_values: persistent_values, slots_used: slots_used};
-        let used = lo.a.get_pos();
         let states = IndexSet::new();
         let roots = Vec::new();
-        let mut jit = Jit {inner, machine, convention, buffer, used, states, roots};
+        let mut jit = Jit {inner, machine, convention, states, roots};
 
         // Enumerate the reachable states in FIFO order and
         // construct the control-flow graph of the `Machine`.
@@ -374,10 +392,6 @@ impl<M: Machine> Jit<M> {
         jit
     }
 
-    pub fn used(&self) -> usize {
-        self.used
-    }
-
     pub fn states(&self) -> &IndexSet<M::State> {
         &self.states
     }
@@ -392,10 +406,7 @@ impl<M: Machine> Jit<M> {
         assert_eq!(index, self.states.len());
         if self.states.insert(state) {
             // Make a new root `Specialization`.
-            let mut lo = Lowerer {a: Assembler::new(&mut self.buffer)};
-            lo.a.set_pos(self.used);
             self.roots.push(self.inner.compile_inner(
-                &mut lo,
                 None,
                 None,
                 (TestOp::Eq(ARG1.into(), index as i32), P32),
@@ -405,7 +416,6 @@ impl<M: Machine> Jit<M> {
                     Action::Constant(P32, RET0, index as i64),
                 ]),
             ));
-            self.used = lo.a.get_pos();
         }
     }
 
@@ -420,28 +430,20 @@ impl<M: Machine> Jit<M> {
         actions: &[Action],
         new_state: &M::State,
     ) -> Specialization {
-        let mut lo = Lowerer {a: Assembler::new(&mut self.buffer)};
-        lo.a.set_pos(self.used);
-        let ret = self.inner.compile(
-            &mut lo,
+        self.inner.compile(
             self.roots[self.states.get_index_of(old_state).unwrap()],
             self.roots[self.states.get_index_of(new_state).unwrap()],
             guard,
             actions,
-        );
-        self.used = lo.a.get_pos();
-        ret
+        )
     }
 
-    pub fn execute(mut self, state: &M::State) -> (Self, M::State) {
+    pub fn execute(mut self, state: &M::State) -> std::io::Result<(Self, M::State)> {
         let index = self.states.get_index_of(state).expect("invalid state");
-        let inner = &mut self.inner;
-        let (buffer, new_index) = self.buffer.execute(|bytes| {
-            inner.execute(bytes, index)
-        }).expect("Couldn't change permissions");
-        self.buffer = buffer;
+        let (inner, new_index) = self.inner.execute(index)?;
+        self.inner = inner;
         let new_state = self.states.get_index(new_index).expect("invalid index").clone();
-        (self, new_state)
+        Ok((self, new_state))
     }
 }
 
@@ -483,7 +485,7 @@ pub mod tests {
 
         // Run some "code".
         *jit.slot(reg::N) = 5;
-        let (mut jit, final_state) = jit.execute(&Start);
+        let (mut jit, final_state) = jit.execute(&Start).expect("Execute failed");
         assert_eq!(final_state, Return);
         assert_eq!(*jit.slot(reg::RESULT), 120);
     }

@@ -30,15 +30,16 @@ pub mod tests {
         use BinaryOp::*;
         use Precision::*;
 
-        let mut buffer = Buffer::new(0x1000)
-            .expect("Couldn't allocate");
-        let mut a = Assembler::new(&mut buffer);
+        let buffer = Buffer::new(0x1000).expect("Couldn't allocate");
+        let mut a = Assembler::new(buffer);
         a.move_(P64, RA, RDI);
         a.const_op(Add, P64, RA, 5);
         a.ret();
-        let (_, result) = buffer.execute(|bytes| {
-            let f: extern "C" fn(i32) -> i32 = unsafe {mem::transmute(&bytes[0])};
-            f(42)
+        let (_, result) = a.use_buffer(|b| {
+            b.execute(|bytes| {
+                let f: extern "C" fn(i32) -> i32 = unsafe {mem::transmute(&bytes[0])};
+                f(42)
+            })
         }).expect("Couldn't change permissions");
         assert_eq!(result, 42 + 5);
     }

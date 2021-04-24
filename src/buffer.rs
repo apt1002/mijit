@@ -8,11 +8,8 @@ pub struct Buffer {
 
 impl Buffer {
     /** Allocates a Buffer. Returns `None` if not possible. */
-    pub fn new(capacity: usize) -> Option<Self> {
-        match MmapMut::map_anon(capacity) {
-            Ok(memory) => Some(Buffer {memory}),
-            Err(_) => None
-        }
+    pub fn new(capacity: usize) -> std::io::Result<Self> {
+        Ok(Buffer {memory: MmapMut::map_anon(capacity)?})
     }
 
     /**
@@ -42,7 +39,7 @@ impl Deref for Buffer {
 
 impl DerefMut for Buffer {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.memory
+        &mut self.memory
     }
 }
 
