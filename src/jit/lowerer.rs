@@ -1,6 +1,6 @@
 use super::{code, x86_64};
 
-use super::super::{Buffer};
+use super::super::buffer::{Buffer};
 use crate::util::{AsUsize};
 use x86_64::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
 use code::{Action, TestOp, Slot};

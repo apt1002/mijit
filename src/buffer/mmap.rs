@@ -46,7 +46,10 @@ impl DerefMut for Mmap {
     }
 }
 
-impl Buffer for Mmap {}
+impl Buffer for Mmap {
+    fn get_pos(&self) -> usize { self.pos }
+    fn set_pos(&mut self, pos: usize) { self.pos = pos; }
+}
 
 //-----------------------------------------------------------------------------
 
