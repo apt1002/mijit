@@ -1,8 +1,7 @@
-use super::{code, x86_64};
-
-use super::super::buffer::{Buffer};
+use super::super::super::{code};
+use super::{Buffer};
 use crate::util::{AsUsize};
-use x86_64::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
+use super::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
 use code::{Action, TestOp, Slot};
 use Register::*;
 use Precision::*;
@@ -13,7 +12,7 @@ use ShiftOp::*;
 
 /**
  * The registers available for allocation. This differs from
- * [`x86_64::ALL_REGISTERS`] because:
+ * [`super::ALL_REGISTERS`] because:
  *  - `RC` is used as temporary workspace.
  *  - `R8` holds the pool base address.
  */

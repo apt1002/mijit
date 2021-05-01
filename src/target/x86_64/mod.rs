@@ -10,7 +10,11 @@
 //! the subset as regular as possible, sometimes ignoring more efficient
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
+
 use super::super::buffer::{Buffer};
+
+mod lowerer;
+pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};
 
 //-----------------------------------------------------------------------------
 

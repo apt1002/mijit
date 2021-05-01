@@ -4,12 +4,9 @@ use crate::util::{AsUsize};
 use super::{code, optimizer};
 use super::buffer::{Mmap};
 use super::target::{x86_64};
-use x86_64::{Label, Assembler, CALLEE_SAVES};
+use x86_64::{Label, Assembler, Lowerer, CALLEE_SAVES};
 use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Precision::*;
-
-pub mod lowerer;
-use lowerer::{Lowerer};
 
 /**
  * Represents the convention by which code passes values to a label. The
@@ -457,7 +454,7 @@ pub mod factorial;
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use lowerer::{ALLOCATABLE_REGISTERS};
+    use x86_64::{ALLOCATABLE_REGISTERS};
 
     /** An amount of code space suitable for running tests. */
     pub const CODE_SIZE: usize = 1 << 20;
