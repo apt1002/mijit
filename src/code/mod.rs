@@ -31,10 +31,10 @@ pub mod clock;
 
 array_index! {
     /**
-     * An index into [`ALLOCATABLE_REGISTERS`](1). Mijit guarantees a minimum
-     * set [`REGISTERS`]. More are available non-portably.
+     * An index into [`ALLOCATABLE_REGISTERS`]. Mijit guarantees a minimum set
+     * [`REGISTERS`]. More are available non-portably.
      *
-     * [`ALLOCATABLE_REGISTERS`]: `super::jit::lowerer::ALLOCATABLE_REGISTERS`
+     * [`ALLOCATABLE_REGISTERS`]: `super::target::x86_64::ALLOCATABLE_REGISTERS`
      */
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct Register(std::num::NonZeroU8) {
@@ -224,14 +224,14 @@ pub enum Action {
     Unary(UnaryOp, Precision, Register, Value),
     /// dest <- op(src1, src2)
     Binary(BinaryOp, Precision, Register, Value, Value),
-    /// dest <- [addr]
+    /// dest <- \[addr]
     Load(Register, (Value, Width), AliasMask),
-    /// dest <- addr; [addr] <- [src]
+    /// dest <- addr; \[addr] <- \[src]
     /// `dest` exists to make the optimizer allocate a temporary register.
     Store(Register, Value, (Value, Width), AliasMask),
-    /// sp <- sp - 8; [sp] <- src
+    /// sp <- sp - 8; \[sp] <- src
     Push(Value),
-    /// dest <- [sp]; sp <- sp + 8
+    /// dest <- \[sp]; sp <- sp + 8
     Pop(Register),
     /// No-op, but print out `src`.
     Debug(Value),
@@ -261,6 +261,8 @@ pub trait Machine: Debug {
      *  - state - the source State.
      * Returns a u64 bitmask indicating which [`values()`] are live in `state`
      * and a [`Case`] for each transition from `state`.
+     *
+     * [`values()`]: Self::values
      */
     fn get_code(&self, state: Self::State) -> (u64, Vec<Case<Self::State>>);
 

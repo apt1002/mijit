@@ -215,11 +215,13 @@ enum Patch {
 
 /**
  * Represents a possibly unknown control-flow target, and accumulates a list of
- * instructions the jump to it.
+ * instructions that jump to it.
  *
- * The address of a Label is represented as a displacement from the beginning
- * of an Assembler's `buffer`. `None` represents an unknown address that will
- * be resolved later.
+ * The address of a [`Label`] is represented as a displacement from the
+ * beginning of an Assembler's buffer. `None` represents an unknown address
+ * that will be resolved later by calling [`patch()`].
+ *
+ * [`patch()`]: Label::patch
  */
 pub struct Label {
     target: Option<usize>,
@@ -321,21 +323,29 @@ pub extern fn debug_word(x: u64) {
  * raw bytes.
  *
  * Instead, call the methods that assemble a single instruction. These include:
- *  - Variants of [`const()`], [`load()`], and [`store()`], which assemble
+ *  - Variants of [`const_()`], [`load()`], and [`store()`], which assemble
  *  `MOV` instructions.
- *  - Variants of `op()`, which assemble arithmetic instructions, including
+ *  - Variants of [`op()`], which assemble arithmetic instructions, including
  *  `CMP` instructions. For now, only 32-bit arithmetic operations are
  *  supported.
- *  - `jump_if()`, `ret()`, and variants of `jump()` and `call()`, which
- *  assemble control-flow instructions.
- *  - `push()` and `pop()`, which assemble `PUSH` and `POP` instructions.
+ *  - [`jump_if()`], [`ret()`], and variants of [`jump()`] and [`call()`],
+ *  which assemble control-flow instructions.
+ *  - [`push()`] and [`pop()`], which assemble `PUSH` and `POP` instructions.
  *
  * Registers are represented by type [`Register`]. Binary arithmetic operations
  * are represented by type [`BinaryOp`]. Condition codes are represented by
  * type [`Condition`].
  *
- * To generate a jump or call to an as-yet unknown constant destination, use
- * `None` as the target, and fill in the returned `Patch` later.
+ * [`const_()`]: Assembler::const_
+ * [`load()`]: Assembler::load
+ * [`store()`]: Assembler::store
+ * [`op()`]: Assembler::op
+ * [`jump_if()`]: Assembler::jump_if
+ * [`ret()`]: Assembler::ret
+ * [`jump()`]: Assembler::jump
+ * [`call()`]: Assembler::call
+ * [`push()`]: Assembler::push
+ * [`pop()`]: Assembler::pop
  */
 pub struct Assembler<B: Buffer> {
     /// The area we're filling with code.

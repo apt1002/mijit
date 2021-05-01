@@ -349,9 +349,17 @@ pub struct Jit<M: Machine> {
     /** The [`Convention`] used in the root states. */
     // TODO: One per state.
     convention: Convention,
-    /** Numbering of all [`M::States`]. */
+    /**
+     * Numbering of all [`M::State`]s.
+     *
+     * [`M::State`]: Machine::State
+     */
     states: IndexSet<M::State>,
-    /** The [`Specialization`] corresponding to each [`M::State`]. */
+    /**
+     * The [`Specialization`] corresponding to each [`M::State`].
+     *
+     * [`M::State`]: Machine::State
+     */
     roots: Vec<Specialization>,
 }
 

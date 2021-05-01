@@ -11,15 +11,15 @@ use ShiftOp::*;
 //-----------------------------------------------------------------------------
 
 /**
- * The registers available for allocation. This differs from
- * [`super::ALL_REGISTERS`] because:
- *  - `RC` is used as temporary workspace.
- *  - `R8` holds the pool base address.
+ * The registers available for allocation. This omits:
+ *  - `R8`, which holds the pool base address.
+ *  - `R12`, which is used as temporary workspace.
  */
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 13] =
     [RA, RD, RC, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
 
+// TODO: const POOL: Register = R8;
 const TEMP: Register = R12;
 
 impl From<code::Register> for Register {

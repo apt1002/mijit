@@ -22,6 +22,8 @@ impl RegisterPool {
     /**
      * Initialise a `RegisterPool` with specified dirty [`Value`]s.
      * Non-Registers are ignored.
+     *
+     * [`Value`]: super::code::Value
      */
     pub fn new(dirty: ArrayMap<Register, bool>) -> Self {
         // Enumerate the clean registers.
