@@ -1,7 +1,7 @@
 use super::super::super::{code};
-use super::{Buffer};
+use super::{Assembler, Label, Register, Buffer};
 use crate::util::{AsUsize};
-use super::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
+use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
 use code::{Action, TestOp, Slot};
 use Register::*;
 use Precision::*;
