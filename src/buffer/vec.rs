@@ -1,6 +1,7 @@
 use std::ops::{Deref, DerefMut};
 use super::{Buffer};
 
+#[allow(clippy::module_name_repetitions)]
 pub struct VecU8 {
     buffer: Vec<u8>,
     pos: usize,
