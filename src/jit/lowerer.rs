@@ -1,5 +1,6 @@
 use super::{code, x86_64};
 
+use super::super::buffer::{Buffer};
 use crate::util::{AsUsize};
 use x86_64::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
 use code::{Action, TestOp, Slot};
@@ -81,12 +82,22 @@ impl From<code::Value> for Value {
 
 //-----------------------------------------------------------------------------
 
-pub struct Lowerer<'a> {
+pub struct Lowerer<B: Buffer> {
     // TODO: Remove "pub".
-    pub a: Assembler<'a>,
+    pub a: Assembler<B>,
 }
 
-impl <'a> Lowerer<'a> {
+impl<B: Buffer> Lowerer<B> {
+    /** Apply `callback` to the contained [`Assembler`]. */
+    pub fn use_assembler<T>(
+        mut self,
+        callback: impl FnOnce(Assembler<B>) -> std::io::Result<(Assembler<B>, T)>,
+    ) -> std::io::Result<(Self, T)> {
+        let (a, ret) = callback(self.a)?;
+        self.a = a;
+        Ok((self, ret))
+    }
+
     /** Put `value` in `dest`. */
     fn const_(&mut self, prec: Precision, dest: impl Into<Register>, value: i64) {
         let dest = dest.into();
