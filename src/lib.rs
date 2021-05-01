@@ -1,7 +1,7 @@
 #[macro_use]
 pub mod util;
 
-pub mod x86_64;
+pub mod target;
 
 pub mod code;
 
@@ -24,7 +24,7 @@ pub mod tests {
     #[test]
     fn add5() {
         use std::{mem};
-        use x86_64::*;
+        use target::x86_64::*;
         use Register::*;
         use BinaryOp::*;
         use Precision::*;

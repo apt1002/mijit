@@ -10,7 +10,7 @@
 //! the subset as regular as possible, sometimes ignoring more efficient
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
-use super::buffer::{Buffer};
+use super::super::buffer::{Buffer};
 
 //-----------------------------------------------------------------------------
 
@@ -797,7 +797,7 @@ pub mod tests {
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
 
-    use super::super::buffer::{VecU8};
+    use super::super::super::buffer::{VecU8};
 
     fn new_assembler() -> Assembler<VecU8> {
         Assembler::new(VecU8::new(vec![0u8; 0x1000]))

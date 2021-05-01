@@ -1,8 +1,9 @@
 use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
-use super::{code, optimizer, x86_64};
+use super::{code, optimizer};
 use super::buffer::{Mmap};
+use super::target::{x86_64};
 use x86_64::{Label, Assembler, CALLEE_SAVES};
 use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Precision::*;

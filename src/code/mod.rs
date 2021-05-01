@@ -22,7 +22,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 
 pub use crate::util::{AsUsize};
-pub use super::x86_64::{Precision}; // TODO: Abstract.
+pub use super::target::x86_64::{Precision}; // TODO: Abstract.
 
 // Not currently used. Planned for #11.
 pub mod clock;
