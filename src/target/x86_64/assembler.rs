@@ -206,6 +206,7 @@ use Width::*;
  * Represents a control-flow instruction whose target can be mutated with
  * `Assembler.patch()`.
  */
+// TODO: Delete. The assembler can read code bytes to distringuish the cases.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum Patch {
     JumpIf(usize),
@@ -213,16 +214,9 @@ enum Patch {
     ConstCall(usize),
 }
 
-/**
- * Represents a possibly unknown control-flow target, and accumulates a list of
- * instructions that jump to it.
- *
- * The address of a [`Label`] is represented as a displacement from the
- * beginning of an Assembler's buffer. `None` represents an unknown address
- * that will be resolved later by calling [`patch()`].
- *
- * [`patch()`]: Label::patch
- */
+#[derive(Debug)]
+// TODO: Move to "mod target", so that the same `Label` type can be used by
+// all `Target`s.
 pub struct Label {
     target: Option<usize>,
     patches: Vec<Patch>,
@@ -241,12 +235,7 @@ impl Label {
 
     /**
      * Sets the target of this Label to `new_target`, and writes it into all
-     * the instructions that jump to this Label. In simple cases, prefer
-     * `Assembler::define(&mut Label)`, which calls this.
-     *
-     * It is permitted to patch a Label more than once. For example, you could
-     * set the target to one bit of code, execute it for a while, then set the
-     * target to a different bit of code, and execute that.
+     * the instructions that jump to this Label.
      *
      * Returns the old target of this Label as a fresh Label. This is useful
      * if you want to assemble some new code that jumps to the old code.
@@ -308,12 +297,6 @@ pub extern fn debug_word(x: u64) {
 /**
  * An assembler, implementing a regularish subset of x86_64.
  *
- * The low-level memory address of `buffer` definitely won't change while the
- * Assembler exists, but it could change at other times, e.g. because the
- * containing Vec grows and gets reallocated. Therefore, be wary of absolute
- * memory addresses. Assembler itself never uses them. For code addresses,
- * use [`Label`].
- *
  * You probably don't need to call the `write_x()` methods directly, but you
  * can if necessary (e.g. to assemble an instruction that is not provided by
  * Assembler itself). There is a `write_x()` method for each encoding pattern
@@ -369,19 +352,13 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Get the assembly pointer. */
-    pub fn get_pos(&mut self) -> usize {
+    pub fn get_pos(&self) -> usize {
         self.buffer.get_pos()
     }
 
     /** Set the assembly pointer. */
     pub fn set_pos(&mut self, pos: usize) {
         self.buffer.set_pos(pos);
-    }
-
-    /** Define `label`, which must not previously have been defined. */
-    pub fn define(&mut self, label: &mut Label) {
-        let target = self.get_pos();
-        assert_eq!(label.patch(self, target).target(), None);
     }
 
     // Patterns and constants.
