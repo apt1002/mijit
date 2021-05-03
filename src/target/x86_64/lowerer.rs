@@ -10,17 +10,20 @@ use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
 
+/** The [`Register`] used for the pool pointer. */
+const POOL: Register = R8;
+
+/** The [`Register`] used as a temporary variable. */
+const TEMP: Register = R12;
+
 /**
  * The registers available for allocation. This omits:
- *  - `R8`, which holds the pool base address.
- *  - `R12`, which is used as temporary workspace.
+ *  - `POOL`, which holds the pool base address.
+ *  - `TEMP`, which is used as temporary workspace.
  */
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 13] =
     [RA, RD, RC, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
-
-// TODO: const POOL: Register = R8;
-const TEMP: Register = R12;
 
 impl From<code::Register> for Register {
     fn from(r: code::Register) -> Self {
@@ -130,22 +133,23 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Returns the offset of `slot` in the persistent data. */
-    fn slot_offset(&self, slot: Slot) -> i32 {
+    /** Returns the base and offset of `slot` in the persistent data. */
+    fn slot_address(&self, slot: Slot) -> (Register, i32) {
         // TODO: Factor out pool index calculation.
-        ((slot.0 + 1) * 8) as i32
+        // The layout of the pool should be defined in mod jit.
+        (POOL, ((slot.0 + 1) * 8) as i32)
     }
 
     /** Load `slot` into `dest`. */
     fn load_slot(&mut self, dest: impl Into<Register>, slot: Slot) {
         let dest = dest.into();
-        self.a.load(P64, dest, (R8, self.slot_offset(slot)));
+        self.a.load(P64, dest, self.slot_address(slot));
     }
 
     /** Store `src` into `slot`. */
     fn store_slot(&mut self, slot: Slot, src: impl Into<Register>) {
         let src = src.into();
-        self.a.store(P64, (R8, self.slot_offset(slot)), src);
+        self.a.store(P64, self.slot_address(slot), src);
     }
 
     /**
@@ -175,8 +179,8 @@ impl<B: Buffer> Lowerer<B> {
             Value::Register(src) => {
                 self.a.op(op, prec, dest, src);
             },
-            Value::Slot(index) => {
-                self.a.load_op(op, prec, dest, (R8, self.slot_offset(index)));
+            Value::Slot(slot) => {
+                self.a.load_op(op, prec, dest, self.slot_address(slot));
             },
         }
     }
@@ -188,8 +192,8 @@ impl<B: Buffer> Lowerer<B> {
             Value::Register(src) => {
                 self.a.move_if(cc, is_true, prec, dest, src);
             },
-            Value::Slot(index) => {
-                self.a.load_if(cc, is_true, prec, dest, (R8, self.slot_offset(index)));
+            Value::Slot(slot) => {
+                self.a.load_if(cc, is_true, prec, dest, self.slot_address(slot));
             },
         }
     }
@@ -375,8 +379,8 @@ impl<B: Buffer> Lowerer<B> {
                         Value::Register(src) => {
                             l.a.mul(prec, dest, src);
                         },
-                        Value::Slot(index) => {
-                            l.a.load_mul(prec, dest, (R8, l.slot_offset(index)));
+                        Value::Slot(slot) => {
+                            l.a.load_mul(prec, dest, l.slot_address(slot));
                         },
                     }
                 });
@@ -409,19 +413,19 @@ impl<B: Buffer> Lowerer<B> {
             code::BinaryOp::Lt => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::L, false, prec, dest, (R8, 0));
+                    l.a.load_if(Condition::L, false, prec, dest, (POOL, 0));
                 });
             },
             code::BinaryOp::Ult => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::B, false, prec, dest, (R8, 0));
+                    l.a.load_if(Condition::B, false, prec, dest, (POOL, 0));
                 });
             },
             code::BinaryOp::Eq => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::Z, false, prec, dest, (R8, 0));
+                    l.a.load_if(Condition::Z, false, prec, dest, (POOL, 0));
                 });
             },
             code::BinaryOp::Max => {
@@ -455,14 +459,14 @@ impl<B: Buffer> Lowerer<B> {
                             code::Value::Register(src) => {
                                 self.move_(dest, src);
                             },
-                            code::Value::Slot(index) => {
-                                self.load_slot(dest, index);
+                            code::Value::Slot(slot) => {
+                                self.load_slot(dest, slot);
                             },
                         }
                     },
-                    code::Value::Slot(index) => {
+                    code::Value::Slot(slot) => {
                         let src = self.src_to_register(src, TEMP);
-                        self.store_slot(index, src);
+                        self.store_slot(slot, src);
                     },
                 }
             },
@@ -502,5 +506,20 @@ impl<B: Buffer> Lowerer<B> {
                 self.a.debug(x);
             },
         };
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn allocatable_regs() {
+        for &r in &ALLOCATABLE_REGISTERS {
+            assert_ne!(r, POOL);
+            assert_ne!(r, TEMP);
+        }
     }
 }
