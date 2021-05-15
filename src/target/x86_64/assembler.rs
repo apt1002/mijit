@@ -202,24 +202,12 @@ use Width::*;
 
 //-----------------------------------------------------------------------------
 
-/**
- * Represents a control-flow instruction whose target can be mutated with
- * `Assembler.patch()`.
- */
-// TODO: Delete. The assembler can read code bytes to distringuish the cases.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-enum Patch {
-    JumpIf(usize),
-    ConstJump(usize),
-    ConstCall(usize),
-}
-
 #[derive(Debug)]
 // TODO: Move to "mod target", so that the same `Label` type can be used by
 // all `Target`s.
 pub struct Label {
     target: Option<usize>,
-    patches: Vec<Patch>,
+    patches: Vec<usize>,
 }
 
 impl Label {
@@ -253,9 +241,9 @@ impl Label {
      * Adds a control-flow instruction to `patches`, patching it to point to
      * this Label. Its previous target must be `DISP_UNKNOWN`.
      */
-    fn push<B: Buffer>(&mut self, a: &mut Assembler<B>, patch: Patch) {
-        a.patch(patch, self.target, None);
-        self.patches.push(patch)
+    fn push<B: Buffer>(&mut self, a: &mut Assembler<B>, pos: usize) {
+        a.patch(pos, self.target, None);
+        self.patches.push(pos)
     }
 }
 
@@ -571,7 +559,7 @@ impl<B: Buffer> Assembler<B> {
 
     /** Conditional branch. */
     pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
-        let patch = Patch::JumpIf(self.get_pos());
+        let patch = self.get_pos();
         self.write_oo_0(cc.jump_if(is_true));
         self.write_imm32(UNKNOWN_DISP);
         target.push(self, patch);
@@ -584,7 +572,7 @@ impl<B: Buffer> Assembler<B> {
 
     /** Unconditional jump to a constant. */
     pub fn const_jump(&mut self, target: &mut Label) {
-        let patch = Patch::ConstJump(self.get_pos());
+        let patch = self.get_pos();
         self.write_ro_0(0xE940);
         self.write_imm32(UNKNOWN_DISP);
         target.push(self, patch);
@@ -597,35 +585,31 @@ impl<B: Buffer> Assembler<B> {
 
     /** Unconditional call to a constant. */
     pub fn const_call(&mut self, target: &mut Label){
-        let patch = Patch::ConstCall(self.get_pos());
+        let patch = self.get_pos();
         self.write_ro_0(0xE840);
         self.write_imm32(UNKNOWN_DISP);
         target.push(self, patch);
     }
 
     /**
-     * Change the target of `patch` from `old_target` to `new_target`.
-     * - patch - a jump or call instruction.
+     * Change the target of the instruction at `pos` from `old_target` to
+     * `new_target`.
+     * - pos - the offset within the buffer of a jump or call instruction.
      * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
      */
-    fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
-        let at = match patch {
-            Patch::JumpIf(addr) => {
-                assert_eq!(self.buffer[addr], 0x0F);
-                assert_eq!(self.buffer[addr + 1] & 0xF0, 0x80);
-                addr + 2
-            },
-            Patch::ConstJump(addr) => {
-                assert_eq!(self.buffer[addr], 0x40,);
-                assert_eq!(self.buffer[addr + 1], 0xE9);
-                addr + 2
-            },
-            Patch::ConstCall(addr) => {
-                assert_eq!(self.buffer[addr], 0x40);
-                assert_eq!(self.buffer[addr + 1], 0xE8);
-                addr + 2
-            },
+    fn patch(&mut self, pos: usize, new_target: Option<usize>, old_target: Option<usize>) {
+        let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
+            // jump_if
+            pos + 2
+        } else if self.buffer.read_byte(pos) == 0x40 && self.buffer.read_byte(pos + 1) == 0xE9 {
+            // const_jump
+            pos + 2
+        } else if self.buffer.read_byte(pos) == 0x40 && self.buffer.read_byte(pos + 1) == 0xE8 {
+            // const_call
+            pos + 2
+        } else {
+            panic!("not a jump or call instruction");
         };
         let old_disp = self.buffer.read(at, 4) as i32;
         let old_pos = self.buffer.get_pos();
