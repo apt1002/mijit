@@ -383,7 +383,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
                 Box::new([]),
                 self.convention.clone(),
                 Box::new([
-                    Action::Constant(P32, STATE_INDEX.into(), index as i64),
+                    Action::Constant(P32, STATE_INDEX, index as i64),
                 ]),
             ));
         }
