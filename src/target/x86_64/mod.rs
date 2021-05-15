@@ -1,7 +1,7 @@
 use super::super::buffer::{Buffer, Mmap};
 
 mod assembler;
-pub use assembler::{Assembler, Label, Precision, Register, BinaryOp, ShiftOp, Condition, Width};
+pub use assembler::{Assembler, Precision, Register, BinaryOp, ShiftOp, Condition, Width};
 use Register::*;
 
 mod lowerer;

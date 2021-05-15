@@ -2,7 +2,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Target, Lowerer, STATE_INDEX};
+use super::target::{Label, Lowerer, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Precision::*;
 
@@ -57,7 +57,7 @@ struct Relatives {
 }
 
 /** Tracks the code compiled for a [`Specialization`]. */
-struct Compiled<Label> {
+struct Compiled {
     /** The test which must pass in order to execute `fetch`. */
     pub guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
@@ -98,12 +98,12 @@ type RunFn = extern "C" fn(
  * This only exists to keep the borrow checker happy.
  * We might need to modify these fields while generating code.
  */
-struct Internals<Label> {
+struct Internals {
     /**
      * The specializations in the order they were compiled, excluding the
      * least specialization. Indexed by [`Specialization`].
      */
-    specializations: Vec<(Relatives, Compiled<Label>)>,
+    specializations: Vec<(Relatives, Compiled)>,
     /**
      * Reached when a root specialization doesn't know what to do.
      * Can be viewed as the `fetch_label` of the least specialization.
@@ -118,13 +118,13 @@ struct Internals<Label> {
     pub retire_label: Label,
 }
 
-impl<Label> Internals<Label> {
+impl Internals {
     /** Constructs a new specialization and informs its relatives. */
     fn new_specialization(
         &mut self,
         fetch_parent: Option<Specialization>,
         retire_parent: Option<Specialization>,
-        compiled: Compiled<Label>,
+        compiled: Compiled,
     ) -> Specialization {
         let this = Specialization::new(self.specializations.len()).unwrap();
         if let Some(parent) = fetch_parent {
@@ -176,7 +176,7 @@ pub struct JitInner<T: Target> {
     /** The code compiled so far. */
     lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
-    internals: Internals<<T::Lowerer as Lowerer>::Label>,
+    internals: Internals,
     /** The pool of mutable storage locations. */
     pool: Vec<u64>,
 }

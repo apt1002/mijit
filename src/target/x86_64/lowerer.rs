@@ -1,6 +1,6 @@
 use super::super::super::{code};
-use super::super::{STATE_INDEX};
-use super::{Buffer, Assembler, Label, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
+use super::super::{STATE_INDEX, Label};
+use super::{Buffer, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
 use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
 use code::{Action, TestOp, Slot};
@@ -273,22 +273,20 @@ impl<B: Buffer> Lowerer<B> {
 }
 
 impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
-    type Label = Label;
-
-    fn new_label(&self) -> Self::Label {
+    fn new_label(&self) -> Label {
         Label::new(None)
     }
 
-    fn is_defined(&self, label: &Self::Label) -> bool {
+    fn is_defined(&self, label: &Label) -> bool {
         label.target().is_some()
     }
 
-    fn patch(&mut self, label: &mut Self::Label) -> Self::Label {
+    fn patch(&mut self, label: &mut Label) -> Label {
         let here = self.a.get_pos();
-        label.patch(&mut self.a, here)
+        label.patch(here, |patch, new, old| self.a.patch(patch, new, old))
     }
 
-    fn jump(&mut self, label: &mut Self::Label) {
+    fn jump(&mut self, label: &mut Label) {
         self.a.const_jump(label);
     }
 
@@ -319,7 +317,7 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
     fn lower_test_op(
         &mut self,
         guard: (code::TestOp, Precision),
-        false_label: &mut Self::Label,
+        false_label: &mut Label,
     ) {
         let (test_op, prec) = guard;
         match test_op {

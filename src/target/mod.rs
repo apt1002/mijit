@@ -11,6 +11,67 @@ pub mod x86_64;
 // TODO: Somehow hide the state index from this module, and delete this.
 pub const STATE_INDEX: Register = code::REGISTERS[0];
 
+//-----------------------------------------------------------------------------
+
+/**
+ * Represents a possibly unknown control-flow target, and accumulates a
+ * set of instructions that jump to it. The target of a `Label` can be
+ * changed by calling [`patch()`].
+ *
+ * There may be more than one `Label` targeting the same address; each can
+ * be [`patch()`]ed separately. Each control-flow instruction targets
+ * exactly one `Label`.
+ *
+ * [`patch()`]: Lowerer::patch
+ */
+#[derive(Debug)]
+pub struct Label {
+    target: Option<usize>,
+    patches: Vec<usize>,
+}
+
+impl Label {
+    /** Constructs an unused Label. */
+    pub fn new(target: Option<usize>) -> Self {
+        Label {target: target, patches: Vec::new()}
+    }
+
+    /** Returns the current address of this Label. */
+    pub fn target(&self) -> Option<usize> {
+        self.target
+    }
+
+    /**
+     * Sets the target of this `Label` to `new_target`, and applies `callback`
+     * to all the instructions that jump to this `Label`.
+     *
+     * Returns the old target of this `Label` as a fresh `Label`. This is
+     * useful if you want to assemble some new code that jumps to the old code.
+     *
+     * - `callback` - a function that patches a jump or call instruction. It
+     * receives three arguments:
+     *   - the offset of the instruction to patch,
+     *   - `new_target`,
+     *   - the current target of the instruction.
+     */
+    pub fn patch(&mut self, new_target: usize, mut callback: impl FnMut(usize, Option<usize>, Option<usize>))
+    -> Self {
+        let old = Label::new(self.target);
+        self.target = Some(new_target);
+        for &mut patch in &mut self.patches {
+            callback(patch, self.target, old.target);
+        }
+        old
+    }
+
+    /** Add `patch` to the list of instructions that jump to this label. */
+    pub fn push(&mut self, patch: usize) {
+        self.patches.push(patch);
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 /**
  * Wraps a contiguous block of executable memory, and provides methods for
  * assembling machine code into it.
@@ -22,24 +83,11 @@ pub const STATE_INDEX: Register = code::REGISTERS[0];
  * use [`Label`].
  */
 pub trait Lowerer: Sized {
-    /**
-     * Represents a possibly unknown control-flow target, and accumulates a
-     * set of instructions that jump to it. The target of a `Label` can be
-     * changed by calling [`patch()`].
-     *
-     * There may be more than one `Label` targeting the same address; each can
-     * be [`patch()`]ed separately. Each control-flow instruction targets
-     * exactly one `Label`.
-     *
-     * [`patch()`]: Lowerer::patch
-     */
-    type Label: Debug;
-
     /** Constructs an unused `Label` with an unknown target address. */
-    fn new_label(&self) -> Self::Label;
+    fn new_label(&self) -> Label;
 
     /** Tests whether `label` has a known target address. */
-    fn is_defined(&self, label: &Self::Label) -> bool;
+    fn is_defined(&self, label: &Label) -> bool;
 
     /**
      * Sets the target of `label` to the current assembly address, and writes
@@ -53,16 +101,16 @@ pub trait Lowerer: Sized {
      * Returns the old target of this Label as a fresh (unused) Label. This is
      * useful if you want to assemble some new code that jumps to the old code.
      */
-    fn patch(&mut self, label: &mut Self::Label) -> Self::Label;
+    fn patch(&mut self, label: &mut Label) -> Label;
 
     /** Define `label`, which must not previously have been defined. */
-    fn define(&mut self, label: &mut Self::Label) {
+    fn define(&mut self, label: &mut Label) {
         let old = self.patch(label);
         assert!(!self.is_defined(&old));
     }
 
     /** Assemble an unconditional jump to `label`. */
-    fn jump(&mut self, label: &mut Self::Label);
+    fn jump(&mut self, label: &mut Label);
 
     /**
      * Assemble Mijit's function prologue. The function takes two arguments:
@@ -83,7 +131,7 @@ pub trait Lowerer: Sized {
     fn lower_test_op(
         &mut self,
         guard: (TestOp, Precision),
-        false_label: &mut Self::Label,
+        false_label: &mut Label,
     );
 
     /**
@@ -114,6 +162,8 @@ pub trait Lowerer: Sized {
      */
     fn lower_action(&mut self, action: Action);
 }
+
+//-----------------------------------------------------------------------------
 
 pub trait Target {
     type Lowerer: Lowerer;

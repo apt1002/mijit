@@ -11,6 +11,7 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 
+use super::super::{Label};
 use super::{Buffer, CALLER_SAVES};
 
 /**
@@ -199,53 +200,6 @@ impl Condition {
 pub enum Width {U8, S8, U16, S16, U32, S32, U64, S64}
 
 use Width::*;
-
-//-----------------------------------------------------------------------------
-
-#[derive(Debug)]
-// TODO: Move to "mod target", so that the same `Label` type can be used by
-// all `Target`s.
-pub struct Label {
-    target: Option<usize>,
-    patches: Vec<usize>,
-}
-
-impl Label {
-    /** Constructs an unused Label. */
-    pub fn new(target: Option<usize>) -> Self {
-        Label {target: target, patches: Vec::new()}
-    }
-
-    /** Returns the current address of this Label. */
-    pub fn target(&self) -> Option<usize> {
-        self.target
-    }
-
-    /**
-     * Sets the target of this Label to `new_target`, and writes it into all
-     * the instructions that jump to this Label.
-     *
-     * Returns the old target of this Label as a fresh Label. This is useful
-     * if you want to assemble some new code that jumps to the old code.
-     */
-    pub fn patch<B: Buffer>(&mut self, a: &mut Assembler<B>, target: usize) -> Label {
-        let old = Label::new(self.target);
-        self.target = Some(target);
-        for &mut patch in &mut self.patches {
-            a.patch(patch, self.target, old.target);
-        }
-        old
-    }
-
-    /**
-     * Adds a control-flow instruction to `patches`, patching it to point to
-     * this Label. Its previous target must be `DISP_UNKNOWN`.
-     */
-    fn push<B: Buffer>(&mut self, a: &mut Assembler<B>, pos: usize) {
-        a.patch(pos, self.target, None);
-        self.patches.push(pos)
-    }
-}
 
 //-----------------------------------------------------------------------------
 
@@ -562,7 +516,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = self.get_pos();
         self.write_oo_0(cc.jump_if(is_true));
         self.write_imm32(UNKNOWN_DISP);
-        target.push(self, patch);
+        self.lpush(target, patch);
     }
 
     /** Unconditional jump to a register. */
@@ -575,7 +529,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = self.get_pos();
         self.write_ro_0(0xE940);
         self.write_imm32(UNKNOWN_DISP);
-        target.push(self, patch);
+        self.lpush(target, patch);
     }
 
     /** Unconditional call to a register. */
@@ -588,7 +542,16 @@ impl<B: Buffer> Assembler<B> {
         let patch = self.get_pos();
         self.write_ro_0(0xE840);
         self.write_imm32(UNKNOWN_DISP);
-        target.push(self, patch);
+        self.lpush(target, patch);
+    }
+
+    /**
+     * Adds a control-flow instruction to `patches`, patching it to point to
+     * this Label. Its previous target must be `DISP_UNKNOWN`.
+     */
+    fn lpush(&mut self, label: &mut Label, pos: usize) {
+        self.patch(pos, label.target, None);
+        label.push(pos)
     }
 
     /**
@@ -598,7 +561,7 @@ impl<B: Buffer> Assembler<B> {
      * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
      */
-    fn patch(&mut self, pos: usize, new_target: Option<usize>, old_target: Option<usize>) {
+    pub fn patch(&mut self, pos: usize, new_target: Option<usize>, old_target: Option<usize>) {
         let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
             // jump_if
             pos + 2
@@ -1251,13 +1214,13 @@ pub mod tests {
             "jmp 0FFFFFFFF8000000Ch",
             "call 0FFFFFFFF80000012h",
         ]).unwrap();
-        assert_eq!(label.patch(&mut a, LABEL).target(), None);
+        assert_eq!(label.patch(LABEL, |patch, old, new| a.patch(patch, old, new)).target(), None);
         disassemble(&a.buffer[..len], vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
-        assert_eq!(label.patch(&mut a, LABEL).target(), Some(LABEL));
+        assert_eq!(label.patch(LABEL, |patch, old, new| a.patch(patch, old, new)).target(), Some(LABEL));
         disassemble(&a.buffer[..len], vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
