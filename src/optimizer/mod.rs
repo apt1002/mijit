@@ -1,7 +1,7 @@
 use super::code::{self, Register, Action};
 use super::jit::{Convention};
 
-const NUM_REGISTERS: usize = super::jit::lowerer::ALLOCATABLE_REGISTERS.len();
+const NUM_REGISTERS: usize = super::target::x86_64::ALLOCATABLE_REGISTERS.len();
 
 fn all_registers() -> impl Iterator<Item=Register> {
     (0..NUM_REGISTERS).map(|i| Register::new(i as u8).unwrap())

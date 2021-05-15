@@ -1,14 +1,10 @@
 use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
-use super::{code, optimizer, x86_64};
-use super::buffer::{Mmap};
-use x86_64::{Label, Assembler, CALLEE_SAVES};
+use super::{code, optimizer};
+use super::target::{Target, Lowerer, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
 use Precision::*;
-
-pub mod lowerer;
-use lowerer::{Lowerer};
 
 /**
  * Represents the convention by which code passes values to a label. The
@@ -61,7 +57,7 @@ struct Relatives {
 }
 
 /** Tracks the code compiled for a [`Specialization`]. */
-struct Compiled {
+struct Compiled<Label> {
     /** The test which must pass in order to execute `fetch`. */
     pub guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
@@ -96,35 +92,18 @@ type RunFn = extern "C" fn(
     /* current_index */ usize,
 ) -> /* new_index */ usize;
 
-/**
- * The [`code::Register`] which conventionally holds the first function
- * argument.
- */
-pub const ARG0: code::Register = unsafe {code::Register::new_unchecked(6)};
-
-/**
- * The [`code::Register`] which conventionally holds the second function
- * argument.
- */
-pub const ARG1: code::Register = unsafe {code::Register::new_unchecked(5)};
-
-/**
- * The [`code::Register`] which conventionally holds the first return value.
- */
-pub const RET0: code::Register = unsafe {code::Register::new_unchecked(0)};
-
 //-----------------------------------------------------------------------------
 
 /**
  * This only exists to keep the borrow checker happy.
  * We might need to modify these fields while generating code.
  */
-struct Internals {
+struct Internals<Label> {
     /**
      * The specializations in the order they were compiled, excluding the
      * least specialization. Indexed by [`Specialization`].
      */
-    specializations: Vec<(Relatives, Compiled)>,
+    specializations: Vec<(Relatives, Compiled<Label>)>,
     /**
      * Reached when a root specialization doesn't know what to do.
      * Can be viewed as the `fetch_label` of the least specialization.
@@ -139,13 +118,13 @@ struct Internals {
     pub retire_label: Label,
 }
 
-impl Internals {
+impl<Label> Internals<Label> {
     /** Constructs a new specialization and informs its relatives. */
     fn new_specialization(
         &mut self,
         fetch_parent: Option<Specialization>,
         retire_parent: Option<Specialization>,
-        compiled: Compiled,
+        compiled: Compiled<Label>,
     ) -> Specialization {
         let this = Specialization::new(self.specializations.len()).unwrap();
         if let Some(parent) = fetch_parent {
@@ -191,53 +170,40 @@ impl Internals {
  * compiled code, and all house-keeping data.
  */
 #[allow(clippy::module_name_repetitions)]
-pub struct JitInner {
+pub struct JitInner<T: Target> {
+    /** The compilation target. */
+    target: T,
     /** The code compiled so far. */
-    lowerer: Lowerer<Mmap>,
+    lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
-    internals: Internals,
+    internals: Internals<<T::Lowerer as Lowerer>::Label>,
     /** The pool of mutable storage locations. */
     pool: Vec<u64>,
 }
 
-impl JitInner {
-    pub fn new(code_size: usize, slots_used: usize) -> Self {
-        let buffer = Mmap::new(code_size).expect("couldn't allocate memory");
-        JitInner {
-            lowerer: Lowerer {a: Assembler::new(buffer)},
-            internals: Internals {
-                specializations: Vec::new(),
-                fetch_label: Label::new(None),
-                retire_label: Label::new(None),
-            },
-            pool: vec![0; slots_used + 1 + 1000], // FIXME: replace "1000" by dynamically-calculated value.
-        }._init()
+impl<T: Target> JitInner<T> {
+    pub fn new(target: T, code_size: usize, slots_used: usize) -> Self {
+        let lowerer = target.lowerer(code_size);
+        let internals = Internals {
+            specializations: Vec::new(),
+            fetch_label: lowerer.new_label(),
+            retire_label: lowerer.new_label(),
+        };
+        // FIXME: replace "1000" by dynamically-calculated value.
+        let pool = vec![0; slots_used + 1 + 1000];
+        JitInner {target, lowerer, internals, pool}._init()
     }
 
     fn _init(mut self) -> Self {
         let lo = &mut self.lowerer;
         // Assemble the function prologue and epilogue.
-        if CALLEE_SAVES.len() & 1 != 1 {
-            // Adjust alignment of RSP is 16-byte aligned.
-            lo.a.push(CALLEE_SAVES[0]);
-        }
-        for &r in &CALLEE_SAVES {
-            lo.a.push(r);
-        }
-        lo.a.move_(P64, x86_64::Register::R8, x86_64::Register::RDI);
-        lo.a.const_jump(&mut self.internals.retire_label);
+        lo.lower_prologue();
+        lo.jump(&mut self.internals.retire_label);
         // Root specializations are inserted here.
-        lo.a.define(&mut self.internals.retire_label);
-        lo.a.const_(P32, x86_64::Register::RA, -1);
-        lo.a.define(&mut self.internals.fetch_label);
-        for &r in CALLEE_SAVES.iter().rev() {
-            lo.a.pop(r);
-        }
-        if CALLEE_SAVES.len() & 1 != 1 {
-            // Adjust alignment of RSP is 16-byte aligned.
-            lo.a.pop(CALLEE_SAVES[0]);
-        }
-        lo.a.ret();
+        lo.define(&mut self.internals.retire_label);
+        lo.lower_action(Action::Constant(P32, STATE_INDEX, -1));
+        lo.define(&mut self.internals.fetch_label);
+        lo.lower_epilogue();
         self
     }
 
@@ -264,24 +230,23 @@ impl JitInner {
         retire_code: Box<[Action]>,
     ) -> Specialization {
         let lo = &mut self.lowerer;
-        let mut fetch_label = Label::new(None);
-        let mut retire_label = Label::new(None);
+        let mut fetch_label = lo.new_label();
+        let mut retire_label = lo.new_label();
         let if_fail = self.internals.retire_label(fetch_parent);
-        let here = lo.a.get_pos(); // Keep borrow-checker happy.
-        *if_fail = if_fail.patch(&mut lo.a, here);
+        *if_fail = lo.patch(if_fail);
         lo.lower_test_op(guard, if_fail);
         for &action in fetch_code.iter() {
             lo.lower_action(action);
         }
-        lo.a.define(&mut fetch_label);
-        lo.a.const_jump(&mut retire_label);
-        lo.a.define(&mut retire_label);
+        lo.define(&mut fetch_label);
+        lo.jump(&mut retire_label);
+        lo.define(&mut retire_label);
         // TODO: Optimize the case where `retire_code` is empty.
         // The preceding jump should jump straight to `retire_parent`.
         for &action in retire_code.iter() {
             lo.lower_action(action);
         }
-        lo.a.const_jump(self.internals.fetch_label(retire_parent));
+        lo.jump(self.internals.fetch_label(retire_parent));
         let compiled = Compiled {
             guard, fetch_code, fetch_label, convention, retire_label, retire_code,
         };
@@ -307,7 +272,7 @@ impl JitInner {
         let fetch_code = optimizer::optimize(
             self.internals.convention(fetch_parent),
             self.internals.convention(retire_parent),
-           actions,
+            actions,
         );
         self.compile_inner(
             Some(fetch_parent),
@@ -320,20 +285,16 @@ impl JitInner {
     }
 
     /**
-     * Call the compiled code, passing `&mut pool` and `argument`.
+     * Call the compiled code, passing the pool and `argument`.
      * - bytes - the compiled code.
      */
     pub fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
         // FIXME: assert we are on x86_64 at compile time.
         let pool = self.pool.as_mut_ptr();
-        let (lowerer, ret) = self.lowerer.use_assembler(|a| {
-            a.use_buffer(|b| {
-                b.execute(|bytes| {
-                    let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
-                    // Here is a good place to set a gdb breakpoint.
-                    f(pool, argument)
-                })
-            })
+        let (lowerer, ret) = self.target.execute(self.lowerer, |bytes| {
+            let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
+            // Here is a good place to set a gdb breakpoint.
+            f(pool, argument)
         })?;
         self.lowerer = lowerer;
         Ok((self, ret))
@@ -343,22 +304,30 @@ impl JitInner {
 //-----------------------------------------------------------------------------
 
 /** The state of the JIT compiler for a [`Machine`]. */
-pub struct Jit<M: Machine> {
+pub struct Jit<M: Machine, T: Target> {
     /** The low-level bookkeeping data structures. */
-    inner: JitInner,
+    inner: JitInner<T>,
     /** The [`Machine`]. */
     machine: M,
     /** The [`Convention`] used in the root states. */
     // TODO: One per state.
     convention: Convention,
-    /** Numbering of all [`M::States`]. */
+    /**
+     * Numbering of all [`M::State`]s.
+     *
+     * [`M::State`]: Machine::State
+     */
     states: IndexSet<M::State>,
-    /** The [`Specialization`] corresponding to each [`M::State`]. */
+    /**
+     * The [`Specialization`] corresponding to each [`M::State`].
+     *
+     * [`M::State`]: Machine::State
+     */
     roots: Vec<Specialization>,
 }
 
-impl<M: Machine> Jit<M> {
-    pub fn new(machine: M, code_size: usize) -> Self {
+impl<M: Machine, T: Target> Jit<M, T> {
+    pub fn new(machine: M, target: T, code_size: usize) -> Self {
         // Construct the `JitInner`.
         let persistent_values = machine.values();
         let slots_used = persistent_values.iter().fold(0, |acc, &v| {
@@ -367,7 +336,7 @@ impl<M: Machine> Jit<M> {
                 Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
             }
         });
-        let inner = JitInner::new(code_size, slots_used);
+        let inner = JitInner::new(target, code_size, slots_used);
 
         // Construct the Jit.
         let convention = Convention {live_values: persistent_values, slots_used: slots_used};
@@ -410,11 +379,11 @@ impl<M: Machine> Jit<M> {
             self.roots.push(self.inner.compile_inner(
                 None,
                 None,
-                (TestOp::Eq(ARG1.into(), index as i32), P32),
+                (TestOp::Eq(STATE_INDEX.into(), index as i32), P32),
                 Box::new([]),
                 self.convention.clone(),
                 Box::new([
-                    Action::Constant(P32, RET0, index as i64),
+                    Action::Constant(P32, STATE_INDEX.into(), index as i64),
                 ]),
             ));
         }
@@ -456,25 +425,18 @@ pub mod factorial;
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use lowerer::{ALLOCATABLE_REGISTERS};
+
+    use super::super::target::{native};
 
     /** An amount of code space suitable for running tests. */
     pub const CODE_SIZE: usize = 1 << 20;
-
-    #[test]
-    pub fn calling_regs() {
-        // TODO: Move this and the values it tests somewhere more appropriate.
-        assert_eq!(x86_64::Register::RDI, ALLOCATABLE_REGISTERS[ARG0.as_usize()]);
-        assert_eq!(x86_64::Register::RSI, ALLOCATABLE_REGISTERS[ARG1.as_usize()]);
-        assert_eq!(x86_64::Register::RA, ALLOCATABLE_REGISTERS[RET0.as_usize()]);
-    }
 
     #[test]
     pub fn factorial() {
         use factorial::*;
         use State::*;
 
-        let mut jit = Jit::new(Machine, CODE_SIZE);
+        let mut jit = Jit::new(Machine, native(), CODE_SIZE);
 
         // Check the `states` list.
         let expected: IndexSet<_> = vec![

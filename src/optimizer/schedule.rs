@@ -40,6 +40,8 @@ impl<'a> Schedule<'a> {
      * - dataflow - The [`Dataflow`] used to look up information about [`Node`]s.
      * - nodes - The live [`Node`]s in the order we want to process them.
      * - exit_node - The [`Node`] representing the [`Convention`] on exit.
+     *
+     * [`Convention`]: super::Convention
      */
     pub fn new(dataflow: &'a Dataflow, nodes: &[Node], exit_node: Node) -> Self {
         let mut schedule = Schedule {

@@ -1147,6 +1147,8 @@ impl code::Machine for Machine {
 pub mod tests {
     use super::*;
 
+    use super::super::target::{Target, native};
+
     pub fn ackermann_object() -> Vec<u32> {
         // Forth source:
         // : ACKERMANN   ( m n -- result )
@@ -1203,9 +1205,9 @@ pub mod tests {
     /** The size of the Beetle return stack, in cells. */
     const RETURN_CELLS: usize = 1 << 18;
 
-    pub struct VM {
+    pub struct VM<T: Target> {
         /** The compiled code, registers, and other compiler state. */
-        jit: jit::Jit<Machine>,
+        jit: jit::Jit<Machine, T>,
         /** The Beetle memory. */
         memory: Vec<u32>,
         /** The amount of unallocated memory, in cells. */
@@ -1214,7 +1216,7 @@ pub mod tests {
         halt_addr: u32,
     }
 
-    impl VM {
+    impl<T: Target> VM<T> {
         /**
          * Constructs a Beetle virtual machine with the specified parameters.
          *
@@ -1224,6 +1226,7 @@ pub mod tests {
          * are free for the program's use.
          */
         pub fn new(
+            target: T,
             memory_cells: usize,
             data_cells: usize,
             return_cells: usize,
@@ -1232,7 +1235,7 @@ pub mod tests {
             assert!(data_cells <= u32::MAX as usize);
             assert!(return_cells <= u32::MAX as usize);
             let mut vm = VM {
-                jit: jit::Jit::new(Machine, jit::tests::CODE_SIZE),
+                jit: jit::Jit::new(Machine, target, jit::tests::CODE_SIZE),
                 memory: (0..memory_cells).map(|_| 0).collect(),
                 free_cells: memory_cells as u32,
                 halt_addr: 0,
@@ -1349,7 +1352,7 @@ pub mod tests {
 
     #[test]
     pub fn ackermann() {
-        let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
+        let mut vm = VM::new(native(), MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
         vm.load_object(ackermann_object().as_ref());
         vm.push(3);
         vm.push(5);

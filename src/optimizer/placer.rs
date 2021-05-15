@@ -2,7 +2,7 @@ use std::fmt::{Debug};
 
 use super::{Resources, BUDGET};
 
-/** The maximum number of [`Item`]s to place per cycle. */
+/** The maximum number of items to place per cycle. */
 pub const MAX_ITEMS: usize = 8;
 
 /**
@@ -19,7 +19,7 @@ struct Cycle<T: Default> {
 }
 
 impl<T: Default> Cycle<T> {
-    /** Constructs an empty Cycle with `BUDGET` remaining. */
+    /** Constructs an empty `Cycle` with [`BUDGET`] remaining. */
     pub fn new() -> Self {
         Cycle {
             remaining: BUDGET,

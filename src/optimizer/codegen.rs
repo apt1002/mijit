@@ -79,7 +79,7 @@ impl Debug for RegInfo {
 
 /**
  * The state of the code generation algorithm. The state is mutated as
- * [`Instructions`] are added, in the order specified by a [`Schedule`].
+ * [`Instruction`]s are added, in the order specified by a [`Schedule`].
  */
 #[derive(Debug)]
 struct CodeGen<'a> {

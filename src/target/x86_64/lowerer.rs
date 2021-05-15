@@ -1,8 +1,8 @@
-use super::{code, x86_64};
-
-use super::super::buffer::{Buffer};
+use super::super::super::{code};
+use super::super::{STATE_INDEX};
+use super::{Buffer, Assembler, Label, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
-use x86_64::{Register, Precision, BinaryOp, ShiftOp, Condition, Width, Assembler, Label};
+use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
 use code::{Action, TestOp, Slot};
 use Register::*;
 use Precision::*;
@@ -11,17 +11,20 @@ use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
 
+/** The [`Register`] used for the pool pointer. */
+const POOL: Register = R8;
+
+/** The [`Register`] used as a temporary variable. */
+const TEMP: Register = R12;
+
 /**
- * The registers available for allocation. This differs from
- * [`x86_64::ALL_REGISTERS`] because:
- *  - `RC` is used as temporary workspace.
- *  - `R8` holds the pool base address.
+ * The registers available for allocation. This omits:
+ *  - `POOL`, which holds the pool base address.
+ *  - `TEMP`, which is used as temporary workspace.
  */
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 13] =
     [RA, RD, RC, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
-
-const TEMP: Register = R12;
 
 impl From<code::Register> for Register {
     fn from(r: code::Register) -> Self {
@@ -131,22 +134,23 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Returns the offset of `slot` in the persistent data. */
-    fn slot_offset(&self, slot: Slot) -> i32 {
+    /** Returns the base and offset of `slot` in the persistent data. */
+    fn slot_address(&self, slot: Slot) -> (Register, i32) {
         // TODO: Factor out pool index calculation.
-        ((slot.0 + 1) * 8) as i32
+        // The layout of the pool should be defined in mod jit.
+        (POOL, ((slot.0 + 1) * 8) as i32)
     }
 
     /** Load `slot` into `dest`. */
     fn load_slot(&mut self, dest: impl Into<Register>, slot: Slot) {
         let dest = dest.into();
-        self.a.load(P64, dest, (R8, self.slot_offset(slot)));
+        self.a.load(P64, dest, self.slot_address(slot));
     }
 
     /** Store `src` into `slot`. */
     fn store_slot(&mut self, slot: Slot, src: impl Into<Register>) {
         let src = src.into();
-        self.a.store(P64, (R8, self.slot_offset(slot)), src);
+        self.a.store(P64, self.slot_address(slot), src);
     }
 
     /**
@@ -176,8 +180,8 @@ impl<B: Buffer> Lowerer<B> {
             Value::Register(src) => {
                 self.a.op(op, prec, dest, src);
             },
-            Value::Slot(index) => {
-                self.a.load_op(op, prec, dest, (R8, self.slot_offset(index)));
+            Value::Slot(slot) => {
+                self.a.load_op(op, prec, dest, self.slot_address(slot));
             },
         }
     }
@@ -189,91 +193,10 @@ impl<B: Buffer> Lowerer<B> {
             Value::Register(src) => {
                 self.a.move_if(cc, is_true, prec, dest, src);
             },
-            Value::Slot(index) => {
-                self.a.load_if(cc, is_true, prec, dest, (R8, self.slot_offset(index)));
+            Value::Slot(slot) => {
+                self.a.load_if(cc, is_true, prec, dest, self.slot_address(slot));
             },
         }
-    }
-
-
-    /**
-     * Assemble code that branches to `false_label` if `test_op` is false.
-     */
-    pub fn lower_test_op(
-        &mut self,
-        guard: (code::TestOp, Precision),
-        false_label: &mut Label,
-    ) {
-        let (test_op, prec) = guard;
-        match test_op {
-            TestOp::Bits(discriminant, mask, value) => {
-                self.const_(prec, TEMP, i64::from(mask));
-                self.value_op(And, prec, TEMP, discriminant);
-                self.const_op(Cmp, prec, TEMP, value);
-                self.a.jump_if(Condition::Z, false, false_label);
-            },
-            TestOp::Lt(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::L, false, false_label);
-            },
-            TestOp::Ge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::GE, false, false_label);
-            },
-            TestOp::Ult(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::B, false, false_label);
-            },
-            TestOp::Uge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::AE, false, false_label);
-            },
-            TestOp::Eq(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::Z, false, false_label);
-            },
-            TestOp::Ne(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::NZ, false, false_label);
-            },
-            TestOp::Always => {},
-        };
-    }
-    
-    /**
-     * Assemble code to perform the given `unary_op`.
-     */
-    pub fn lower_unary_op(
-        &mut self,
-        unary_op: code::UnaryOp,
-        prec: Precision,
-        dest: code::Register,
-        src: code::Value,
-    ) {
-        match unary_op {
-            code::UnaryOp::Abs => {
-                let src = self.move_away_from(src, dest);
-                self.const_(prec, dest, 0);
-                self.value_op(Sub, prec, dest, src);
-                self.value_move_if(Condition::L, true, prec, dest, src);
-            },
-            code::UnaryOp::Negate => {
-                let src = self.move_away_from(src, dest);
-                self.const_(prec, dest, 0);
-                self.value_op(Sub, prec, dest, src);
-            },
-            code::UnaryOp::Not => {
-                let src = self.src_to_register(src, dest);
-                self.move_(dest, src);
-                self.const_op(Xor, prec, dest, -1);
-            },
-        };
     }
 
     /** Select how to assemble an asymmetric `BinaryOp` such as `Sub`. */
@@ -347,11 +270,127 @@ impl<B: Buffer> Lowerer<B> {
         self.value_op(Cmp, prec, src1, src2);
         callback(self, dest, src1);
     }
+}
 
-    /**
-     * Assemble code to perform the given `binary_op`.
-     */
-    pub fn lower_binary_op(
+impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
+    type Label = Label;
+
+    fn new_label(&self) -> Self::Label {
+        Label::new(None)
+    }
+
+    fn is_defined(&self, label: &Self::Label) -> bool {
+        label.target().is_some()
+    }
+
+    fn patch(&mut self, label: &mut Self::Label) -> Self::Label {
+        let here = self.a.get_pos();
+        label.patch(&mut self.a, here)
+    }
+
+    fn jump(&mut self, label: &mut Self::Label) {
+        self.a.const_jump(label);
+    }
+
+    fn lower_prologue(&mut self) {
+        if CALLEE_SAVES.len() & 1 != 1 {
+            // Adjust alignment of RSP to be 16-byte aligned.
+            self.a.push(CALLEE_SAVES[0]);
+        }
+        for &r in &CALLEE_SAVES {
+            self.a.push(r);
+        }
+        self.move_(POOL, ARGUMENTS[0]);
+        self.move_(STATE_INDEX, ARGUMENTS[1]);
+    }
+
+    fn lower_epilogue(&mut self) {
+        self.move_(RESULTS[0], STATE_INDEX);
+        for &r in CALLEE_SAVES.iter().rev() {
+            self.a.pop(r);
+        }
+        if CALLEE_SAVES.len() & 1 != 1 {
+            // Adjust alignment of RSP to be 16-byte aligned.
+            self.a.pop(CALLEE_SAVES[0]);
+        }
+        self.a.ret();
+    }
+
+    fn lower_test_op(
+        &mut self,
+        guard: (code::TestOp, Precision),
+        false_label: &mut Self::Label,
+    ) {
+        let (test_op, prec) = guard;
+        match test_op {
+            TestOp::Bits(discriminant, mask, value) => {
+                self.const_(prec, TEMP, i64::from(mask));
+                self.value_op(And, prec, TEMP, discriminant);
+                self.const_op(Cmp, prec, TEMP, value);
+                self.a.jump_if(Condition::Z, false, false_label);
+            },
+            TestOp::Lt(discriminant, value) => {
+                let discriminant = self.src_to_register(discriminant, TEMP);
+                self.const_op(Cmp, prec, discriminant, value);
+                self.a.jump_if(Condition::L, false, false_label);
+            },
+            TestOp::Ge(discriminant, value) => {
+                let discriminant = self.src_to_register(discriminant, TEMP);
+                self.const_op(Cmp, prec, discriminant, value);
+                self.a.jump_if(Condition::GE, false, false_label);
+            },
+            TestOp::Ult(discriminant, value) => {
+                let discriminant = self.src_to_register(discriminant, TEMP);
+                self.const_op(Cmp, prec, discriminant, value);
+                self.a.jump_if(Condition::B, false, false_label);
+            },
+            TestOp::Uge(discriminant, value) => {
+                let discriminant = self.src_to_register(discriminant, TEMP);
+                self.const_op(Cmp, prec, discriminant, value);
+                self.a.jump_if(Condition::AE, false, false_label);
+            },
+            TestOp::Eq(discriminant, value) => {
+                let discriminant = self.src_to_register(discriminant, TEMP);
+                self.const_op(Cmp, prec, discriminant, value);
+                self.a.jump_if(Condition::Z, false, false_label);
+            },
+            TestOp::Ne(discriminant, value) => {
+                let discriminant = self.src_to_register(discriminant, TEMP);
+                self.const_op(Cmp, prec, discriminant, value);
+                self.a.jump_if(Condition::NZ, false, false_label);
+            },
+            TestOp::Always => {},
+        };
+    }
+
+    fn lower_unary_op(
+        &mut self,
+        unary_op: code::UnaryOp,
+        prec: Precision,
+        dest: code::Register,
+        src: code::Value,
+    ) {
+        match unary_op {
+            code::UnaryOp::Abs => {
+                let src = self.move_away_from(src, dest);
+                self.const_(prec, dest, 0);
+                self.value_op(Sub, prec, dest, src);
+                self.value_move_if(Condition::L, true, prec, dest, src);
+            },
+            code::UnaryOp::Negate => {
+                let src = self.move_away_from(src, dest);
+                self.const_(prec, dest, 0);
+                self.value_op(Sub, prec, dest, src);
+            },
+            code::UnaryOp::Not => {
+                let src = self.src_to_register(src, dest);
+                self.move_(dest, src);
+                self.const_op(Xor, prec, dest, -1);
+            },
+        };
+    }
+
+    fn lower_binary_op(
         &mut self,
         binary_op: code::BinaryOp,
         prec: Precision,
@@ -376,8 +415,8 @@ impl<B: Buffer> Lowerer<B> {
                         Value::Register(src) => {
                             l.a.mul(prec, dest, src);
                         },
-                        Value::Slot(index) => {
-                            l.a.load_mul(prec, dest, (R8, l.slot_offset(index)));
+                        Value::Slot(slot) => {
+                            l.a.load_mul(prec, dest, l.slot_address(slot));
                         },
                     }
                 });
@@ -410,19 +449,19 @@ impl<B: Buffer> Lowerer<B> {
             code::BinaryOp::Lt => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::L, false, prec, dest, (R8, 0));
+                    l.a.load_if(Condition::L, false, prec, dest, (POOL, 0));
                 });
             },
             code::BinaryOp::Ult => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::B, false, prec, dest, (R8, 0));
+                    l.a.load_if(Condition::B, false, prec, dest, (POOL, 0));
                 });
             },
             code::BinaryOp::Eq => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::Z, false, prec, dest, (R8, 0));
+                    l.a.load_if(Condition::Z, false, prec, dest, (POOL, 0));
                 });
             },
             code::BinaryOp::Max => {
@@ -440,10 +479,7 @@ impl<B: Buffer> Lowerer<B> {
         };
     }
 
-    /**
-     * Assemble code to perform the given `action`.
-     */
-    pub fn lower_action(
+    fn lower_action(
         &mut self,
         action: Action,
     ) {
@@ -456,14 +492,14 @@ impl<B: Buffer> Lowerer<B> {
                             code::Value::Register(src) => {
                                 self.move_(dest, src);
                             },
-                            code::Value::Slot(index) => {
-                                self.load_slot(dest, index);
+                            code::Value::Slot(slot) => {
+                                self.load_slot(dest, slot);
                             },
                         }
                     },
-                    code::Value::Slot(index) => {
+                    code::Value::Slot(slot) => {
                         let src = self.src_to_register(src, TEMP);
-                        self.store_slot(index, src);
+                        self.store_slot(slot, src);
                     },
                 }
             },
@@ -503,5 +539,20 @@ impl<B: Buffer> Lowerer<B> {
                 self.a.debug(x);
             },
         };
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    #[test]
+    fn allocatable_regs() {
+        for &r in &ALLOCATABLE_REGISTERS {
+            assert_ne!(r, POOL);
+            assert_ne!(r, TEMP);
+        }
     }
 }

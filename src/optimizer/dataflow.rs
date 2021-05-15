@@ -52,34 +52,39 @@ impl<'a> Debug for NodeAdapter<'a> {
 /** The internal representation of a [`Node`]. */
 #[derive(Clone)]
 struct Info {
-    /** What kind of operation the Node represents. */
+    /** What kind of operation the `Node` represents. */
     op: Op,
-    /** A cache of `op_cost(op)`, or `Node` if `op` is `Convention`. */
+    /**
+     * A cache of [`Dataflow::op_cost(op)`], or `Node` if `op` is
+     * [`Op::Convention`].
+     */
     cost: Option<&'static Cost>,
-    /** The index in [`Dataflow::deps`] after the last dep of the Node. */
+    /** The index in [`Dataflow::deps`] after the last dep of the `Node`. */
     end_dep: usize,
-    /** The index in [`Dataflow::ins`] after the last In of the Node. */
+    /** The index in [`Dataflow::ins`] after the last input of the `Node`. */
     end_in: usize,
-    /** The index in [`Dataflow::outs`] after the last Out of the Node. */
+    /** The index in [`Dataflow::outs`] after the last [`Out`] of the `Node`. */
     end_out: usize,
 }
 
 /**
  * Represents a dataflow graph of some code.
- * The nodes are [`Node`]s, and edges lead from an [`Out`] to an [`In`].
+ * The nodes are [`Node`]s and the edges are [`Out`]s.
  *
  * There is a dummy `Node` that has an output for each [`Value`] that is live
- * on entry to the Dataflow.
+ * on entry to the [`Dataflow`].
+ *
+ * [`Value`]: super::code::Value
  */
 #[derive(Clone)]
 pub struct Dataflow {
-    /** One per Node. */
+    /** One per [`Node`]. */
     nodes: Vec<Info>,
-    /** One per non-dataflow dependency. Gives a predecessor Node. */
+    /** One per non-dataflow dependency: a predecessor [`Node`]. */
     deps: Vec<Node>,
-    /** One per In. Connects the In to the Out. */
+    /** One per input. Connects the input to the [`Out`]. */
     ins: Vec<Out>,
-    /** One per Out. Gives the Node that generates the Out. */
+    /** One per [`Out`]: the [`Node`] that generates the `Out`. */
     outs: Vec<Node>,
 }
 
