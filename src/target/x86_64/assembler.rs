@@ -550,9 +550,9 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /**
-     * Change the target of the instruction at `pos` from `old_target` to
+     * Change the target of the instruction at `patch` from `old_target` to
      * `new_target`.
-     * - pos - the offset within the buffer of a jump or call instruction.
+     * - patch - the instruction to modify.
      * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
      */

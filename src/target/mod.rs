@@ -45,33 +45,14 @@ impl Label {
         self.target.is_some()
     }
 
-    /**
-     * Sets the target of this `Label` to `new_target`, and applies `callback`
-     * to all the instructions that jump to this `Label`.
-     *
-     * Returns the old target of this `Label` as a fresh `Label`. This is
-     * useful if you want to assemble some new code that jumps to the old code.
-     *
-     * - `callback` - a function that patches a jump or call instruction. It
-     * receives three arguments:
-     *   - the offset of the instruction to patch,
-     *   - `new_target`,
-     *   - the current target of the instruction.
-     */
-    fn patch(&mut self, new_target: usize, mut callback: impl FnMut(Patch, Option<usize>, Option<usize>))
-    -> Self {
-        let mut old = Label::new();
-        old.target = self.target;
-        self.target = Some(new_target);
-        for &mut patch in &mut self.patches {
-            callback(patch, self.target, old.target);
-        }
-        old
+    /** Appends `patch` to the list of instructions that jump to `self`. */
+    pub fn push(&mut self, patch: Patch) {
+        self.patches.push(patch);
     }
 
-    /** Add `patch` to the list of instructions that jump to this label. */
-    fn push(&mut self, patch: Patch) {
-        self.patches.push(patch);
+    /** Returns and forgets all the instructions that jump to `self`. */
+    pub fn drain<'a>(&'a mut self) -> impl 'a + Iterator<Item=Patch> {
+        self.patches.drain(..)
     }
 }
 
@@ -88,10 +69,19 @@ impl Label {
  * use [`Label`].
  */
 pub trait Lowerer: Sized {
+    /** Returns the current assembly address. */
+    fn here(&self) -> usize;
+
+    /**
+     * Modifies all instructions that jump to `loser` so that they instead
+     * jump to `winner`.
+     */
+    fn steal(&mut self, winner: &mut Label, loser: &mut Label);
+
     /**
      * Sets the target of `label` to the current assembly address, and writes
-     * it into all the instructions that jump to `label`. In simple cases,
-     * prefer `define(&mut Label)`, which calls this.
+     * it into all the instructions that jump to `label`. If `label` has not
+     * been defined before, prefer `define(&mut Label)`, which calls this.
      *
      * It is permitted to patch a Label more than once. For example, you could
      * set the target to one bit of code, execute it for a while, then set the
@@ -100,12 +90,18 @@ pub trait Lowerer: Sized {
      * Returns the old target of this Label as a fresh (unused) Label. This is
      * useful if you want to assemble some new code that jumps to the old code.
      */
-    fn patch(&mut self, label: &mut Label) -> Label;
+    fn patch(&mut self, label: &mut Label) -> Label {
+        let mut old = Label::new();
+        old.target = Some(self.here());
+        std::mem::swap(label, &mut old);
+        self.steal(label, &mut old);
+        old
+    }
 
     /** Define `label`, which must not previously have been defined. */
     fn define(&mut self, label: &mut Label) {
-        let old = self.patch(label);
-        assert!(!old.is_defined());
+        assert!(!label.is_defined());
+        let _ = self.patch(label);
     }
 
     /** Assemble an unconditional jump to `label`. */

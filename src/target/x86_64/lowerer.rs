@@ -291,10 +291,17 @@ impl<B: Buffer> Lowerer<B> {
     }
 }
 
+//-----------------------------------------------------------------------------
+
 impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
-    fn patch(&mut self, label: &mut Label) -> Label {
-        let here = self.a.get_pos();
-        label.patch(here, |patch, new, old| self.a.patch(patch, new, old))
+    fn here(&self) -> usize { self.a.get_pos() }
+
+    fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
+        let loser_target = loser.target;
+        for patch in loser.drain() {
+            self.a.patch(patch, winner.target, loser_target);
+            winner.push(patch);
+        }
     }
 
     fn jump(&mut self, label: &mut Label) {
@@ -558,6 +565,7 @@ pub mod tests {
     use super::*;
     use super::super::assembler::tests::{new_assembler, disassemble};
     use super::super::Condition::Z;
+    use super::super::super::{Lowerer as _};
 
     const LABEL: usize = 0x02461357;
 
@@ -577,18 +585,25 @@ pub mod tests {
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
         lo.const_call(&mut label);
+        let len = lo.a.get_pos();
         disassemble(&lo.a, vec![
             "je near 0FFFFFFFF80000006h",
             "jmp 0FFFFFFFF8000000Ch",
             "call 0FFFFFFFF80000012h",
         ]).unwrap();
-        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target, None);
+        lo.a.set_pos(LABEL);
+        let old = lo.patch(&mut label);
+        assert_eq!(old.target, None);
+        lo.a.set_pos(len);
         disassemble(&lo.a, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
-        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target, Some(LABEL));
+        lo.a.set_pos(LABEL);
+        let old = lo.patch(&mut label);
+        assert_eq!(old.target, Some(LABEL));
+        lo.a.set_pos(len);
         disassemble(&lo.a, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
