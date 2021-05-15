@@ -11,7 +11,7 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 
-use super::super::{Label};
+use super::super::{Patch};
 use super::{Buffer, CALLER_SAVES};
 
 /**
@@ -512,11 +512,13 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Conditional branch. */
-    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
-        let patch = self.get_pos();
+    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: Option<usize>)
+    -> Patch {
+        let patch = Patch(self.get_pos());
         self.write_oo_0(cc.jump_if(is_true));
         self.write_imm32(UNKNOWN_DISP);
-        self.lpush(target, patch);
+        self.patch(patch, target, None);
+        patch
     }
 
     /** Unconditional jump to a register. */
@@ -525,11 +527,12 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Unconditional jump to a constant. */
-    pub fn const_jump(&mut self, target: &mut Label) {
-        let patch = self.get_pos();
+    pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
+        let patch = Patch(self.get_pos());
         self.write_ro_0(0xE940);
         self.write_imm32(UNKNOWN_DISP);
-        self.lpush(target, patch);
+        self.patch(patch, target, None);
+        patch
     }
 
     /** Unconditional call to a register. */
@@ -538,20 +541,12 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Unconditional call to a constant. */
-    pub fn const_call(&mut self, target: &mut Label){
-        let patch = self.get_pos();
+    pub fn const_call(&mut self, target: Option<usize>) -> Patch {
+        let patch = Patch(self.get_pos());
         self.write_ro_0(0xE840);
         self.write_imm32(UNKNOWN_DISP);
-        self.lpush(target, patch);
-    }
-
-    /**
-     * Adds a control-flow instruction to `patches`, patching it to point to
-     * this Label. Its previous target must be `DISP_UNKNOWN`.
-     */
-    fn lpush(&mut self, label: &mut Label, pos: usize) {
-        self.patch(pos, label.target, None);
-        label.push(pos)
+        self.patch(patch, target, None);
+        patch
     }
 
     /**
@@ -561,7 +556,8 @@ impl<B: Buffer> Assembler<B> {
      * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
      */
-    pub fn patch(&mut self, pos: usize, new_target: Option<usize>, old_target: Option<usize>) {
+    pub fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
+        let pos = patch.0;
         let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
             // jump_if
             pos + 2
@@ -703,16 +699,20 @@ pub mod tests {
     const ALL_WIDTHS: [Width; 8] =
         [U8, S8, U16, S16, U32, S32, U64, S64];
 
-    fn new_assembler() -> Assembler<VecU8> {
+    pub fn new_assembler() -> Assembler<VecU8> {
         Assembler::new(VecU8::new(vec![0u8; 0x1000]))
     }
 
     /**
-     * Disassemble the given x64_64 `code_bytes` as if they were at `code_ip`.
+     * Disassemble the code that has been assembled by `a` as if it were at
+     * offset 0.
+     *  - `a` - an assembler which has generated some code.
+     *  - `expected` - the expected disassembly of the
      */
-    pub fn disassemble(code_bytes: &[u8], expected: Vec<&str>)
+    pub fn disassemble<B: Buffer>(a: &Assembler<B>, expected: Vec<&str>)
     -> Result<(), Vec<String>> {
         // Disassemble the code.
+        let code_bytes = &a.buffer[..a.get_pos()];
         let mut decoder = Decoder::new(64, code_bytes, 0);
         decoder.set_ip(0);
         let mut formatter = NasmFormatter::new();
@@ -764,8 +764,9 @@ pub mod tests {
 
     #[test]
     fn test_disassemble() {
-        let example_code = &[0x48, 0x89, 0x5C, 0x24, 0x10, 0x55];
-        disassemble(example_code, vec![
+        let mut a = new_assembler();
+        a.buffer.write(0x00005510245C8948, 6);
+        disassemble(&a, vec![
             "mov [rsp+10h],rbx",
             "push rbp",
         ]).unwrap();
@@ -782,8 +783,7 @@ pub mod tests {
         for &r in &ALL_REGISTERS {
             a.move_(P32, r, r);
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "mov eax,eax",
             "mov ecx,ecx",
             "mov edx,edx",
@@ -810,8 +810,7 @@ pub mod tests {
         for &p in &ALL_PRECISIONS {
             a.move_(p, RA, RA);
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "mov eax,eax",
             "mov rax,rax",
         ]).unwrap();
@@ -827,8 +826,7 @@ pub mod tests {
                 a.const_(p, R15, !c);
             }
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "xor r8d,r8d",
             "mov r15d,0FFFFFFFFh",
             "mov r8d,1",
@@ -863,8 +861,7 @@ pub mod tests {
             a.load(p, R11, (R8, DISP));
             a.load(p, R11, (R12, DISP));
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "mov r10d,r9d",
             "mov [r8+12345678h],r10d",
             "mov [r12+12345678h],r10d",
@@ -885,8 +882,7 @@ pub mod tests {
         for &op in &ALL_BINARY_OPS {
             a.op(op, P32, R10, R9);
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "add r10d,r9d",
             "or r10d,r9d",
             "adc r10d,r9d",
@@ -908,8 +904,7 @@ pub mod tests {
             a.load_op(Add, p, R9, (R8, DISP));
             a.load_op(Add, p, R9, (R12, DISP));
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "add r10d,r9d",
             "add r10d,76543210h",
             "add r9d,[r8+12345678h]",
@@ -928,8 +923,7 @@ pub mod tests {
         for &op in &ALL_SHIFT_OPS {
             a.shift(op, P32, R8);
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "rol r8d,cl",
             "ror r8d,cl",
             "rcl r8d,cl",
@@ -948,8 +942,7 @@ pub mod tests {
             a.shift(Shl, p, R8);
             a.const_shift(Shl, p, R8, 7);
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "shl r8d,cl",
             "shl r8d,7",
             "shl r8,cl",
@@ -967,8 +960,7 @@ pub mod tests {
             a.load_mul(p, R13, (R14, DISP));
             a.load_mul(p, R13, (R12, DISP));
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "imul r8d,r9d",
             "imul r10d,r11d,76543210h",
             "imul r13d,[r14+12345678h]",
@@ -989,8 +981,7 @@ pub mod tests {
             a.load_udiv(p, (R14, DISP));
             a.load_udiv(p, (R12, DISP));
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "div r8d",
             "div dword [r14+12345678h]",
             "div dword [r12+12345678h]",
@@ -1007,13 +998,12 @@ pub mod tests {
     #[test]
     fn condition() {
         let mut a = new_assembler();
-        let mut label = Label::new(Some(0x28)); // Somewhere in the middle of the code.
+        let target = Some(0x28); // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
-            a.jump_if(cc, true, &mut label);
-            a.jump_if(cc, false, &mut label);
+            a.jump_if(cc, true, target);
+            a.jump_if(cc, false, target);
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "jo near 0000000000000028h",
             "jno near 0000000000000028h",
             "jno near 0000000000000028h",
@@ -1060,8 +1050,7 @@ pub mod tests {
             a.load_if(G, false, p, R14, (R15, DISP));
             a.load_if(G, false, p, R14, (R12, DISP));
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "cmovg r8d,r9d",
             "cmovle r10d,r11d",
             "cmovg ebp,[r13+12345678h]",
@@ -1079,11 +1068,9 @@ pub mod tests {
     #[test]
     fn jump() {
         let mut a = new_assembler();
-        let mut label = Label::new(Some(LABEL));
         a.jump(R8);
-        a.const_jump(&mut label);
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        a.const_jump(Some(LABEL));
+        disassemble(&a, vec![
             "jmp r8",
             "jmp 0000000002461357h",
         ]).unwrap();
@@ -1093,12 +1080,10 @@ pub mod tests {
     #[test]
     fn call_ret() {
         let mut a = new_assembler();
-        let mut label = Label::new(Some(LABEL));
         a.call(R8);
-        a.const_call(&mut label);
+        a.const_call(Some(LABEL));
         a.ret();
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "call r8",
             "call 0000000002461357h",
             "ret",
@@ -1111,8 +1096,7 @@ pub mod tests {
         let mut a = new_assembler();
         a.push(R8);
         a.pop(R9);
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "push r8",
             "pop r9",
         ]).unwrap();
@@ -1130,8 +1114,7 @@ pub mod tests {
                 a.store_narrow(w, (R12, DISP), R9);
             }
         }
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
+        disassemble(&a, vec![
             "movzx r9d,byte [r8+12345678h]",
             "movzx r9d,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",
@@ -1197,34 +1180,6 @@ pub mod tests {
             "mov r9,[r12+12345678h]",
             "mov [r8+12345678h],r9",
             "mov [r12+12345678h],r9",
-        ]).unwrap();
-    }
-
-    /** Test that we can patch jumps and calls. */
-    #[test]
-    fn patch() {
-        let mut a = new_assembler();
-        let mut label = Label::new(None);
-        a.jump_if(Z, true, &mut label);
-        a.const_jump(&mut label);
-        a.const_call(&mut label);
-        let len = a.get_pos();
-        disassemble(&a.buffer[..len], vec![
-            "je near 0FFFFFFFF80000006h",
-            "jmp 0FFFFFFFF8000000Ch",
-            "call 0FFFFFFFF80000012h",
-        ]).unwrap();
-        assert_eq!(label.patch(LABEL, |patch, old, new| a.patch(patch, old, new)).target(), None);
-        disassemble(&a.buffer[..len], vec![
-            "je near 0000000002461357h",
-            "jmp 0000000002461357h",
-            "call 0000000002461357h",
-        ]).unwrap();
-        assert_eq!(label.patch(LABEL, |patch, old, new| a.patch(patch, old, new)).target(), Some(LABEL));
-        disassemble(&a.buffer[..len], vec![
-            "je near 0000000002461357h",
-            "jmp 0000000002461357h",
-            "call 0000000002461357h",
         ]).unwrap();
     }
 

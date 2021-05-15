@@ -113,6 +113,25 @@ impl<B: Buffer> Lowerer<B> {
         self.a.const_op(op, prec, dest, value);
     }
 
+    /** Conditional branch. */
+    fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
+        let patch = self.a.jump_if(cc, is_true, target.target);
+        target.push(patch);
+    }
+
+    /** Unconditional jump to a constant. */
+    fn const_jump(&mut self, target: &mut Label) {
+        let patch = self.a.const_jump(target.target);
+        target.push(patch);
+    }
+
+    /** Unconditional call to a constant. */
+    #[allow(dead_code)]
+    fn const_call(&mut self, target: &mut Label) {
+        let patch = self.a.const_call(target.target);
+        target.push(patch);
+    }
+
     /** Move `src` to `dest` if they are different. */
     fn move_(&mut self, dest: impl Into<Register>, src: impl Into<Register>) {
         let dest = dest.into();
@@ -287,7 +306,7 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
     }
 
     fn jump(&mut self, label: &mut Label) {
-        self.a.const_jump(label);
+        self.const_jump(label);
     }
 
     fn lower_prologue(&mut self) {
@@ -325,37 +344,37 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                 self.const_(prec, TEMP, i64::from(mask));
                 self.value_op(And, prec, TEMP, discriminant);
                 self.const_op(Cmp, prec, TEMP, value);
-                self.a.jump_if(Condition::Z, false, false_label);
+                self.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Lt(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::L, false, false_label);
+                self.jump_if(Condition::L, false, false_label);
             },
             TestOp::Ge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::GE, false, false_label);
+                self.jump_if(Condition::GE, false, false_label);
             },
             TestOp::Ult(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::B, false, false_label);
+                self.jump_if(Condition::B, false, false_label);
             },
             TestOp::Uge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::AE, false, false_label);
+                self.jump_if(Condition::AE, false, false_label);
             },
             TestOp::Eq(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::Z, false, false_label);
+                self.jump_if(Condition::Z, false, false_label);
             },
             TestOp::Ne(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.a.jump_if(Condition::NZ, false, false_label);
+                self.jump_if(Condition::NZ, false, false_label);
             },
             TestOp::Always => {},
         };
@@ -545,6 +564,11 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use super::super::assembler::tests::{new_assembler, disassemble};
+    use super::super::Condition::Z;
+    use super::super::super::{Lowerer as _Lowerer};
+
+    const LABEL: usize = 0x02461357;
 
     #[test]
     fn allocatable_regs() {
@@ -552,5 +576,32 @@ pub mod tests {
             assert_ne!(r, POOL);
             assert_ne!(r, TEMP);
         }
+    }
+
+    /** Test that we can patch jumps and calls. */
+    #[test]
+    fn patch() {
+        let mut lo = Lowerer {a: new_assembler()};
+        let mut label = lo.new_label();
+        lo.jump_if(Z, true, &mut label);
+        lo.const_jump(&mut label);
+        lo.const_call(&mut label);
+        disassemble(&lo.a, vec![
+            "je near 0FFFFFFFF80000006h",
+            "jmp 0FFFFFFFF8000000Ch",
+            "call 0FFFFFFFF80000012h",
+        ]).unwrap();
+        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target(), None);
+        disassemble(&lo.a, vec![
+            "je near 0000000002461357h",
+            "jmp 0000000002461357h",
+            "call 0000000002461357h",
+        ]).unwrap();
+        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target(), Some(LABEL));
+        disassemble(&lo.a, vec![
+            "je near 0000000002461357h",
+            "jmp 0000000002461357h",
+            "call 0000000002461357h",
+        ]).unwrap();
     }
 }

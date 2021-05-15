@@ -13,6 +13,10 @@ pub const STATE_INDEX: Register = code::REGISTERS[0];
 
 //-----------------------------------------------------------------------------
 
+/** Represents the address of an instruction that jumps to a `Label`. */
+#[derive(Debug, Copy, Clone)]
+pub struct Patch(usize);
+
 /**
  * Represents a possibly unknown control-flow target, and accumulates a
  * set of instructions that jump to it. The target of a `Label` can be
@@ -27,7 +31,7 @@ pub const STATE_INDEX: Register = code::REGISTERS[0];
 #[derive(Debug)]
 pub struct Label {
     target: Option<usize>,
-    patches: Vec<usize>,
+    patches: Vec<Patch>,
 }
 
 impl Label {
@@ -54,7 +58,7 @@ impl Label {
      *   - `new_target`,
      *   - the current target of the instruction.
      */
-    pub fn patch(&mut self, new_target: usize, mut callback: impl FnMut(usize, Option<usize>, Option<usize>))
+    fn patch(&mut self, new_target: usize, mut callback: impl FnMut(Patch, Option<usize>, Option<usize>))
     -> Self {
         let old = Label::new(self.target);
         self.target = Some(new_target);
@@ -65,7 +69,7 @@ impl Label {
     }
 
     /** Add `patch` to the list of instructions that jump to this label. */
-    pub fn push(&mut self, patch: usize) {
+    fn push(&mut self, patch: Patch) {
         self.patches.push(patch);
     }
 }
