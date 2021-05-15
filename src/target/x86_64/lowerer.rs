@@ -292,14 +292,6 @@ impl<B: Buffer> Lowerer<B> {
 }
 
 impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
-    fn new_label(&self) -> Label {
-        Label::new(None)
-    }
-
-    fn is_defined(&self, label: &Label) -> bool {
-        label.target().is_some()
-    }
-
     fn patch(&mut self, label: &mut Label) -> Label {
         let here = self.a.get_pos();
         label.patch(here, |patch, new, old| self.a.patch(patch, new, old))
@@ -566,7 +558,6 @@ pub mod tests {
     use super::*;
     use super::super::assembler::tests::{new_assembler, disassemble};
     use super::super::Condition::Z;
-    use super::super::super::{Lowerer as _Lowerer};
 
     const LABEL: usize = 0x02461357;
 
@@ -582,7 +573,7 @@ pub mod tests {
     #[test]
     fn patch() {
         let mut lo = Lowerer {a: new_assembler()};
-        let mut label = lo.new_label();
+        let mut label = Label::new();
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
         lo.const_call(&mut label);
@@ -591,13 +582,13 @@ pub mod tests {
             "jmp 0FFFFFFFF8000000Ch",
             "call 0FFFFFFFF80000012h",
         ]).unwrap();
-        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target(), None);
+        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target, None);
         disassemble(&lo.a, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
-        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target(), Some(LABEL));
+        assert_eq!(label.patch(LABEL, |patch, old, new| lo.a.patch(patch, old, new)).target, Some(LABEL));
         disassemble(&lo.a, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",

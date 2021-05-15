@@ -186,8 +186,8 @@ impl<T: Target> JitInner<T> {
         let lowerer = target.lowerer(code_size);
         let internals = Internals {
             specializations: Vec::new(),
-            fetch_label: lowerer.new_label(),
-            retire_label: lowerer.new_label(),
+            fetch_label: Label::new(),
+            retire_label: Label::new(),
         };
         // FIXME: replace "1000" by dynamically-calculated value.
         let pool = vec![0; slots_used + 1 + 1000];
@@ -230,8 +230,8 @@ impl<T: Target> JitInner<T> {
         retire_code: Box<[Action]>,
     ) -> Specialization {
         let lo = &mut self.lowerer;
-        let mut fetch_label = lo.new_label();
-        let mut retire_label = lo.new_label();
+        let mut fetch_label = Label::new();
+        let mut retire_label = Label::new();
         let if_fail = self.internals.retire_label(fetch_parent);
         *if_fail = lo.patch(if_fail);
         lo.lower_test_op(guard, if_fail);

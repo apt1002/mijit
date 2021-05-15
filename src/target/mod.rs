@@ -35,14 +35,14 @@ pub struct Label {
 }
 
 impl Label {
-    /** Constructs an unused Label. */
-    pub fn new(target: Option<usize>) -> Self {
-        Label {target: target, patches: Vec::new()}
+    /** Constructs an unused `Label` with an unknown target address. */
+    pub fn new() -> Self {
+        Label {target: None, patches: Vec::new()}
     }
 
-    /** Returns the current address of this Label. */
-    pub fn target(&self) -> Option<usize> {
-        self.target
+    /** Tests whether `label` has a known target address. */
+    pub fn is_defined(&self) -> bool {
+        self.target.is_some()
     }
 
     /**
@@ -60,7 +60,8 @@ impl Label {
      */
     fn patch(&mut self, new_target: usize, mut callback: impl FnMut(Patch, Option<usize>, Option<usize>))
     -> Self {
-        let old = Label::new(self.target);
+        let mut old = Label::new();
+        old.target = self.target;
         self.target = Some(new_target);
         for &mut patch in &mut self.patches {
             callback(patch, self.target, old.target);
@@ -87,12 +88,6 @@ impl Label {
  * use [`Label`].
  */
 pub trait Lowerer: Sized {
-    /** Constructs an unused `Label` with an unknown target address. */
-    fn new_label(&self) -> Label;
-
-    /** Tests whether `label` has a known target address. */
-    fn is_defined(&self, label: &Label) -> bool;
-
     /**
      * Sets the target of `label` to the current assembly address, and writes
      * it into all the instructions that jump to `label`. In simple cases,
@@ -110,7 +105,7 @@ pub trait Lowerer: Sized {
     /** Define `label`, which must not previously have been defined. */
     fn define(&mut self, label: &mut Label) {
         let old = self.patch(label);
-        assert!(!self.is_defined(&old));
+        assert!(!old.is_defined());
     }
 
     /** Assemble an unconditional jump to `label`. */
