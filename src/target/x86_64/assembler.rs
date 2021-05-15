@@ -558,6 +558,7 @@ impl<B: Buffer> Assembler<B> {
      */
     pub fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
         let pos = patch.0;
+        #[allow(clippy::if_same_then_else)]
         let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
             // jump_if
             pos + 2
