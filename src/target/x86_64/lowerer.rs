@@ -86,11 +86,19 @@ impl From<code::Value> for Value {
 //-----------------------------------------------------------------------------
 
 pub struct Lowerer<B: Buffer> {
-    // TODO: Remove "pub".
-    pub a: Assembler<B>,
+    /** The underlying [`Assembler`]. */
+    a: Assembler<B>,
+    /** The number of [`Slot`]s that persist when Mijit is not running. */
+    num_globals: usize,
+    /** The number of stack-allocated spill [`Slot`]s. */
+    slots_used: usize,
 }
 
 impl<B: Buffer> Lowerer<B> {
+    pub fn new(a: Assembler<B>, num_globals: usize) -> Self {
+        Self {a, num_globals, slots_used: 0}
+    }
+
     /** Apply `callback` to the contained [`Assembler`]. */
     pub fn use_assembler<T>(
         mut self,
@@ -155,9 +163,15 @@ impl<B: Buffer> Lowerer<B> {
 
     /** Returns the base and offset of `slot` in the persistent data. */
     fn slot_address(&self, slot: Slot) -> (Register, i32) {
-        // TODO: Factor out pool index calculation.
-        // The layout of the pool should be defined in mod jit.
-        (POOL, ((slot.0 + 1) * 8) as i32)
+        if slot.0 < self.num_globals {
+            // In the pool.
+            // TODO: Factor out pool index calculation.
+            // The layout of the pool should be defined in mod jit.
+            (POOL, ((slot.0 + 1) * 8) as i32)
+        } else {
+            // On the stack.
+            (RSP, (((self.slots_used - 1) - (slot.0 - self.num_globals)) * 8) as i32)
+        }
     }
 
     /** Load `slot` into `dest`. */
@@ -294,6 +308,10 @@ impl<B: Buffer> Lowerer<B> {
 //-----------------------------------------------------------------------------
 
 impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
+    fn num_globals(&self) -> usize { self.num_globals }
+
+    fn slots_used(&mut self) -> &mut usize { &mut self.slots_used }
+
     fn here(&self) -> usize { self.a.get_pos() }
 
     fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
@@ -544,14 +562,19 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
             },
             Action::Push(src) => {
                 let src = self.src_to_register(src, TEMP);
+                *self.slots_used() += 1;
                 self.a.push(src);
             },
             Action::Pop(dest) => {
                 let dest = dest.into();
+                assert!(*self.slots_used() >= 1);
                 self.a.pop(dest);
+                *self.slots_used() -= 1;
             },
             Action::DropMany(n) => {
+                assert!(*self.slots_used() >= n);
                 self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 8);
+                *self.slots_used() -= n;
             },
             Action::Debug(x) => {
                 let x = self.src_to_register(x, TEMP);
@@ -583,7 +606,7 @@ pub mod tests {
     /** Test that we can patch jumps and calls. */
     #[test]
     fn patch() {
-        let mut lo = Lowerer {a: new_assembler()};
+        let mut lo = Lowerer::new(new_assembler(), 0);
         let mut label = Label::new();
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);

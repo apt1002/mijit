@@ -5,7 +5,7 @@ use std::fmt::{self, Debug, Formatter};
 use super::{Convention, NUM_REGISTERS, all_registers, Op, Schedule, RegisterPool, Placer, moves};
 use super::dataflow::{Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
-use super::code::{Register, Slot, Value, Action};
+use super::code::{Register, REGISTERS, Slot, Value, Action};
 use crate::util::{ArrayMap, map_filter_max};
 
 //-----------------------------------------------------------------------------
@@ -83,6 +83,8 @@ impl Debug for RegInfo {
  */
 #[derive(Debug)]
 struct CodeGen<'a> {
+    /** The number of global [`Slot`]s. */
+    num_globals: usize,
     /** The [`Convention`] used on entry. */
     before: &'a Convention,
     /** The [`Convention`] used on exit. */
@@ -102,7 +104,7 @@ struct CodeGen<'a> {
 }
 
 impl<'a> CodeGen<'a> {
-    pub fn new(before: &'a Convention, after: &'a Convention, schedule: Schedule<'a>) -> Self {
+    pub fn new(num_globals: usize, before: &'a Convention, after: &'a Convention, schedule: Schedule<'a>) -> Self {
         let df: &'a Dataflow = schedule.dataflow;
         // Initialize the data structures with the live registers of `before`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
@@ -123,6 +125,7 @@ impl<'a> CodeGen<'a> {
         }
         // Construct and return.
         CodeGen {
+            num_globals: num_globals,
             before: before,
             after: after,
             schedule: schedule,
@@ -222,7 +225,7 @@ impl<'a> CodeGen<'a> {
     pub fn finish(self, exit_node: Node) -> Box<[Action]> {
         let df: &'a Dataflow = self.schedule.dataflow;
         // Initialise bindings.
-        let mut num_slots = self.before.slots_used;
+        let mut slots_used = self.before.slots_used;
         let mut spills: ArrayMap<Out, Option<Slot>> = df.out_map();
         let mut regs: ArrayMap<Register, Option<Out>> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&self.before.live_values) {
@@ -231,7 +234,7 @@ impl<'a> CodeGen<'a> {
                     regs[reg] = Some(out);
                 },
                 Value::Slot(s) => {
-                    assert!(s.0 < num_slots);
+                    assert!(s.0 < slots_used + self.num_globals);
                     spills[out] = Some(s);
                 },
             }
@@ -248,10 +251,9 @@ impl<'a> CodeGen<'a> {
                     assert!(spills[out].is_none()); // Not yet spilled.
                     let reg = self.outs[out].reg.expect("Spilled a non-register");
                     assert!(regs[reg] == Some(out)); // Not yet overwritten.
-                    let slot = Slot(num_slots);
-                    num_slots += 1;
-                    spills[out] = Some(slot);
-                    Action::Move(slot.into(), reg.into())
+                    spills[out] = Some(Slot(slots_used + self.num_globals));
+                    slots_used += 1;
+                    Action::Push(reg.into())
                 },
                 Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
@@ -273,7 +275,7 @@ impl<'a> CodeGen<'a> {
         }).collect();
         // Work out which live values need to be moved where.
         let mut is_used = ArrayMap::new(NUM_REGISTERS);
-        let dest_to_src: HashMap<Value, Value> =
+        let mut dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
                 let src = match self.outs[out].reg.filter(|&reg| regs[reg] == Some(out)) {
                     Some(r) => r.into(),
@@ -285,25 +287,56 @@ impl<'a> CodeGen<'a> {
                 if let Value::Register(r) = src { is_used[r] = true; }
                 (dest, src)
             }).collect();
-        // Allocate a temporary `Value` that is not live.
-        // Use a `Register` if possible, otherwise allocate a `Slot`.
-        let temp_reg: Value = all_registers()
-            .find(|&r| !is_used[r])
-            .map_or_else(|| {
-                let slot = Slot(num_slots);
-                num_slots += 1;
-                slot.into()
-            }, Value::from);
+        // Create spill slots if necessary to match `after`.
+        while slots_used < self.after.slots_used {
+            let dest = Value::from(Slot(slots_used));
+            let src = dest_to_src.remove(&dest).unwrap_or(REGISTERS[0].into() /* Arbitrary */);
+            ret.push(Action::Push(src));
+            slots_used += 1;
+        }
         // Move all live values into the expected `Value`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
-        ret.extend(moves(dest_to_src, &temp_reg).map(|(dest, src)| Action::Move(dest, src)));
+        // We need a temporary `Register` that is not live.
+        // If one is available, use it.
+        // Otherwise, spill an arbitrary `Register` and use it.
+        let spill_reg = REGISTERS[0]; // TODO: Pick more carefully.
+        let unused_reg: Option<Register> = all_registers().find(|&r| !is_used[r]);
+        let (temp_value, temp_replacement) = match unused_reg {
+            Some(r) => {
+                // We found an unused `Register`.
+                (r.into(), r.into())
+            },
+            None => {
+                // Spill `spill_reg` and use it.
+                let spill_slot = Slot(slots_used + self.num_globals);
+                ret.push(Action::Push(spill_reg.into()));
+                slots_used += 1;
+                (spill_reg.into(), spill_slot.into())
+            }
+        };
+        let is_temp_a_dest = dest_to_src.contains_key(&temp_value);
+        ret.extend(moves(dest_to_src, &temp_value).map(|(mut dest, mut src)| {
+            if src == temp_value { src = temp_replacement; }
+            if dest == temp_value { dest = temp_replacement; }
+            Action::Move(dest, src)
+        }));
+        if is_temp_a_dest {
+            ret.push(Action::Pop(spill_reg));
+            slots_used -= 1;
+        }
+        // Drop now-unused slots.
+        assert!(self.after.slots_used <= slots_used);
+        let num_drops = slots_used - self.after.slots_used;
+        if num_drops > 0 {
+            ret.push(Action::DropMany(num_drops));
+        }
         // Return.
         ret.into()
     }
 }
 
-pub fn codegen(before: &Convention, after: &Convention, schedule: Schedule, exit_node: Node) -> Box<[Action]> {
-    let mut codegen = CodeGen::new(before, after, schedule);
+pub fn codegen(num_globals: usize, before: &Convention, after: &Convention, schedule: Schedule, exit_node: Node) -> Box<[Action]> {
+    let mut codegen = CodeGen::new(num_globals, before, after, schedule);
     while let Some(node) = codegen.schedule.next() {
         codegen.add_node(node);
     }
