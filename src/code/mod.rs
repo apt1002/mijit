@@ -53,7 +53,17 @@ pub const REGISTERS: [Register; 12] = unsafe {[
     Register::new_unchecked(10), Register::new_unchecked(11),
 ]};
 
-/** A spill slot. */
+/** A value that persists when Mijit is not running. */
+#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+pub struct Global(pub usize);
+
+impl Debug for Global {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Global({})", self.0)
+    }
+}
+
+/** A stack-allocated spill slot. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Slot(pub usize);
 
@@ -64,8 +74,10 @@ impl Debug for Slot {
 }
 
 /** A spill slot or register. */
+// TODO: Reorder cases for consistency: Register, Global, Slot.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
+    Global(Global),
     Slot(Slot),
     Register(Register),
 }
@@ -73,9 +85,16 @@ pub enum Value {
 impl Debug for Value {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str(&match self {
+            Value::Global(g) => format!("{:#?}", g),
             Value::Slot(s) => format!("{:#?}", s),
             Value::Register(r) => format!("{:#?}", r),
         })
+    }
+}
+
+impl From<Global> for Value {
+    fn from(v: Global) -> Self {
+        Value::Global(v)
     }
 }
 

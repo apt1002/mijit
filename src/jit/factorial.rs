@@ -9,9 +9,9 @@ const R0: Register = REGISTERS[0];
 pub enum State {Start, Loop, Return}
 
 pub mod reg {
-    use super::{Slot, Value};
-    pub const N: Value = Value::Slot(Slot(0));
-    pub const RESULT: Value = Value::Slot(Slot(1));
+    use super::{Global, Value};
+    pub const N: Value = Value::Global(Global(0));
+    pub const RESULT: Value = Value::Global(Global(1));
 }
 
 #[derive(Debug)]

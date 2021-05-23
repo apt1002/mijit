@@ -2,7 +2,7 @@ use std::num::{Wrapping};
 
 use super::code::{
     self, TestOp, Precision, UnaryOp, BinaryOp, Width,
-    Action, Case, Slot, Value, IntoValue, Register,
+    Action, Case, Value, IntoValue, Register,
 };
 use Precision::*;
 use UnaryOp::*;
@@ -18,6 +18,7 @@ const R4: Register = code::REGISTERS[4];
 const R5: Register = code::REGISTERS[5];
 
 /** Beetle's registers and other globals. */
+// TODO: Just use `code::Global`s.
 #[repr(u8)]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[allow(clippy::upper_case_acronyms)]
@@ -43,7 +44,7 @@ pub enum Global {
 
 impl From<Global> for Value {
     fn from(r: Global) -> Self {
-        Value::Slot(Slot(r as usize))
+        code::Global(r as usize).into()
     }
 }
 
@@ -254,7 +255,7 @@ impl code::Machine for Machine {
     type State = State;
 
     fn values(&self) -> Vec<Value> {
-        (0..NUM_GLOBALS).map(|i| Slot(i).into()).collect()
+        (0..NUM_GLOBALS).map(|i| code::Global(i).into()).collect()
     }
 
     #[allow(clippy::too_many_lines)]
@@ -1241,7 +1242,7 @@ pub mod tests {
                 halt_addr: 0,
             };
             // Initialize the memory.
-            *vm.jit.slot(BMemory) = vm.memory.as_mut_ptr() as u64;
+            *vm.jit.global(BMemory) = vm.memory.as_mut_ptr() as u64;
             // Allocate the data stack.
             let s_base = vm.allocate(data_cells as u32);
             let sp = s_base + cell_bytes(data_cells as i64) as u32;
@@ -1260,12 +1261,12 @@ pub mod tests {
 
         /** Read a register. */
         pub fn get(&mut self, global: Global) -> u32 {
-            *self.jit.slot(global) as u32
+            *self.jit.global(global) as u32
         }
 
         /** Write a register. */
         pub fn set(&mut self, global: Global, value: u32) {
-            *self.jit.slot(global) = u64::from(value)
+            *self.jit.global(global) = u64::from(value)
         }
 
         /**

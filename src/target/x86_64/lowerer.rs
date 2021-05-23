@@ -3,7 +3,7 @@ use super::super::{STATE_INDEX, Label};
 use super::{Buffer, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
 use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
-use code::{Action, TestOp, Slot};
+use code::{Action, TestOp, Global, Slot};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -53,12 +53,19 @@ impl From<code::Width> for Width {
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 enum Value {
     Register(Register),
+    Global(Global),
     Slot(Slot),
 }
 
 impl From<Register> for Value {
     fn from(r: Register) -> Self {
         Value::Register(r)
+    }
+}
+
+impl From<Global> for Value {
+    fn from(g: Global) -> Self {
+        Value::Global(g)
     }
 }
 
@@ -78,6 +85,7 @@ impl From<code::Value> for Value {
     fn from(v: code::Value) -> Self {
         match v {
             code::Value::Register(reg) => reg.into(),
+            code::Value::Global(global) => global.into(),
             code::Value::Slot(slot) => slot.into(),
         }
     }
@@ -161,29 +169,18 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Returns the base and offset of `slot` in the persistent data. */
+    /** Returns the base and offset of `global` in the persistent data. */
+    fn global_address(&self, global: Global) -> (Register, i32) {
+        assert!(global.0 < self.num_globals);
+        // TODO: Factor out pool index calculation.
+        // The layout of the pool should be defined in mod jit.
+        (POOL, ((global.0 + 1) * 8) as i32)
+    }
+
+    /** Returns the base and offset of `slot` in the stack-allocated data. */
     fn slot_address(&self, slot: Slot) -> (Register, i32) {
-        if slot.0 < self.num_globals {
-            // In the pool.
-            // TODO: Factor out pool index calculation.
-            // The layout of the pool should be defined in mod jit.
-            (POOL, ((slot.0 + 1) * 8) as i32)
-        } else {
-            // On the stack.
-            (RSP, (((self.slots_used - 1) - (slot.0 - self.num_globals)) * 8) as i32)
-        }
-    }
-
-    /** Load `slot` into `dest`. */
-    fn load_slot(&mut self, dest: impl Into<Register>, slot: Slot) {
-        let dest = dest.into();
-        self.a.load(P64, dest, self.slot_address(slot));
-    }
-
-    /** Store `src` into `slot`. */
-    fn store_slot(&mut self, slot: Slot, src: impl Into<Register>) {
-        let src = src.into();
-        self.a.store(P64, self.slot_address(slot), src);
+        assert!(slot.0 < self.slots_used);
+        (RSP, (((self.slots_used - 1) - slot.0) * 8) as i32)
     }
 
     /**
@@ -195,8 +192,12 @@ impl<B: Buffer> Lowerer<B> {
         let reg = reg.into();
         match src {
             Value::Register(src) => src,
+            Value::Global(global) => {
+                self.a.load(P64, reg, self.global_address(global));
+                reg
+            },
             Value::Slot(slot) => {
-                self.load_slot(reg, slot);
+                self.a.load(P64, reg, self.slot_address(slot));
                 reg
             },
         }
@@ -213,6 +214,9 @@ impl<B: Buffer> Lowerer<B> {
             Value::Register(src) => {
                 self.a.op(op, prec, dest, src);
             },
+            Value::Global(global) => {
+                self.a.load_op(op, prec, dest, self.global_address(global));
+            },
             Value::Slot(slot) => {
                 self.a.load_op(op, prec, dest, self.slot_address(slot));
             },
@@ -225,6 +229,9 @@ impl<B: Buffer> Lowerer<B> {
         match src {
             Value::Register(src) => {
                 self.a.move_if(cc, is_true, prec, dest, src);
+            },
+            Value::Global(global) => {
+                self.a.load_if(cc, is_true, prec, dest, self.global_address(global));
             },
             Value::Slot(slot) => {
                 self.a.load_if(cc, is_true, prec, dest, self.slot_address(slot));
@@ -258,8 +265,9 @@ impl<B: Buffer> Lowerer<B> {
         let dest = dest.into();
         let src1 = src1.into();
         let src2 = src2.into();
-        if let Value::Slot(_) = src1 {
-            // We get better code if `src1` is not a Slot, so swap with `src2`.
+        let is_src1_a_reg = match src1 { Value::Register(_) => true, _ => false };
+        if !is_src1_a_reg {
+            // We get better code if `src1` is a Register, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
         } else if src2 == Value::Register(dest) {
             // We get better code if `src1` is `dest`, so swap with `src2`.
@@ -449,6 +457,9 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                         Value::Register(src) => {
                             l.a.mul(prec, dest, src);
                         },
+                        Value::Global(global) => {
+                            l.a.load_mul(prec, dest, l.global_address(global));
+                        },
                         Value::Slot(slot) => {
                             l.a.load_mul(prec, dest, l.slot_address(slot));
                         },
@@ -522,18 +533,16 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                 // `dest_to_register()` would generate less efficient code.
                 match dest {
                     code::Value::Register(dest) => {
-                        match src {
-                            code::Value::Register(src) => {
-                                self.move_(dest, src);
-                            },
-                            code::Value::Slot(slot) => {
-                                self.load_slot(dest, slot);
-                            },
-                        }
+                        let src = self.src_to_register(src, dest);
+                        self.move_(dest, src);
+                    },
+                    code::Value::Global(global) => {
+                        let src = self.src_to_register(src, TEMP);
+                        self.a.store(P64, self.global_address(global), src);
                     },
                     code::Value::Slot(slot) => {
                         let src = self.src_to_register(src, TEMP);
-                        self.store_slot(slot, src);
+                        self.a.store(P64, self.slot_address(slot), src);
                     },
                 }
             },

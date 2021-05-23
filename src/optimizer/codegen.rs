@@ -118,6 +118,7 @@ impl<'a> CodeGen<'a> {
                         regs[reg].out = Some(out);
                         outs[out].reg = Some(reg);
                     },
+                    Value::Global(_) => {},
                     Value::Slot(_) => {},
                 }
                 outs[out].time = 0;
@@ -226,42 +227,39 @@ impl<'a> CodeGen<'a> {
         let df: &'a Dataflow = self.schedule.dataflow;
         // Initialise bindings.
         let mut slots_used = self.before.slots_used;
-        let mut spills: ArrayMap<Out, Option<Slot>> = df.out_map();
+        let mut spills: ArrayMap<Out, Option<Value>> = df.out_map();
         let mut regs: ArrayMap<Register, Option<Out>> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&self.before.live_values) {
             match value {
-                Value::Register(reg) => {
-                    regs[reg] = Some(out);
-                },
-                Value::Slot(s) => {
-                    assert!(s.0 < slots_used + self.num_globals);
-                    spills[out] = Some(s);
-                },
+                Value::Register(r) => regs[r] = Some(out),
+                Value::Global(g) => assert!(g.0 < self.num_globals),
+                Value::Slot(s) => assert!(s.0 < slots_used),
             }
+            spills[out] = Some(value);
         }
         // Build the list of instructions.
         let mut ins: Vec<Value> = Vec::new(); // Temporary workspace.
         let mut outs: Vec<Register> = Vec::new(); // Temporary workspace.
-        let mut ret: Vec<_> = self.placer.iter().map(|instruction| {
+        let mut ret: Vec<Action> = Vec::new();
+        for instruction in self.placer.iter() {
             ins.clear();
             outs.clear();
-            match *instruction {
+            ret.push(match *instruction {
                 Absent => panic!("Absent instruction"),
                 Spill(out) => {
                     assert!(spills[out].is_none()); // Not yet spilled.
                     let reg = self.outs[out].reg.expect("Spilled a non-register");
                     assert!(regs[reg] == Some(out)); // Not yet overwritten.
-                    spills[out] = Some(Slot(slots_used + self.num_globals));
+                    spills[out] = Some(Slot(slots_used).into());
                     slots_used += 1;
                     Action::Push(reg.into())
                 },
                 Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
-                        match self.outs[in_].reg.filter(|&reg| regs[reg] == Some(in_)) {
-                            Some(reg) => Value::from(reg),
-                            None => Value::from(spills[in_]
-                                .expect("Value was overwritten but not spilled")
-                            ),
+                        // Read `in_` from a `Register` if possible.
+                        match self.outs[in_].reg.filter(|&r| regs[r] == Some(in_)) {
+                            Some(r) => Value::from(r),
+                            None => spills[in_].expect("Value was overwritten but not spilled"),
                         }
                     }));
                     outs.extend(df.outs(n).map(|out| {
@@ -271,17 +269,16 @@ impl<'a> CodeGen<'a> {
                     }));
                     Op::to_action(df.op(n), &outs, &ins)
                 },
-            }
-        }).collect();
+            });
+        }
         // Work out which live values need to be moved where.
         let mut is_used = ArrayMap::new(NUM_REGISTERS);
         let mut dest_to_src: HashMap<Value, Value> =
             df.ins(exit_node).iter().zip(&self.after.live_values).map(|(&out, &dest)| {
-                let src = match self.outs[out].reg.filter(|&reg| regs[reg] == Some(out)) {
-                    Some(r) => r.into(),
-                    None => spills[out]
-                        .expect("Value was overwritten but not spilled")
-                        .into(),
+                let src = match self.outs[out].reg.filter(|&r| regs[r] == Some(out)) {
+                    // Read `in_` from a `Register` if possible.
+                    Some(r) => Value::from(r),
+                    None => spills[out].expect("Value was overwritten but not spilled")
                 };
                 if let Value::Register(r) = dest { is_used[r] = true; }
                 if let Value::Register(r) = src { is_used[r] = true; }

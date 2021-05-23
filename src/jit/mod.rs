@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 use crate::util::{AsUsize};
 use super::{code, optimizer};
 use super::target::{Label, Lowerer, Target, STATE_INDEX};
-use code::{Action, TestOp, Machine, Precision, Slot, Value, IntoValue};
+use code::{Action, TestOp, Machine, Precision, Global, Value, IntoValue};
 use Precision::*;
 
 /**
@@ -207,11 +207,12 @@ impl<T: Target> JitInner<T> {
         self
     }
 
-    pub fn slot(&mut self, slot: impl IntoValue) -> &mut u64 {
-        match slot.into() {
-            Value::Register(_) => panic!("Not a Slot"),
+    // TODO: Take a `Global`, not a `Value`.
+    pub fn global(&mut self, global: impl IntoValue) -> &mut u64 {
+        match global.into() {
             // TODO: Factor out pool index calculation.
-            Value::Slot(Slot(index)) => &mut self.pool[index + 1],
+            Value::Global(Global(index)) => &mut self.pool[index + 1],
+            _ => panic!("Not a Global"),
         }
     }
 
@@ -333,8 +334,8 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let persistent_values = machine.values();
         let num_globals = persistent_values.iter().fold(0, |acc, &v| {
             match v {
-                Value::Register(_r) => panic!("Persisting registers is not yet implemented"),
-                Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
+                Value::Global(Global(index)) => std::cmp::max(acc, index + 1),
+                _ => panic!("Persisting non-Globals is not yet implemented"),
             }
         });
         let inner = JitInner::new(target, code_size, num_globals);
@@ -367,8 +368,8 @@ impl<M: Machine, T: Target> Jit<M, T> {
         &self.states
     }
 
-    pub fn slot(&mut self, slot: impl IntoValue) -> &mut u64 {
-        self.inner.slot(slot)
+    pub fn global(&mut self, global: impl IntoValue) -> &mut u64 {
+        self.inner.global(global)
     }
 
     /** Ensure there is a root [`Specialization`] for `state`. */
@@ -448,9 +449,9 @@ pub mod tests {
         assert_eq!(jit.states(), &expected);
 
         // Run some "code".
-        *jit.slot(reg::N) = 5;
+        *jit.global(reg::N) = 5;
         let (mut jit, final_state) = jit.execute(&Start).expect("Execute failed");
         assert_eq!(final_state, Return);
-        assert_eq!(*jit.slot(reg::RESULT), 120);
+        assert_eq!(*jit.global(reg::RESULT), 120);
     }
 }
