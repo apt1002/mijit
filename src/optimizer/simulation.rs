@@ -107,6 +107,7 @@ impl Simulation {
                 let node = self.op(Op::Pop, &[self.stack], &[], &[dest]);
                 self.stack = node;
             },
+            Action::DropMany(_) => {},
             Action::Debug(src) => {
                 let node = self.op(Op::Debug, &[self.stack], &[src], &[]);
                 self.stack = node;

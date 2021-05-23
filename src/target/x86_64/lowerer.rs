@@ -550,6 +550,9 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                 let dest = dest.into();
                 self.a.pop(dest);
             },
+            Action::DropMany(n) => {
+                self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 8);
+            },
             Action::Debug(x) => {
                 let x = self.src_to_register(x, TEMP);
                 self.a.debug(x);

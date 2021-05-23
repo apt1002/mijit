@@ -233,6 +233,8 @@ pub enum Action {
     Push(Value),
     /// dest <- \[sp]; sp <- sp + 8
     Pop(Register),
+    /// sp <- sp + 8*n
+    DropMany(usize),
     /// No-op, but print out `src`.
     Debug(Value),
 }
