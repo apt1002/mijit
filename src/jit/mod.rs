@@ -26,8 +26,8 @@ pub struct Convention {
     /** The values that are live on entry, including `discriminant`. */
     pub live_values: Vec<Value>,
     /**
-     * The number of pool slots used by the Convention. We allocate them
-     * sequentially.
+     * The number of spill [`Slot`]s used by the Convention (not including the
+     * global `Slot`s).
      */
     pub slots_used: usize,
 }
@@ -182,15 +182,15 @@ pub struct JitInner<T: Target> {
 }
 
 impl<T: Target> JitInner<T> {
-    pub fn new(target: T, code_size: usize, slots_used: usize) -> Self {
-        let lowerer = target.lowerer(code_size);
+    pub fn new(target: T, code_size: usize, num_globals: usize) -> Self {
+        let lowerer = target.lowerer(num_globals, code_size);
         let internals = Internals {
             specializations: Vec::new(),
             fetch_label: Label::new(),
             retire_label: Label::new(),
         };
         // FIXME: replace "1000" by dynamically-calculated value.
-        let pool = vec![0; slots_used + 1 + 1000];
+        let pool = vec![0; num_globals + 1 + 1000];
         JitInner {target, lowerer, internals, pool}._init()
     }
 
@@ -255,10 +255,10 @@ impl<T: Target> JitInner<T> {
 
     /**
      * Compile code for a new [`Specialization`].
-     *  - guard - the boolean test which distinguishes the new Specialization
-     *    from its fetch parent. The new Specialization will be reached only if
-     *    its fetch parent is reached and `test_op` passes.
-     *  - actions - the code that must be executed before retiring to the
+     *  - `guard` - the boolean test which distinguishes the new
+     *    `Specialization` from its fetch parent. The new `Specialization` will
+     *    be reached only if its fetch parent is reached and `test_op` passes.
+     *  - `actions` - the code that must be executed before retiring to the
      *    retire parent. This code will be optimized and divided between the
      *    `fetch_code` and `retire_code`.
      */
@@ -270,6 +270,7 @@ impl<T: Target> JitInner<T> {
         actions: &[Action],
     ) -> Specialization {
         let fetch_code = optimizer::optimize(
+            self.lowerer.num_globals(),
             self.internals.convention(fetch_parent),
             self.internals.convention(retire_parent),
             actions,
@@ -330,16 +331,16 @@ impl<M: Machine, T: Target> Jit<M, T> {
     pub fn new(machine: M, target: T, code_size: usize) -> Self {
         // Construct the `JitInner`.
         let persistent_values = machine.values();
-        let slots_used = persistent_values.iter().fold(0, |acc, &v| {
+        let num_globals = persistent_values.iter().fold(0, |acc, &v| {
             match v {
                 Value::Register(_r) => panic!("Persisting registers is not yet implemented"),
                 Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
             }
         });
-        let inner = JitInner::new(target, code_size, slots_used);
+        let inner = JitInner::new(target, code_size, num_globals);
 
         // Construct the Jit.
-        let convention = Convention {live_values: persistent_values, slots_used: slots_used};
+        let convention = Convention {live_values: persistent_values, slots_used: 0};
         let states = IndexSet::new();
         let roots = Vec::new();
         let mut jit = Jit {inner, machine, convention, states, roots};

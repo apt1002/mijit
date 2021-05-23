@@ -43,7 +43,7 @@ mod codegen;
 pub use codegen::{codegen};
 
 /** Optimizes a basic block. */
-pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
+pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
     let mut simulation = Simulation::new(&before.live_values);
     for action in actions {
         simulation.action(action);
@@ -54,7 +54,7 @@ pub fn optimize(before: &Convention, after: &Convention, actions: &[Action]) -> 
     assert_eq!(exit_node, nodes[nodes.len()-1]);
     let nodes = &nodes[1..nodes.len()-1];
     let schedule = Schedule::new(&dataflow, nodes, exit_node);
-    codegen(before, after, schedule, exit_node)
+    codegen(num_globals, before, after, schedule, exit_node)
 }
 
 //-----------------------------------------------------------------------------
@@ -77,7 +77,7 @@ mod tests {
             live_values: vec![],
             slots_used: 0,
         };
-        let observed = optimize(&before, &after, &actions);
+        let observed = optimize(0, &before, &after, &actions);
         let expected: Box<[Action]> = Box::new([]);
         assert_eq!(observed, expected);
     }
@@ -99,7 +99,7 @@ mod tests {
         ] {
             let actions = vec![*action];
             let expected = emulator.execute(&actions);
-            let optimized = optimize(&convention, &convention, &actions);
+            let optimized = optimize(0, &convention, &convention, &actions);
             let observed_with_temporaries = emulator.execute(&optimized);
             let observed: HashMap<_, _> = convention.live_values.iter().map(|&value| {
                 let c = *observed_with_temporaries.get(&value).expect("Missing Value");
@@ -133,7 +133,7 @@ mod tests {
             live_values: vec![V0.into()],
             slots_used: 1,
         };
-        let _ = optimize(&before, &after, &actions);
+        let _ = optimize(0, &before, &after, &actions);
         // Just don't panic!
     }
 
@@ -152,7 +152,7 @@ mod tests {
             live_values: vec![V0.into()],
             slots_used: 1,
         };
-        let _ = optimize(&before, &after, &actions);
+        let _ = optimize(0, &before, &after, &actions);
         // Just don't panic!
     }
 }

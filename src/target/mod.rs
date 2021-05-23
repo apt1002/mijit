@@ -69,6 +69,26 @@ impl Label {
  * use [`Label`].
  */
 pub trait Lowerer: Sized {
+    /**
+     * The number of [`Slot`]s that persist when Mijit is not running.
+     * This is the value passed to [`Target::lowerer()`].
+     */
+    fn num_globals(&self) -> usize;
+
+    /**
+     * The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
+     * by [`Push`] instructions and destroyed by [`Pop`] instructions. The
+     * number of spill slots at a `jump()` or `TestOp` must match the number at
+     * its `Label`.
+     *
+     * Do not mutate the number of spill slots (other that using `Push` and
+     * `Pop`) when the current assembly address is reachable.
+     *
+     * [`Push`]: Action::Push
+     * [`Pop`]: Action::Pop
+     */
+    fn slots_used(&mut self) -> &mut usize;
+
     /** Returns the current assembly address. */
     fn here(&self) -> usize;
 
@@ -166,8 +186,14 @@ pub trait Target {
     /** The number of registers available for allocation. */
     const NUM_REGISTERS: usize;
 
-    /** Construct a [`Lowerer`] for this `Target`. */
-    fn lowerer(&self, capacity: usize) -> Self::Lowerer;
+    /**
+     * Construct a [`Lowerer`] for this `Target`.
+     *  - `num_globals` - The number of `Slot`s that persist when Mijit is not
+     *    running.
+     *  - `code_size` - The amount of memory to allocate for executable code.
+     */
+    // TODO: Remove `code_size` and make the lowerer auto-extend its buffer.
+    fn lowerer(&self, num_globals: usize, code_size: usize) -> Self::Lowerer;
 
     /**
      * Make the memory backing `lowerer` executable, pass it to `callback`,
