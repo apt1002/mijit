@@ -44,9 +44,9 @@ array_index! {
  */
 struct Relatives {
     /** The fetch parent. `None` means the least specialization. */
-    pub fetch_parent: Option<Specialization>,
+    pub _fetch_parent: Option<Specialization>,
     /** The retire parent. `None` means the least specialization. */
-    pub retire_parent: Option<Specialization>,
+    pub _retire_parent: Option<Specialization>,
     /** The fetch children. */
     pub fetch_children: Vec<Specialization>,
     /** The retire children. */
@@ -56,9 +56,9 @@ struct Relatives {
 /** Tracks the code compiled for a [`Specialization`]. */
 struct Compiled {
     /** The test which must pass in order to execute `fetch`. */
-    pub guard: (TestOp, Precision),
+    pub _guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
-    pub fetch_code: Box<[Action]>,
+    pub _fetch_code: Box<[Action]>,
     /**
      * The address just after `fetch_code`.
      * Retire children jump here.
@@ -75,7 +75,7 @@ struct Compiled {
      */
     pub retire_label: Label,
     /** The retire code that was compiled for this specialization. */
-    pub retire_code: Box<[Action]>,
+    pub _retire_code: Box<[Action]>,
 }
 
 /**
@@ -131,8 +131,8 @@ impl Internals {
             self.specializations[parent.as_usize()].0.retire_children.push(this);
         }
         let relatives = Relatives {
-            fetch_parent: fetch_parent,
-            retire_parent: retire_parent,
+            _fetch_parent: fetch_parent,
+            _retire_parent: retire_parent,
             fetch_children: Vec::new(),
             retire_children: Vec::new(),
         };
@@ -246,7 +246,12 @@ impl<T: Target> JitInner<T> {
         }
         lo.jump(self.internals.fetch_label(retire_parent));
         let compiled = Compiled {
-            guard, fetch_code, fetch_label, convention, retire_label, retire_code,
+            _guard: guard,
+            _fetch_code: fetch_code,
+            fetch_label,
+            convention,
+            retire_label,
+            _retire_code: retire_code,
         };
         self.internals.new_specialization(fetch_parent, retire_parent, compiled)
     }
