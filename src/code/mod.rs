@@ -56,6 +56,10 @@ pub const REGISTERS: [Register; 12] = unsafe {[
 const fn make_reg(r: usize) -> Value { Value::Register(REGISTERS[r]) }
 const fn make_slot(s: usize) -> Value { Value::Slot(Slot(s)) }
 
+/**
+ * [`Value`]s that are likely to be efficient to access on all [`Target`]s.
+ * The first 12 are guaranteed to match `REGISTERS`.
+ */
 pub const FAST_VALUES: [Value; 64] = [
     make_reg(0), make_reg(1), make_reg(2), make_reg(3),
     make_reg(4), make_reg(5), make_reg(6), make_reg(7),
@@ -298,6 +302,12 @@ pub trait Machine: Debug {
 
     /** The number of [`Global`]s used by this Machine. */
     fn num_globals(&self) -> usize;
+
+    /**
+     * The number of [`Slot`]s that exist on entry and exit from every
+     * [`State`].
+     */
+    fn num_slots(&self) -> usize;
 
     /**
      * Returns a bitmask indicating which [`Value`]s are live in `state`.

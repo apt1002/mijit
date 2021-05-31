@@ -12,6 +12,7 @@ crate_type = ["rlib", "cdylib"]
 
 [dependencies]
 memmap = "0.6.2"
+memoffset = "0.6"
 indexmap = "1.4.0"
 rand = "0.7"
 

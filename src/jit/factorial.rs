@@ -22,6 +22,8 @@ impl super::code::Machine for Machine {
 
     fn num_globals(&self) -> usize { 2 } // reg::N and reg::RESULT
 
+    fn num_slots(&self) -> usize { 0 }
+
     fn liveness_mask(&self, _state: Self::State) -> u64 { 0 }
 
     fn prologue(&self) -> Vec<Action> { vec![] }

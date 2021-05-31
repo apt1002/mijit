@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 use crate::util::{AsUsize};
 use super::{code, optimizer};
 use super::target::{Label, Lowerer, Target, STATE_INDEX};
-use code::{Action, TestOp, Machine, Precision, Global, Slot, Value, IntoValue, FAST_VALUES};
+use code::{Action, TestOp, Machine, Precision, Global, Value, IntoValue, FAST_VALUES};
 use Precision::*;
 
 /**
@@ -25,7 +25,11 @@ pub struct Convention {
     // pub discriminant: Value,
     /** The values that are live on entry, including `discriminant`. */
     pub live_values: Vec<Value>,
-    /** The number of spill [`Slot`]s used by the Convention. */
+    /**
+     * The number of spill [`Slot`]s used by the Convention.
+     *
+     * [`Slot`]: code::Slot
+     */
     pub slots_used: usize,
 }
 
@@ -228,6 +232,8 @@ impl<T: Target> JitInner<T> {
         retire_code: Box<[Action]>,
     ) -> Specialization {
         let lo = &mut self.lowerer;
+        *lo.slots_used() =
+            if let Some(s) = fetch_parent {self.internals.convention(s).slots_used } else { 0 };
         let mut fetch_label = Label::new();
         let mut retire_label = Label::new();
         let if_fail = self.internals.retire_label(fetch_parent);
@@ -238,6 +244,7 @@ impl<T: Target> JitInner<T> {
         }
         lo.define(&mut fetch_label);
         lo.jump(&mut retire_label);
+        assert_eq!(*lo.slots_used(), convention.slots_used);
         lo.define(&mut retire_label);
         // TODO: Optimize the case where `retire_code` is empty.
         // The preceding jump should jump straight to `retire_parent`.
@@ -245,6 +252,10 @@ impl<T: Target> JitInner<T> {
             lo.lower_action(action);
         }
         lo.jump(self.internals.fetch_label(retire_parent));
+        assert_eq!(
+            *lo.slots_used(),
+            if let Some(s) = fetch_parent {self.internals.convention(s).slots_used } else { 0 }
+        );
         let compiled = Compiled {
             _guard: guard,
             _fetch_code: fetch_code,
@@ -375,14 +386,13 @@ impl<M: Machine, T: Target> Jit<M, T> {
                 .map(|i| FAST_VALUES[i])
                 .chain((0..self.machine.num_globals()).map(|i| Global(i).into()))
                 .collect();
-            let slots_used = live_values.iter().fold(0, |acc, &v| {
-                match v {
-                    Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
-                    _ => acc,
-                }
-            });
-            let fetch_code = self.machine.prologue();
+            let slots_used = self.machine.num_slots();
+            let mut fetch_code: Vec<Action> = (0..slots_used).map(
+                |_| Action::Push(FAST_VALUES[0]) // TODO: Make one instruction.
+            ).collect();
+            fetch_code.extend(self.machine.prologue());
             let mut retire_code = self.machine.epilogue();
+            retire_code.push(Action::DropMany(slots_used));
             retire_code.push(Action::Constant(P32, STATE_INDEX, index as i64));
             self.roots.push(self.inner.compile_inner(
                 None,
