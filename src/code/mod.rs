@@ -274,8 +274,8 @@ pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
 
-    /** The [`Value`]s that persist when the Machine is not running. */
-    fn values(&self) -> Vec<Value>;
+    /** The number of [`Global`]s used by this Machine. */
+    fn num_globals(&self) -> usize;
 
     /**
      * Defines the transitions of the finite state machine.

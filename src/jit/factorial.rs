@@ -20,10 +20,8 @@ pub struct Machine;
 impl super::code::Machine for Machine {
     type State = State;
 
-    fn values(&self) -> Vec<Value> {
-        vec![reg::N, reg::RESULT]
-    }
-    
+    fn num_globals(&self) -> usize { 2 } // reg::N and reg::RESULT
+
     fn get_code(&self, state: Self::State) -> (u64, Vec<Case<Self::State>>) {
         match state {
             State::Start => (

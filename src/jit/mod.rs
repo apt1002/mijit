@@ -331,17 +331,11 @@ pub struct Jit<M: Machine, T: Target> {
 impl<M: Machine, T: Target> Jit<M, T> {
     pub fn new(machine: M, target: T, code_size: usize) -> Self {
         // Construct the `JitInner`.
-        let persistent_values = machine.values();
-        let num_globals = persistent_values.iter().fold(0, |acc, &v| {
-            match v {
-                Value::Global(Global(index)) => std::cmp::max(acc, index + 1),
-                _ => panic!("Persisting non-Globals is not yet implemented"),
-            }
-        });
-        let inner = JitInner::new(target, code_size, num_globals);
+        let globals: Vec<Value> = (0..machine.num_globals()).map(|i| Global(i).into()).collect();
+        let inner = JitInner::new(target, code_size, machine.num_globals());
 
         // Construct the Jit.
-        let convention = Convention {live_values: persistent_values, slots_used: 0};
+        let convention = Convention {live_values: globals, slots_used: 0};
         let states = IndexSet::new();
         let roots = Vec::new();
         let mut jit = Jit {inner, machine, convention, states, roots};

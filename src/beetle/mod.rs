@@ -254,9 +254,7 @@ pub struct Machine;
 impl code::Machine for Machine {
     type State = State;
 
-    fn values(&self) -> Vec<Value> {
-        (0..NUM_GLOBALS).map(|i| code::Global(i).into()).collect()
-    }
+    fn num_globals(&self) -> usize { NUM_GLOBALS }
 
     #[allow(clippy::too_many_lines)]
     fn get_code(&self, state: Self::State) -> (u64, Vec<Case<Self::State>>) {
