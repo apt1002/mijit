@@ -1186,8 +1186,6 @@ pub mod tests {
                 free_cells: memory_cells as u32,
                 halt_addr: 0,
             };
-            // Initialize the memory.
-            *vm.jit.global(BMemory) = vm.memory.as_mut_ptr() as u64;
             // Allocate the data stack.
             let s_base = vm.allocate(data_cells as u32);
             let sp = s_base + cell_bytes(data_cells as i64) as u32;
@@ -1284,6 +1282,8 @@ pub mod tests {
         pub fn run(mut self, ep: u32) -> Self {
             assert!(Self::is_aligned(ep));
             self.set(BEP, ep);
+            // Cannot use `set()` for `BMemory` because it's 64-bit.
+            *self.jit.global(BMemory) = self.memory.as_mut_ptr() as u64;
             let (jit, state) = self.jit.execute(&State::Root).expect("Execute failed");
             assert_eq!(state, State::Halt);
             self.jit = jit;
