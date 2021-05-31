@@ -258,6 +258,10 @@ impl code::Machine for Machine {
 
     fn liveness_mask(&self, _state: Self::State) -> u64 { 0 }
 
+    fn prologue(&self) -> Vec<Action> { vec![] }
+
+    fn epilogue(&self) -> Vec<Action> { vec![] }
+
     #[allow(clippy::too_many_lines)]
     fn code(&self, state: Self::State) -> Vec<Case<Self::State>> {
         match state {

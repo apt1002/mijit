@@ -307,6 +307,23 @@ pub trait Machine: Debug {
     fn liveness_mask(&self, state: Self::State) -> u64;
 
     /**
+     * Returns code to marshal data from the [`Global`]s to the live values.
+     * It is not passed anything on entry. On exit it must have initialised
+     * all Values that are live in any [`State`].
+     */
+    fn prologue(&self) -> Vec<Action>;
+
+    /**
+     * Returns code to marshal data from the live values back to the
+     * [`Global`]s.
+     *
+     * On entry, it gets all [`Value`]s that are live in any [`State`]; those
+     * that are dead are set to a dummy value (0xdeaddeaddeaddead). On exit
+     * only the `Global`s are live.
+     */
+    fn epilogue(&self) -> Vec<Action>;
+
+    /**
      * Defines the transitions of the finite state machine.
      *  - state - the source State.
      * Returns a [`Case`] for each transition from `state`.

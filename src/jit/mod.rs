@@ -376,15 +376,16 @@ impl<M: Machine, T: Target> Jit<M, T> {
                     _ => acc,
                 }
             });
+            let fetch_code = self.machine.prologue();
+            let mut retire_code = self.machine.epilogue();
+            retire_code.push(Action::Constant(P32, STATE_INDEX, index as i64));
             self.roots.push(self.inner.compile_inner(
                 None,
                 None,
                 (TestOp::Eq(STATE_INDEX.into(), index as i32), P32),
-                Box::new([]),
+                fetch_code.into(),
                 Convention {live_values, slots_used},
-                Box::new([
-                    Action::Constant(P32, STATE_INDEX, index as i64),
-                ]),
+                retire_code.into(),
             ));
         }
     }
