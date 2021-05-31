@@ -402,7 +402,7 @@ impl code::Machine for Machine {
                     build(ne(LoopFlag, 0), |_| {}, State::Branchi),
                 ],
             ),
-            State::Ploopp => (
+            State::Ploopp => ( // TODO: Seems to be identical with Ploopm?
                 register_mask,
                 vec![
                     build(lt(LoopFlag, 0), |b| {
@@ -431,15 +431,15 @@ impl code::Machine for Machine {
                 vec![
                     build(ge(LoopStep, 0), |b| {
                         b.unary(Not, LoopNew, LoopNew);
-                        b.binary(And, LoopNew, LoopNew, LoopOld);
+                        b.binary(And, LoopFlag, LoopNew, LoopOld);
                     }, State::Ploopp),
                     build(lt(LoopStep, 0), |b| {
                         b.unary(Not, LoopOld, LoopOld);
-                        b.binary(And, LoopNew, LoopNew, LoopOld);
+                        b.binary(And, LoopFlag, LoopNew, LoopOld);
                     }, State::Ploopm),
                 ],
             ),
-            State::Ploopip => (
+            State::Ploopip => ( // TODO: Seems to be identical with Ploopim?
                 register_mask,
                 vec![
                     build(lt(LoopFlag, 0), |b| {
@@ -464,11 +464,11 @@ impl code::Machine for Machine {
                 vec![
                     build(ge(R2, 0), |b| {
                         b.unary(Not, LoopNew, LoopNew);
-                        b.binary(And, LoopNew, LoopNew, LoopOld);
+                        b.binary(And, LoopFlag, LoopNew, LoopOld);
                     }, State::Ploopip),
                     build(lt(R2, 0), |b| {
                         b.unary(Not, LoopOld, LoopOld);
-                        b.binary(And, LoopNew, LoopNew, LoopOld);
+                        b.binary(And, LoopFlag, LoopNew, LoopOld);
                     }, State::Ploopim),
                 ],
             ),
@@ -1364,4 +1364,6 @@ pub mod tests {
         assert_eq!(vm.get(BR0), vm.get(BRP));
         assert_eq!(result, 253);
     }
+
+    // TODO: Test (LOOP) instructions.
 }
