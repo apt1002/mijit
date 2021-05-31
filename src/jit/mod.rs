@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 use crate::util::{AsUsize};
 use super::{code, optimizer};
 use super::target::{Label, Lowerer, Target, STATE_INDEX};
-use code::{Action, TestOp, Machine, Precision, Global, Value, IntoValue};
+use code::{Action, TestOp, Machine, Precision, Global, Slot, Value, IntoValue, FAST_VALUES};
 use Precision::*;
 
 /**
@@ -25,10 +25,7 @@ pub struct Convention {
     // pub discriminant: Value,
     /** The values that are live on entry, including `discriminant`. */
     pub live_values: Vec<Value>,
-    /**
-     * The number of spill [`Slot`]s used by the Convention (not including the
-     * global `Slot`s).
-     */
+    /** The number of spill [`Slot`]s used by the Convention. */
     pub slots_used: usize,
 }
 
@@ -311,9 +308,6 @@ pub struct Jit<M: Machine, T: Target> {
     inner: JitInner<T>,
     /** The [`Machine`]. */
     machine: M,
-    /** The [`Convention`] used in the root states. */
-    // TODO: One per state.
-    convention: Convention,
     /**
      * Numbering of all [`M::State`]s.
      *
@@ -331,14 +325,12 @@ pub struct Jit<M: Machine, T: Target> {
 impl<M: Machine, T: Target> Jit<M, T> {
     pub fn new(machine: M, target: T, code_size: usize) -> Self {
         // Construct the `JitInner`.
-        let globals: Vec<Value> = (0..machine.num_globals()).map(|i| Global(i).into()).collect();
         let inner = JitInner::new(target, code_size, machine.num_globals());
 
         // Construct the Jit.
-        let convention = Convention {live_values: globals, slots_used: 0};
         let states = IndexSet::new();
         let roots = Vec::new();
-        let mut jit = Jit {inner, machine, convention, states, roots};
+        let mut jit = Jit {inner, machine, states, roots};
 
         // Enumerate the reachable states in FIFO order and
         // construct the control-flow graph of the `Machine`.
@@ -347,7 +339,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
         }
         let mut done = 0;
         while let Some(old_state) = jit.states.get_index(done).cloned() {
-            let (_value_mask, cases) = jit.machine.get_code(old_state.clone());
+            let cases = jit.machine.code(old_state.clone());
             for case in cases {
                 jit.ensure_root(case.new_state.clone());
                 jit.compile(&old_state, case.condition, &case.actions, &case.new_state);
@@ -370,14 +362,26 @@ impl<M: Machine, T: Target> Jit<M, T> {
     pub fn ensure_root(&mut self, state: M::State) {
         let index = self.roots.len();
         assert_eq!(index, self.states.len());
-        if self.states.insert(state) {
+        if self.states.insert(state.clone()) {
             // Make a new root `Specialization`.
+            let mask = self.machine.liveness_mask(state);
+            let live_values: Vec<Value> = (0..FAST_VALUES.len())
+                .filter(|i| (mask & (1 << i)) != 0)
+                .map(|i| FAST_VALUES[i])
+                .chain((0..self.machine.num_globals()).map(|i| Global(i).into()))
+                .collect();
+            let slots_used = live_values.iter().fold(0, |acc, &v| {
+                match v {
+                    Value::Slot(Slot(index)) => std::cmp::max(acc, index + 1),
+                    _ => acc,
+                }
+            });
             self.roots.push(self.inner.compile_inner(
                 None,
                 None,
                 (TestOp::Eq(STATE_INDEX.into(), index as i32), P32),
                 Box::new([]),
-                self.convention.clone(),
+                Convention {live_values, slots_used},
                 Box::new([
                     Action::Constant(P32, STATE_INDEX, index as i64),
                 ]),
