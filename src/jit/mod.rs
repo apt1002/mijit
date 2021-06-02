@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 use crate::util::{AsUsize};
 use super::{code, optimizer};
 use super::target::{Label, Lowerer, Target, STATE_INDEX};
-use code::{Action, TestOp, Machine, Precision, Global, Value, IntoValue};
+use code::{Action, TestOp, Machine, Precision, Global, Value, IntoValue, FAST_VALUES};
 use Precision::*;
 
 /**
@@ -26,8 +26,9 @@ pub struct Convention {
     /** The values that are live on entry, including `discriminant`. */
     pub live_values: Vec<Value>,
     /**
-     * The number of spill [`Slot`]s used by the Convention (not including the
-     * global `Slot`s).
+     * The number of spill [`Slot`]s used by the Convention.
+     *
+     * [`Slot`]: code::Slot
      */
     pub slots_used: usize,
 }
@@ -47,9 +48,9 @@ array_index! {
  */
 struct Relatives {
     /** The fetch parent. `None` means the least specialization. */
-    pub fetch_parent: Option<Specialization>,
+    pub _fetch_parent: Option<Specialization>,
     /** The retire parent. `None` means the least specialization. */
-    pub retire_parent: Option<Specialization>,
+    pub _retire_parent: Option<Specialization>,
     /** The fetch children. */
     pub fetch_children: Vec<Specialization>,
     /** The retire children. */
@@ -59,9 +60,9 @@ struct Relatives {
 /** Tracks the code compiled for a [`Specialization`]. */
 struct Compiled {
     /** The test which must pass in order to execute `fetch`. */
-    pub guard: (TestOp, Precision),
+    pub _guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
-    pub fetch_code: Box<[Action]>,
+    pub _fetch_code: Box<[Action]>,
     /**
      * The address just after `fetch_code`.
      * Retire children jump here.
@@ -78,7 +79,7 @@ struct Compiled {
      */
     pub retire_label: Label,
     /** The retire code that was compiled for this specialization. */
-    pub retire_code: Box<[Action]>,
+    pub _retire_code: Box<[Action]>,
 }
 
 /**
@@ -134,8 +135,8 @@ impl Internals {
             self.specializations[parent.as_usize()].0.retire_children.push(this);
         }
         let relatives = Relatives {
-            fetch_parent: fetch_parent,
-            retire_parent: retire_parent,
+            _fetch_parent: fetch_parent,
+            _retire_parent: retire_parent,
             fetch_children: Vec::new(),
             retire_children: Vec::new(),
         };
@@ -231,6 +232,8 @@ impl<T: Target> JitInner<T> {
         retire_code: Box<[Action]>,
     ) -> Specialization {
         let lo = &mut self.lowerer;
+        *lo.slots_used() =
+            if let Some(s) = fetch_parent {self.internals.convention(s).slots_used } else { 0 };
         let mut fetch_label = Label::new();
         let mut retire_label = Label::new();
         let if_fail = self.internals.retire_label(fetch_parent);
@@ -241,6 +244,7 @@ impl<T: Target> JitInner<T> {
         }
         lo.define(&mut fetch_label);
         lo.jump(&mut retire_label);
+        assert_eq!(*lo.slots_used(), convention.slots_used);
         lo.define(&mut retire_label);
         // TODO: Optimize the case where `retire_code` is empty.
         // The preceding jump should jump straight to `retire_parent`.
@@ -248,8 +252,17 @@ impl<T: Target> JitInner<T> {
             lo.lower_action(action);
         }
         lo.jump(self.internals.fetch_label(retire_parent));
+        assert_eq!(
+            *lo.slots_used(),
+            if let Some(s) = fetch_parent {self.internals.convention(s).slots_used } else { 0 }
+        );
         let compiled = Compiled {
-            guard, fetch_code, fetch_label, convention, retire_label, retire_code,
+            _guard: guard,
+            _fetch_code: fetch_code,
+            fetch_label,
+            convention,
+            retire_label,
+            _retire_code: retire_code,
         };
         self.internals.new_specialization(fetch_parent, retire_parent, compiled)
     }
@@ -311,9 +324,6 @@ pub struct Jit<M: Machine, T: Target> {
     inner: JitInner<T>,
     /** The [`Machine`]. */
     machine: M,
-    /** The [`Convention`] used in the root states. */
-    // TODO: One per state.
-    convention: Convention,
     /**
      * Numbering of all [`M::State`]s.
      *
@@ -331,20 +341,12 @@ pub struct Jit<M: Machine, T: Target> {
 impl<M: Machine, T: Target> Jit<M, T> {
     pub fn new(machine: M, target: T, code_size: usize) -> Self {
         // Construct the `JitInner`.
-        let persistent_values = machine.values();
-        let num_globals = persistent_values.iter().fold(0, |acc, &v| {
-            match v {
-                Value::Global(Global(index)) => std::cmp::max(acc, index + 1),
-                _ => panic!("Persisting non-Globals is not yet implemented"),
-            }
-        });
-        let inner = JitInner::new(target, code_size, num_globals);
+        let inner = JitInner::new(target, code_size, machine.num_globals());
 
         // Construct the Jit.
-        let convention = Convention {live_values: persistent_values, slots_used: 0};
         let states = IndexSet::new();
         let roots = Vec::new();
-        let mut jit = Jit {inner, machine, convention, states, roots};
+        let mut jit = Jit {inner, machine, states, roots};
 
         // Enumerate the reachable states in FIFO order and
         // construct the control-flow graph of the `Machine`.
@@ -353,7 +355,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
         }
         let mut done = 0;
         while let Some(old_state) = jit.states.get_index(done).cloned() {
-            let (_value_mask, cases) = jit.machine.get_code(old_state.clone());
+            let cases = jit.machine.code(old_state.clone());
             for case in cases {
                 jit.ensure_root(case.new_state.clone());
                 jit.compile(&old_state, case.condition, &case.actions, &case.new_state);
@@ -376,17 +378,29 @@ impl<M: Machine, T: Target> Jit<M, T> {
     pub fn ensure_root(&mut self, state: M::State) {
         let index = self.roots.len();
         assert_eq!(index, self.states.len());
-        if self.states.insert(state) {
+        if self.states.insert(state.clone()) {
             // Make a new root `Specialization`.
+            let mask = self.machine.liveness_mask(state);
+            let live_values: Vec<Value> = (0..FAST_VALUES.len())
+                .filter(|i| (mask & (1 << i)) != 0)
+                .map(|i| FAST_VALUES[i])
+                .chain((0..self.machine.num_globals()).map(|i| Global(i).into()))
+                .collect();
+            let slots_used = self.machine.num_slots();
+            let mut fetch_code: Vec<Action> = (0..slots_used).map(
+                |_| Action::Push(FAST_VALUES[0]) // TODO: Make one instruction.
+            ).collect();
+            fetch_code.extend(self.machine.prologue());
+            let mut retire_code = self.machine.epilogue();
+            retire_code.push(Action::DropMany(slots_used));
+            retire_code.push(Action::Constant(P32, STATE_INDEX, index as i64));
             self.roots.push(self.inner.compile_inner(
                 None,
                 None,
                 (TestOp::Eq(STATE_INDEX.into(), index as i32), P32),
-                Box::new([]),
-                self.convention.clone(),
-                Box::new([
-                    Action::Constant(P32, STATE_INDEX, index as i64),
-                ]),
+                fetch_code.into(),
+                Convention {live_values, slots_used},
+                retire_code.into(),
             ));
         }
     }
