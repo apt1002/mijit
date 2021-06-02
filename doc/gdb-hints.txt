@@ -11,6 +11,6 @@ the struct AllRegisters, and the bottom 8 words of the Beetle data
 stack:
 
     display/10i $pc
-    display/5xg $r8
+    display/2xg $r8
     display/18xw *($r8 as *const u64 + 1)
     display/8xw *(*($r8 as *const u64 + 1) as *const u64 + 5) + 0x00000000003fffe0
