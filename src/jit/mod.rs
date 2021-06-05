@@ -190,8 +190,7 @@ impl<T: Target> JitInner<T> {
             fetch_label: Label::new(),
             retire_label: Label::new(),
         };
-        // FIXME: replace "1000" by dynamically-calculated value.
-        let pool = vec![0; num_globals + 1 + 1000];
+        let pool = lowerer.pool_layout().alloc();
         JitInner {target, lowerer, internals, pool}._init()
     }
 
@@ -209,7 +208,8 @@ impl<T: Target> JitInner<T> {
     }
 
     pub fn global(&mut self, global: Global) -> &mut u64 {
-        &mut self.pool[global.0 + 1]
+        let i = self.lowerer.pool_layout().index_of_global(global);
+        &mut self.pool[i]
     }
 
     /**
@@ -279,7 +279,7 @@ impl<T: Target> JitInner<T> {
         actions: &[Action],
     ) -> Specialization {
         let fetch_code = optimizer::optimize(
-            self.lowerer.num_globals(),
+            self.lowerer.pool_layout().num_globals(),
             self.internals.convention(fetch_parent),
             self.internals.convention(retire_parent),
             actions,

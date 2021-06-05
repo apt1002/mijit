@@ -1,5 +1,5 @@
 use super::super::super::{code};
-use super::super::{STATE_INDEX, Label};
+use super::super::{STATE_INDEX, Label, PoolLayout};
 use super::{Buffer, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
 use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
@@ -10,6 +10,12 @@ use BinaryOp::*;
 use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
+
+/** The number of constants reserved in the pool. (One, the zero constant). */
+const NUM_CONSTANTS: usize = 1;
+
+/** The offset of the zero constant in the pool. */
+const POOL_ZERO: usize = 0;
 
 /** The [`Register`] used for the pool pointer. */
 const POOL: Register = R8;
@@ -96,15 +102,16 @@ impl From<code::Value> for Value {
 pub struct Lowerer<B: Buffer> {
     /** The underlying [`Assembler`]. */
     a: Assembler<B>,
-    /** The number of [`Slot`]s that persist when Mijit is not running. */
-    num_globals: usize,
+    /** The [`PoolLayout`]. */
+    layout: PoolLayout,
     /** The number of stack-allocated spill [`Slot`]s. */
     slots_used: usize,
 }
 
 impl<B: Buffer> Lowerer<B> {
     pub fn new(a: Assembler<B>, num_globals: usize) -> Self {
-        Self {a, num_globals, slots_used: 0}
+        let layout = PoolLayout::new(NUM_CONSTANTS, num_globals);
+        Self {a, layout, slots_used: 0}
     }
 
     /** Apply `callback` to the contained [`Assembler`]. */
@@ -169,12 +176,14 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Returns the base and offset of `global` in the persistent data. */
+    /** Returns the base and offset of the zero constant. */
+    fn zero_address(&self) -> (Register, i32) {
+        (POOL, (self.layout.index_of_constant(POOL_ZERO) * 8) as i32)
+    }
+
+    /** Returns the base and offset of `global`. */
     fn global_address(&self, global: Global) -> (Register, i32) {
-        assert!(global.0 < self.num_globals);
-        // TODO: Factor out pool index calculation.
-        // The layout of the pool should be defined in mod jit.
-        (POOL, ((global.0 + 1) * 8) as i32)
+        (POOL, (self.layout.index_of_global(global) * 8) as i32)
     }
 
     /** Returns the base and offset of `slot` in the stack-allocated data. */
@@ -316,7 +325,7 @@ impl<B: Buffer> Lowerer<B> {
 //-----------------------------------------------------------------------------
 
 impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
-    fn num_globals(&self) -> usize { self.num_globals }
+    fn pool_layout(&self) -> &PoolLayout { &self.layout }
 
     fn slots_used(&mut self) -> &mut usize { &mut self.slots_used }
 
@@ -492,21 +501,24 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                 });
             },
             code::BinaryOp::Lt => {
+                let zero_address = self.zero_address();
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::L, false, prec, dest, (POOL, 0));
+                    l.a.load_if(Condition::L, false, prec, dest, zero_address);
                 });
             },
             code::BinaryOp::Ult => {
+                let zero_address = self.zero_address();
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::B, false, prec, dest, (POOL, 0));
+                    l.a.load_if(Condition::B, false, prec, dest, zero_address);
                 });
             },
             code::BinaryOp::Eq => {
+                let zero_address = self.zero_address();
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::Z, false, prec, dest, (POOL, 0));
+                    l.a.load_if(Condition::Z, false, prec, dest, zero_address);
                 });
             },
             code::BinaryOp::Max => {

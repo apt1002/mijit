@@ -1,7 +1,7 @@
 use std::fmt::{Debug};
 
 use super::{code};
-use code::{Precision, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
+use code::{Precision, Global, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
 
 pub mod x86_64;
 
@@ -59,6 +59,67 @@ impl Label {
 //-----------------------------------------------------------------------------
 
 /**
+ * The allocation of words in the pool.
+ *
+ * The pool is a contiguous array of 64-bit words, rewriteable at runtime by
+ * the compiled code, providing storage to a virtual machine instance.
+ *
+ * A pool contains constant values defined by the [`Target`], [`Global`]s, and
+ * profiling counters.
+ */
+pub struct PoolLayout {
+    /** The number of constants defined by the [`Target`]. */
+    num_constants: usize,
+    /** The number of [`Global`]s used by the [`code::Machine`]. */
+    num_globals: usize,
+}
+
+impl PoolLayout {
+    /** Allocate a new `PoolLayout`. */
+    pub fn new(num_constants: usize, num_globals: usize) -> Self {
+        PoolLayout {num_constants, num_globals}
+    }
+
+    /** The number of constants needed by the [`Target`]. */
+    pub fn num_constants(&self) -> usize { self.num_constants }
+
+    /**
+     * The number of [`Global`]s that persist when Mijit is not running.
+     * This is the value passed to [`Target::lowerer()`].
+     */
+    pub fn num_globals(&self) -> usize { self.num_globals }
+
+    /**
+     * Allocate storage for a pool with this layout.
+     *
+     * No storage is allocated for profiling counters, which should be
+     * created on demand by appending them to the `Vec`.
+     */
+    pub fn alloc(&self) -> Vec<u64> {
+        vec![0; self.num_constants + self.num_globals]
+    }
+
+    /** The position in the pool of the constant with the given index. */
+    pub fn index_of_constant(&self, index: usize) -> usize {
+        assert!(index < self.num_constants);
+        index
+    }
+
+    /** The position in the pool of the given [`Global`]. */
+    pub fn index_of_global(&self, global: Global) -> usize {
+        assert!(global.0 < self.num_globals);
+        self.num_constants + global.0
+    }
+
+    /** The position in the pool of the counter with the given index. */
+    pub fn index_of_counter(&self, index: usize) -> usize {
+        self.num_constants + self.num_globals + index
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+/**
  * Wraps a contiguous block of executable memory, and provides methods for
  * assembling machine code into it.
  *
@@ -69,11 +130,8 @@ impl Label {
  * use [`Label`].
  */
 pub trait Lowerer: Sized {
-    /**
-     * The number of [`Slot`]s that persist when Mijit is not running.
-     * This is the value passed to [`Target::lowerer()`].
-     */
-    fn num_globals(&self) -> usize;
+    /** The [`PoolLayout`]. */
+    fn pool_layout(&self) -> &PoolLayout;
 
     /**
      * The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
