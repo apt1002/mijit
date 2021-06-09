@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 use crate::util::{AsUsize};
 use super::{code, optimizer};
 use super::target::{Label, Lowerer, Target, STATE_INDEX};
-use code::{Action, TestOp, Machine, Precision, Global, Value, IntoValue, FAST_VALUES};
+use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
 /**
@@ -208,13 +208,8 @@ impl<T: Target> JitInner<T> {
         self
     }
 
-    // TODO: Take a `Global`, not a `Value`.
-    pub fn global(&mut self, global: impl IntoValue) -> &mut u64 {
-        match global.into() {
-            // TODO: Factor out pool index calculation.
-            Value::Global(Global(index)) => &mut self.pool[index + 1],
-            _ => panic!("Not a Global"),
-        }
+    pub fn global(&mut self, global: Global) -> &mut u64 {
+        &mut self.pool[global.0 + 1]
     }
 
     /**
@@ -370,7 +365,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
         &self.states
     }
 
-    pub fn global(&mut self, global: impl IntoValue) -> &mut u64 {
+    pub fn global(&mut self, global: Global) -> &mut u64 {
         self.inner.global(global)
     }
 
@@ -442,6 +437,8 @@ pub mod factorial;
 pub mod tests {
     use super::*;
 
+    use std::convert::{TryFrom};
+
     use super::super::target::{native};
 
     /** An amount of code space suitable for running tests. */
@@ -463,9 +460,9 @@ pub mod tests {
         assert_eq!(jit.states(), &expected);
 
         // Run some "code".
-        *jit.global(reg::N) = 5;
+        *jit.global(Global::try_from(reg::N).unwrap()) = 5;
         let (mut jit, final_state) = jit.execute(&Start).expect("Execute failed");
         assert_eq!(final_state, Return);
-        assert_eq!(*jit.global(reg::RESULT), 120);
+        assert_eq!(*jit.global(Global::try_from(reg::RESULT).unwrap()), 120);
     }
 }

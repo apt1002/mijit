@@ -18,6 +18,7 @@
  * Booleans results are returned as `0` or `-1`.
  */
 
+use std::convert::{TryFrom};
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 
@@ -133,6 +134,27 @@ impl From<Slot> for Value {
 impl From<Register> for Value {
     fn from(v: Register) -> Self {
         Value::Register(v)
+    }
+}
+
+impl TryFrom<Value> for Global {
+    type Error = Value;
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        if let Value::Global(g) = v { Ok(g) } else { Err(v) }
+    }
+}
+
+impl TryFrom<Value> for Slot {
+    type Error = Value;
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        if let Value::Slot(s) = v { Ok(s) } else { Err(v) }
+    }
+}
+
+impl TryFrom<Value> for Register {
+    type Error = Value;
+    fn try_from(v: Value) -> Result<Self, Self::Error> {
+        if let Value::Register(r) = v { Ok(r) } else { Err(v) }
     }
 }
 
