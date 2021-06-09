@@ -192,7 +192,7 @@ pub trait Lowerer: Sized {
     /** Define `label`, which must not previously have been defined. */
     fn define(&mut self, label: &mut Label) {
         assert!(!label.is_defined());
-        let _ = self.patch(label);
+        let _unused_and_undefined = self.patch(label);
     }
 
     /** Assemble an unconditional jump to `label`. */
