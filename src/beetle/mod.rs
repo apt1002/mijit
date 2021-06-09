@@ -1,3 +1,4 @@
+use std::convert::{TryFrom};
 use std::num::{Wrapping};
 use memoffset::{offset_of};
 
@@ -77,11 +78,11 @@ pub enum State {
 //-----------------------------------------------------------------------------
 
 /** The suggested size of the Beetle memory, in cells. */
-pub const MEMORY_CELLS: usize = 1 << 20;
+pub const MEMORY_CELLS: u32 = 1 << 20;
 /** The suggested size of the Beetle data stack, in cells. */
-pub const DATA_CELLS: usize = 1 << 18;
+pub const DATA_CELLS: u32 = 1 << 18;
 /** The suggested size of the Beetle return stack, in cells. */
-pub const RETURN_CELLS: usize = 1 << 18;
+pub const RETURN_CELLS: u32 = 1 << 18;
 
 pub struct VM<T: Target> {
     /** The compiled code, registers, and other compiler state. */
@@ -107,32 +108,27 @@ impl<T: Target> VM<T> {
      */
     pub fn new(
         target: T,
-        memory_cells: usize,
-        data_cells: usize,
-        return_cells: usize,
+        memory_cells: u32,
+        data_cells: u32,
+        return_cells: u32,
     ) -> Self {
-        assert!(memory_cells <= u32::MAX as usize);
-        assert!(data_cells <= u32::MAX as usize);
-        assert!(return_cells <= u32::MAX as usize);
         let mut vm = VM {
             jit: jit::Jit::new(Machine, target, 1 << 20), // FIXME: Auto-grow code.
             state: AllRegisters::default(),
-            memory: (0..memory_cells).map(|_| 0).collect(),
-            free_cells: memory_cells as u32,
+            memory: vec![0; memory_cells as usize],
+            free_cells: memory_cells,
             halt_addr: 0,
         };
         // Allocate the data stack.
-        let s_base = vm.allocate(data_cells as u32);
-        let sp = s_base + cell_bytes(data_cells as i64) as u32;
+        let sp = vm.allocate(data_cells).1;
         vm.registers_mut().s0 = sp;
         vm.registers_mut().sp = sp;
         // Allocate the return stack.
-        let r_base = vm.allocate(return_cells as u32);
-        let rp = r_base + cell_bytes(return_cells as i64) as u32;
+        let rp = vm.allocate(return_cells).1;
         vm.registers_mut().r0 = rp;
         vm.registers_mut().rp = rp;
         // Allocate a word to hold a HALT instruction.
-        vm.halt_addr = vm.allocate(1);
+        vm.halt_addr = vm.allocate(1).0;
         vm.store(vm.halt_addr, 0x5F);
         vm
     }
@@ -144,13 +140,19 @@ impl<T: Target> VM<T> {
     pub fn registers_mut(&mut self) -> &mut Registers { &mut self.state.public }
 
     /**
-     * Allocate `cells` cells and return a Beetle pointer to them.
+     * Allocate `cells` cells and return a (start, end) Beetle pointer pair.
      * Allocation starts at the top of memory and is permanent.
      */
-    pub fn allocate(&mut self, cells: u32) -> u32 {
+    pub fn allocate(&mut self, cells: u32) -> (u32, u32) {
         assert!(cells <= self.free_cells);
+        let end = u32::try_from(
+            cell_bytes(i64::from(self.free_cells))
+        ).expect("Address out of range");
         self.free_cells -= cells;
-        cell_bytes(i64::from(self.free_cells)) as u32
+        let start = u32::try_from(
+            cell_bytes(i64::from(self.free_cells))
+        ).expect("Address out of range");
+        (start, end)
     }
 
     /**
