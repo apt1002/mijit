@@ -270,8 +270,8 @@ impl<B: Buffer> Lowerer<B> {
         let dest = dest.into();
         let src1 = src1.into();
         let src2 = src2.into();
-        let is_src1_a_reg = match src1 { Value::Register(_) => true, _ => false };
-        if !is_src1_a_reg {
+        #[allow(clippy::if_same_then_else)]
+        if !matches!(src1, Value::Register(_)) {
             // We get better code if `src1` is a Register, so swap with `src2`.
             self.asymmetric_binary(dest, src2, src1, callback);
         } else if src2 == Value::Register(dest) {
