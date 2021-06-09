@@ -51,7 +51,7 @@ impl Label {
     }
 
     /** Returns and forgets all the instructions that jump to `self`. */
-    pub fn drain<'a>(&'a mut self) -> impl 'a + Iterator<Item=Patch> {
+    pub fn drain(&mut self) -> impl Iterator<Item=Patch> + '_ {
         self.patches.drain(..)
     }
 }
