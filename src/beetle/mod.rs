@@ -257,7 +257,7 @@ const AM_MEMORY: code::AliasMask = code::AliasMask(0x1);
 /** Beetle's registers are not in Beetle's memory, so we use a different `AliasMask`. */
 const AM_REGISTER: code::AliasMask = code::AliasMask(0x2);
 
-fn opcode(c: u8) -> TestOp { TestOp::Bits(OPCODE.into(), 0xFF, i32::from(c)) }
+fn opcode(c: u8) -> TestOp { TestOp::Bits(OPCODE, 0xFF, i32::from(c)) }
 fn lt(v: impl IntoValue, c: i32) -> TestOp { TestOp::Lt(v.into(), c) }
 fn ge(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ge(v.into(), c) }
 fn ult(v: impl IntoValue, c: i32) -> TestOp { TestOp::Ult(v.into(), c) }
