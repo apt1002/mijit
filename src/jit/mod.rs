@@ -149,6 +149,11 @@ impl Internals {
         &self.specializations[s.as_usize()].1.convention
     }
 
+    /** Returns the `slots_used` of `s`, or of the least specialization. */
+    fn slots_used(&self, s: Option<Specialization>) -> usize {
+        s.map_or(0, |s| self.convention(s).slots_used)
+    }
+
     /** Returns the `fetch_label` of `s`, or of the least specialization. */
     fn fetch_label(&mut self, s: Option<Specialization>) -> &mut Label {
         match s {
@@ -225,8 +230,7 @@ impl<T: Target> JitInner<T> {
         retire_code: Box<[Action]>,
     ) -> Specialization {
         let lo = &mut self.lowerer;
-        *lo.slots_used() =
-            if let Some(s) = fetch_parent {self.internals.convention(s).slots_used } else { 0 };
+        *lo.slots_used() = self.internals.slots_used(fetch_parent);
         let mut fetch_label = Label::new();
         let mut retire_label = Label::new();
         let if_fail = self.internals.retire_label(fetch_parent);
@@ -245,10 +249,7 @@ impl<T: Target> JitInner<T> {
             lo.lower_action(action);
         }
         lo.jump(self.internals.fetch_label(retire_parent));
-        assert_eq!(
-            *lo.slots_used(),
-            if let Some(s) = fetch_parent {self.internals.convention(s).slots_used } else { 0 }
-        );
+        assert_eq!(*lo.slots_used(), self.internals.slots_used(retire_parent));
         let compiled = Compiled {
             _guard: guard,
             _fetch_code: fetch_code,
