@@ -248,11 +248,11 @@ impl<'a> CodeGen<'a> {
                 Absent => panic!("Absent instruction"),
                 Spill(out) => {
                     assert!(spills[out].is_none()); // Not yet spilled.
-                    let reg = self.outs[out].reg.expect("Spilled a non-register");
-                    assert!(regs[reg] == Some(out)); // Not yet overwritten.
+                    let r = self.outs[out].reg.expect("Spilled a non-register");
+                    assert!(regs[r] == Some(out)); // Not yet overwritten.
                     spills[out] = Some(Slot(slots_used).into());
                     slots_used += 1;
-                    Action::Push(reg.into())
+                    Action::Push(r.into())
                 },
                 Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
@@ -263,9 +263,9 @@ impl<'a> CodeGen<'a> {
                         }
                     }));
                     outs.extend(df.outs(n).map(|out| {
-                        let reg = self.outs[out].reg.expect("Wrote a non-register");
-                        regs[reg] = Some(out);
-                        reg
+                        let r = self.outs[out].reg.expect("Wrote a non-register");
+                        regs[r] = Some(out);
+                        r
                     }));
                     Op::to_action(df.op(n), &outs, &ins)
                 },
