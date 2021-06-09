@@ -59,10 +59,9 @@ impl Label {
 //-----------------------------------------------------------------------------
 
 /**
- * The allocation of words in the pool.
- *
- * The pool is a contiguous array of 64-bit words, rewriteable at runtime by
- * the compiled code, providing storage to a virtual machine instance.
+ * The allocation of words in the pool. The pool is a contiguous array of
+ * 64-bit words, rewriteable at runtime by the compiled code, providing storage
+ * to a virtual machine instance.
  *
  * A pool contains constant values defined by the [`Target`], [`Global`]s, and
  * profiling counters.
@@ -244,14 +243,16 @@ pub trait Target {
     /** The number of registers available for allocation. */
     const NUM_REGISTERS: usize;
 
+    /** Returns some constants to copy into the per-VM pool of memory. */
+    fn constants(&self) -> &[u64];
+
     /**
      * Construct a [`Lowerer`] for this `Target`.
-     *  - `num_globals` - The number of `Slot`s that persist when Mijit is not
-     *    running.
+     *  - `pool_layout` - The layout of the per-VM pool of memory.
      *  - `code_size` - The amount of memory to allocate for executable code.
      */
     // TODO: Remove `code_size` and make the lowerer auto-extend its buffer.
-    fn lowerer(&self, num_globals: usize, code_size: usize) -> Self::Lowerer;
+    fn lowerer(&self, pool_layout: PoolLayout, code_size: usize) -> Self::Lowerer;
 
     /**
      * Make the memory backing `lowerer` executable, pass it to `callback`,
@@ -259,7 +260,7 @@ pub trait Target {
      *
      * If we can't change the buffer permissions, you get an [`Err`] and the
      * `lowerer` is gone. `T` can itself be a [`Result`] if necessary to
-     * represent errors returned by `callback`
+     * represent errors returned by `callback`.
      */
     fn execute<T>(
         &self,

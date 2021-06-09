@@ -2,7 +2,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Label, Lowerer, Target, STATE_INDEX};
+use super::target::{Label, PoolLayout, Lowerer, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
@@ -184,13 +184,21 @@ pub struct JitInner<T: Target> {
 
 impl<T: Target> JitInner<T> {
     pub fn new(target: T, code_size: usize, num_globals: usize) -> Self {
-        let lowerer = target.lowerer(num_globals, code_size);
+        // Construct the pool.
+        let constants = target.constants();
+        let layout = PoolLayout::new(constants.len(), num_globals);
+        let mut pool = layout.alloc();
+        for (i, &c) in constants.iter().enumerate() {
+            pool[layout.index_of_constant(i)] = c;
+        }
+        // Construct the Lowerer.
+        let lowerer = target.lowerer(layout, code_size);
+        // Construct Self.
         let internals = Internals {
             specializations: Vec::new(),
             fetch_label: Label::new(),
             retire_label: Label::new(),
         };
-        let pool = lowerer.pool_layout().alloc();
         JitInner {target, lowerer, internals, pool}._init()
     }
 

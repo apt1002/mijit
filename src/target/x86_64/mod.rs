@@ -39,9 +39,13 @@ impl super::Target for Target {
 
     const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
-    fn lowerer(&self, num_globals: usize, code_size: usize) -> Self::Lowerer {
+    fn constants(&self) -> &[u64] {
+        &[0]
+    }
+
+    fn lowerer(&self, pool_layout: super::PoolLayout, code_size: usize) -> Self::Lowerer {
         let buffer = Mmap::new(code_size).expect("Allocation failed");
-        Lowerer::new(Assembler::new(buffer), num_globals)
+        Lowerer::new(Assembler::new(buffer), pool_layout)
     }
 
     fn execute<T>(

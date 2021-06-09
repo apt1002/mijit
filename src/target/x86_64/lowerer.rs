@@ -11,9 +11,6 @@ use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
 
-/** The number of constants reserved in the pool. (One, the zero constant). */
-const NUM_CONSTANTS: usize = 1;
-
 /** The offset of the zero constant in the pool. */
 const POOL_ZERO: usize = 0;
 
@@ -109,8 +106,7 @@ pub struct Lowerer<B: Buffer> {
 }
 
 impl<B: Buffer> Lowerer<B> {
-    pub fn new(a: Assembler<B>, num_globals: usize) -> Self {
-        let layout = PoolLayout::new(NUM_CONSTANTS, num_globals);
+    pub fn new(a: Assembler<B>, layout: PoolLayout) -> Self {
         Self {a, layout, slots_used: 0}
     }
 
@@ -627,7 +623,8 @@ pub mod tests {
     /** Test that we can patch jumps and calls. */
     #[test]
     fn patch() {
-        let mut lo = Lowerer::new(new_assembler(), 0);
+        let layout = PoolLayout::new(0, 0);
+        let mut lo = Lowerer::new(new_assembler(), layout);
         let mut label = Label::new();
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
