@@ -287,7 +287,7 @@ impl<'a> CodeGen<'a> {
         // Create spill slots if necessary to match `after`.
         while slots_used < self.after.slots_used {
             let dest = Value::from(Slot(slots_used));
-            let src = dest_to_src.remove(&dest).unwrap_or(REGISTERS[0].into() /* Arbitrary */);
+            let src = dest_to_src.remove(&dest).unwrap_or_else(|| REGISTERS[0].into() /* Arbitrary */);
             ret.push(Action::Push(src));
             slots_used += 1;
         }
