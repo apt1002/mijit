@@ -513,7 +513,8 @@ impl code::Machine for Machine {
         let loop_step = 1 << 15;
         let loop_new = 1 << 16;
         let loop_old = 1 << 17;
-        (ep | sp | rp | memory) | match state {
+        #[allow(clippy::match_same_arms)]
+        let ret = (ep | sp | rp | memory) | match state {
             State::Root => a,
             State::Next => 0,
             State::Pick => a | stack0,
@@ -535,7 +536,8 @@ impl code::Machine for Machine {
             State::Ploopi => a | loop_step | loop_new | loop_old,
             State::Halt => a,
             State::Dispatch => a | opcode,
-        }
+        };
+        ret
     }
 
     fn prologue(&self) -> Vec<Action> {
