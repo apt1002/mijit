@@ -27,4 +27,5 @@ cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::enum_glob_use \
   -A clippy::doc_markdown \
   -A clippy::unused_self \
+  -A clippy::verbose_bit_mask \
   "$@"
