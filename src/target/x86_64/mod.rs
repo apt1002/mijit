@@ -5,7 +5,7 @@ pub use assembler::{Assembler, Precision, Register, BinaryOp, ShiftOp, Condition
 use Register::*;
 
 mod lowerer;
-pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};
+pub use lowerer::{POOL_CONSTANTS, Lowerer, ALLOCATABLE_REGISTERS};
 
 /**
  * In the System V amd64 calling convention, these registers must be preserved
@@ -40,12 +40,16 @@ impl super::Target for Target {
     const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
     fn constants(&self) -> &[u64] {
-        &[0]
+        &POOL_CONSTANTS
     }
 
-    fn lowerer(&self, pool_layout: super::PoolLayout, code_size: usize) -> Self::Lowerer {
+    fn lowerer(&self, pool: super::Pool, code_size: usize) -> Self::Lowerer {
+        assert_eq!(pool.num_constants(), POOL_CONSTANTS.len());
+        for (i, &c) in POOL_CONSTANTS.iter().enumerate() {
+            assert_eq!(c, pool[i]);
+        }
         let buffer = Mmap::new(code_size).expect("Allocation failed");
-        Lowerer::new(Assembler::new(buffer), pool_layout)
+        Lowerer::new(Assembler::new(buffer), pool)
     }
 
     fn execute<T>(

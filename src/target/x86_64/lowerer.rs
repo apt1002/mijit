@@ -1,5 +1,5 @@
 use super::super::super::{code};
-use super::super::{STATE_INDEX, Label, PoolLayout};
+use super::super::{STATE_INDEX, Label, Pool};
 use super::{Buffer, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
 use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
@@ -10,6 +10,9 @@ use BinaryOp::*;
 use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
+
+/** The constants that [`Lowerer`] requires to be in the [`Pool`]. */
+pub const POOL_CONSTANTS: &[u64] = &[0];
 
 /** The offset of the zero constant in the pool. */
 const POOL_ZERO: usize = 0;
@@ -99,15 +102,15 @@ impl From<code::Value> for Value {
 pub struct Lowerer<B: Buffer> {
     /** The underlying [`Assembler`]. */
     a: Assembler<B>,
-    /** The [`PoolLayout`]. */
-    layout: PoolLayout,
+    /** The [`Pool`]. */
+    pool: Pool,
     /** The number of stack-allocated spill [`Slot`]s. */
     slots_used: usize,
 }
 
 impl<B: Buffer> Lowerer<B> {
-    pub fn new(a: Assembler<B>, layout: PoolLayout) -> Self {
-        Self {a, layout, slots_used: 0}
+    pub fn new(a: Assembler<B>, pool: Pool) -> Self {
+        Self {a, pool, slots_used: 0}
     }
 
     /** Apply `callback` to the contained [`Assembler`]. */
@@ -174,12 +177,12 @@ impl<B: Buffer> Lowerer<B> {
 
     /** Returns the base and offset of the zero constant. */
     fn zero_address(&self) -> (Register, i32) {
-        (POOL, (self.layout.index_of_constant(POOL_ZERO) * 8) as i32)
+        (POOL, (self.pool.index_of_constant(POOL_ZERO) * 8) as i32)
     }
 
     /** Returns the base and offset of `global`. */
     fn global_address(&self, global: Global) -> (Register, i32) {
-        (POOL, (self.layout.index_of_global(global) * 8) as i32)
+        (POOL, (self.pool.index_of_global(global) * 8) as i32)
     }
 
     /** Returns the base and offset of `slot` in the stack-allocated data. */
@@ -321,7 +324,9 @@ impl<B: Buffer> Lowerer<B> {
 //-----------------------------------------------------------------------------
 
 impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
-    fn pool_layout(&self) -> &PoolLayout { &self.layout }
+    fn pool(&self) -> &Pool { &self.pool }
+
+    fn pool_mut(&mut self) -> &mut Pool { &mut self.pool }
 
     fn slots_used(&mut self) -> &mut usize { &mut self.slots_used }
 
@@ -623,8 +628,8 @@ pub mod tests {
     /** Test that we can patch jumps and calls. */
     #[test]
     fn patch() {
-        let layout = PoolLayout::new(0, 0);
-        let mut lo = Lowerer::new(new_assembler(), layout);
+        let pool = Pool::new(&super::super::Target, 0);
+        let mut lo = Lowerer::new(new_assembler(), pool);
         let mut label = Label::new();
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
@@ -653,5 +658,11 @@ pub mod tests {
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
+    }
+
+    #[test]
+    fn constants() {
+        assert_eq!(POOL_CONSTANTS[POOL_ZERO], 0);
+        assert_eq!(POOL_CONSTANTS.len(), 1);
     }
 }

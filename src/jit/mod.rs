@@ -2,7 +2,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Label, PoolLayout, Lowerer, Target, STATE_INDEX};
+use super::target::{Label, Pool, Lowerer, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
@@ -178,28 +178,18 @@ pub struct JitInner<T: Target> {
     lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
     internals: Internals,
-    /** The pool of mutable storage locations. */
-    pool: Vec<u64>,
 }
 
 impl<T: Target> JitInner<T> {
     pub fn new(target: T, code_size: usize, num_globals: usize) -> Self {
-        // Construct the pool.
-        let constants = target.constants();
-        let layout = PoolLayout::new(constants.len(), num_globals);
-        let mut pool = layout.alloc();
-        for (i, &c) in constants.iter().enumerate() {
-            pool[layout.index_of_constant(i)] = c;
-        }
-        // Construct the Lowerer.
-        let lowerer = target.lowerer(layout, code_size);
-        // Construct Self.
+        let pool = Pool::new(&target, num_globals);
+        let lowerer = target.lowerer(pool, code_size);
         let internals = Internals {
             specializations: Vec::new(),
             fetch_label: Label::new(),
             retire_label: Label::new(),
         };
-        JitInner {target, lowerer, internals, pool}._init()
+        JitInner {target, lowerer, internals}._init()
     }
 
     fn _init(mut self) -> Self {
@@ -216,8 +206,8 @@ impl<T: Target> JitInner<T> {
     }
 
     pub fn global(&mut self, global: Global) -> &mut u64 {
-        let i = self.lowerer.pool_layout().index_of_global(global);
-        &mut self.pool[i]
+        let i = self.lowerer.pool().index_of_global(global);
+        &mut self.lowerer.pool_mut()[i]
     }
 
     /**
@@ -287,7 +277,7 @@ impl<T: Target> JitInner<T> {
         actions: &[Action],
     ) -> Specialization {
         let fetch_code = optimizer::optimize(
-            self.lowerer.pool_layout().num_globals(),
+            self.lowerer.pool().num_globals(),
             self.internals.convention(fetch_parent),
             self.internals.convention(retire_parent),
             actions,
@@ -304,11 +294,15 @@ impl<T: Target> JitInner<T> {
 
     /**
      * Call the compiled code, passing the pool and `argument`.
-     * - bytes - the compiled code.
+     *
+     * # Safety
+     *
+     * This will crash if the code is compiled for the wrong [`Target`] or if
+     * the code returned by the [`Machine`] is invalid.
      */
-    pub fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
+    pub unsafe fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
         // FIXME: assert we are on x86_64 at compile time.
-        let pool = self.pool.as_mut_ptr();
+        let pool = self.lowerer.pool_mut().as_mut_ptr();
         let (lowerer, ret) = self.target.execute(self.lowerer, |bytes| {
             let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
             // Here is a good place to set a gdb breakpoint.
@@ -427,7 +421,15 @@ impl<M: Machine, T: Target> Jit<M, T> {
         )
     }
 
-    pub fn execute(mut self, state: &M::State) -> std::io::Result<(Self, M::State)> {
+    /**
+     * Call the compiled code, starting in `state`.
+     *
+     * # Safety
+     *
+     * This will crash if the code is compiled for the wrong [`Target`] or if
+     * the code returned by the [`Machine`] is invalid.
+     */
+    pub unsafe fn execute(mut self, state: &M::State) -> std::io::Result<(Self, M::State)> {
         let index = self.states.get_index_of(state).expect("invalid state");
         let (inner, new_index) = self.inner.execute(index)?;
         self.inner = inner;
@@ -469,7 +471,9 @@ pub mod tests {
 
         // Run some "code".
         *jit.global(Global::try_from(reg::N).unwrap()) = 5;
-        let (mut jit, final_state) = jit.execute(&Start).expect("Execute failed");
+        let (mut jit, final_state) = unsafe {
+            jit.execute(&Start).expect("Execute failed")
+        };
         assert_eq!(final_state, Return);
         assert_eq!(*jit.global(Global::try_from(reg::RESULT).unwrap()), 120);
     }

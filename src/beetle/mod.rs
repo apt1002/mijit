@@ -201,8 +201,14 @@ impl<T: Target> VM<T> {
         item
     }
 
-    /** Run the code at address `ep`. */
-    pub fn run(mut self, ep: u32) -> Self {
+    /**
+     * Run the code at address `ep`.
+     *
+     * # Safety
+     *
+     * This will crash if the code is compiled for the wrong [`Target`].
+     */
+    pub unsafe fn run(mut self, ep: u32) -> Self {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
         self.state.memory = self.memory.as_mut_ptr() as u64;
@@ -1462,7 +1468,7 @@ pub mod tests {
         vm.push(3);
         vm.push(5);
         vm.rpush(vm.halt_addr);
-        vm = vm.run(0);
+        vm = unsafe { vm.run(0) };
         let result = vm.pop();
         assert_eq!(vm.registers().s0, vm.registers().sp);
         assert_eq!(vm.registers().r0, vm.registers().rp);

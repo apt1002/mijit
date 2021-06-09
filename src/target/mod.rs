@@ -59,24 +59,29 @@ impl Label {
 //-----------------------------------------------------------------------------
 
 /**
- * The allocation of words in the pool. The pool is a contiguous array of
- * 64-bit words, rewriteable at runtime by the compiled code, providing storage
- * to a virtual machine instance.
+ * A contiguous array of 64-bit words, rewriteable at runtime by the compiled
+ * code, providing storage to a virtual machine instance.
  *
  * A pool contains constant values defined by the [`Target`], [`Global`]s, and
  * profiling counters.
  */
-pub struct PoolLayout {
+pub struct Pool {
     /** The number of constants defined by the [`Target`]. */
     num_constants: usize,
     /** The number of [`Global`]s used by the [`code::Machine`]. */
     num_globals: usize,
+    /** The words. */
+    pool: Vec<u64>,
 }
 
-impl PoolLayout {
-    /** Allocate a new `PoolLayout`. */
-    pub fn new(num_constants: usize, num_globals: usize) -> Self {
-        PoolLayout {num_constants, num_globals}
+impl Pool {
+    /** Allocate a new `Pool`. */
+    pub fn new(target: &impl Target, num_globals: usize) -> Self {
+        let constants = target.constants();
+        let num_constants = constants.len();
+        let mut pool = vec![0; num_constants + num_globals];
+        pool[..num_constants].copy_from_slice(constants);
+        Pool {num_constants, num_globals, pool}
     }
 
     /** The number of constants needed by the [`Target`]. */
@@ -88,15 +93,8 @@ impl PoolLayout {
      */
     pub fn num_globals(&self) -> usize { self.num_globals }
 
-    /**
-     * Allocate storage for a pool with this layout.
-     *
-     * No storage is allocated for profiling counters, which should be
-     * created on demand by appending them to the `Vec`.
-     */
-    pub fn alloc(&self) -> Vec<u64> {
-        vec![0; self.num_constants + self.num_globals]
-    }
+    /** Provides access to the words. */
+    pub fn as_mut_ptr(&mut self) -> *mut u64 { self.pool.as_mut_ptr() }
 
     /** The position in the pool of the constant with the given index. */
     pub fn index_of_constant(&self, index: usize) -> usize {
@@ -116,6 +114,15 @@ impl PoolLayout {
     }
 }
 
+impl std::ops::Index<usize> for Pool {
+    type Output = u64;
+    fn index(&self, index: usize) -> &Self::Output { &self.pool[index] }
+}
+
+impl std::ops::IndexMut<usize> for Pool {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output { &mut self.pool[index] }
+}
+
 //-----------------------------------------------------------------------------
 
 /**
@@ -129,8 +136,11 @@ impl PoolLayout {
  * use [`Label`].
  */
 pub trait Lowerer: Sized {
-    /** The [`PoolLayout`]. */
-    fn pool_layout(&self) -> &PoolLayout;
+    /** The [`Pool`]. */
+    fn pool(&self) -> &Pool;
+
+    /** The [`Pool`]. */
+    fn pool_mut(&mut self) -> &mut Pool;
 
     /**
      * The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
@@ -248,11 +258,11 @@ pub trait Target {
 
     /**
      * Construct a [`Lowerer`] for this `Target`.
-     *  - `pool_layout` - The layout of the per-VM pool of memory.
+     *  - `pool` - The per-VM pool of memory.
      *  - `code_size` - The amount of memory to allocate for executable code.
      */
     // TODO: Remove `code_size` and make the lowerer auto-extend its buffer.
-    fn lowerer(&self, pool_layout: PoolLayout, code_size: usize) -> Self::Lowerer;
+    fn lowerer(&self, pool: Pool, code_size: usize) -> Self::Lowerer;
 
     /**
      * Make the memory backing `lowerer` executable, pass it to `callback`,
