@@ -293,20 +293,18 @@ impl<'a> CodeGen<'a> {
         // If one is available, use it.
         // Otherwise, spill an arbitrary `Register` and use it.
         let spill_reg = REGISTERS[0]; // TODO: Pick more carefully.
-        let unused_reg: Option<Register> = all_registers().find(|&r| !is_used[r]);
-        let (temp_value, temp_replacement) = match unused_reg {
-            Some(r) => {
+        #[allow(clippy::option_if_let_else)]
+        let (temp_value, temp_replacement) =
+            if let Some(r) = all_registers().find(|&r| !is_used[r]) {
                 // We found an unused `Register`.
                 (r.into(), r.into())
-            },
-            None => {
+            } else {
                 // Spill `spill_reg` and use it.
                 let spill_slot = Slot(slots_used + self.num_globals);
                 ret.push(Action::Push(spill_reg.into()));
                 slots_used += 1;
                 (spill_reg.into(), spill_slot.into())
-            }
-        };
+            };
         let is_temp_a_dest = dest_to_src.contains_key(&temp_value);
         ret.extend(moves(dest_to_src, &temp_value).map(|(mut dest, mut src)| {
             if src == temp_value { src = temp_replacement; }
