@@ -112,14 +112,10 @@ impl<'a> CodeGen<'a> {
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
             if schedule.first_use(out).is_some() {
-                match value {
-                    Value::Register(reg) => {
-                        dirty[reg] = true;
-                        regs[reg].out = Some(out);
-                        outs[out].reg = Some(reg);
-                    },
-                    Value::Global(_) => {},
-                    Value::Slot(_) => {},
+                if let Value::Register(reg) = value {
+                    dirty[reg] = true;
+                    regs[reg].out = Some(out);
+                    outs[out].reg = Some(reg);
                 }
                 outs[out].time = 0;
             }
