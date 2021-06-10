@@ -704,7 +704,7 @@ pub mod tests {
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
 
-    use super::super::super::super::buffer::{VecU8, Mmap};
+    use super::super::super::super::buffer::{VecU8};
 
     const ALL_REGISTERS: [Register; 16] =
         [RA, RC, RD, RB, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
@@ -765,22 +765,6 @@ pub mod tests {
             }
         }
         if error { Err(observed) } else { Ok(()) }
-    }
-
-    #[test]
-    fn add5() {
-        let buffer = Mmap::new(0x1000).expect("Couldn't allocate");
-        let mut a = Assembler::new(buffer);
-        a.move_(P64, RA, RDI);
-        a.const_op(Add, P64, RA, 5);
-        a.ret();
-        let (_, result) = a.use_buffer(|b| {
-            b.execute(|bytes| {
-                let f: extern "C" fn(i32) -> i32 = unsafe {std::mem::transmute(&bytes[0])};
-                f(42)
-            })
-        }).expect("Couldn't change permissions");
-        assert_eq!(result, 42 + 5);
     }
 
     #[test]

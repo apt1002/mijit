@@ -13,14 +13,43 @@ pub mod x86_64;
 
 /**
  * The [`Register`] which holds the state index on entry and exit from Mijit.
+ * This is guaranteed to be [`REGISTERS`][[`0`]].
  */
 // TODO: Somehow hide the state index from this module, and delete this.
 pub const STATE_INDEX: code::Register = code::REGISTERS[0];
 
 //-----------------------------------------------------------------------------
 
-
 /** A [`Target`] that generates code which can be executed. */
 pub fn native() -> impl Target {
     x86_64::Target
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use code::{Register, REGISTERS, Action, BinaryOp, Precision};
+    use Precision::*;
+
+    pub const R0: Register = REGISTERS[0];
+    pub const R1: Register = REGISTERS[1];
+
+    #[test]
+    fn add5() {
+        let target = native();
+        let pool = Pool::new(0);
+        let mut lo = target.lowerer(pool, 0x1000);
+        let start = lo.here();
+        lo.lower_prologue();
+        lo.lower_action(Action::Constant(P64, R1, 5));
+        lo.lower_action(Action::Binary(BinaryOp::Add, P64, R0, R0.into(), R1.into()));
+        lo.lower_epilogue();
+        let (_lo, result) = lo.execute(&start, |f, pool| {
+            f(pool.as_mut().as_mut_ptr(), Word {u: 42})
+        }).expect("Couldn't change permissions");
+        assert_eq!(result, Word {u: 42 + 5});
+    }
 }
