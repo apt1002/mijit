@@ -22,7 +22,11 @@ pub const STATE_INDEX: code::Register = code::REGISTERS[0];
 
 /** A [`Target`] that generates code which can be executed. */
 pub fn native() -> impl Target {
-    x86_64::Target
+    if cfg!(target_arch="x86_64") {
+        x86_64::Target
+    } else {
+        panic!("FIXME: Unknown target");
+    }
 }
 
 //-----------------------------------------------------------------------------
