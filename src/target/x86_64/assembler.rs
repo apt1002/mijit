@@ -16,8 +16,7 @@ use super::{Buffer, CALLER_SAVES};
 
 /**
  * All x86_64 registers that can be used interchangeably in our chosen subset
- * of x86_64. `SP` and `R12` cannot be used in the `rm` field of a ModR/M byte,
- * (assembled by `Assembler.load_op()`, for example), so they are excluded.
+ * of x86_64.
  *
  * All register names include a leading `R`, and omit a trailing `X`. This is
  * not intended to imply anything about the operand width, which is specified
@@ -78,6 +77,7 @@ impl Register {
  * With P32, the arithmetic is performed with 32-bit precision, and written
  * into the bottom 32 bits of the destination. The top 32 bits are 0.
  */
+// TODO: Make portable and move to `mod target`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum Precision {
