@@ -1,3 +1,4 @@
+use std::ops::{Index, IndexMut};
 use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
@@ -33,6 +34,20 @@ pub struct Convention {
     pub slots_used: usize,
 }
 
+/**
+ * The type of the generated code.
+ *  - `current_index` - the index of the current `M::State` in `states`.
+ * Returns:
+ *  - `new_index` - updated `current_index`.
+ */
+type RunFn = extern "C" fn(
+    /* pool */ *mut u64,
+    /* current_index */ usize,
+) -> /* new_index */ usize;
+
+//-----------------------------------------------------------------------------
+
+// Specialization
 array_index! {
     /** Identifies a specialization of a `Jit`. */
     #[derive(Copy, Clone, Hash, PartialEq, Eq)]
@@ -82,18 +97,12 @@ struct Compiled {
     pub _retire_code: Box<[Action]>,
 }
 
-/**
- * The type of the generated code.
- *  - `current_index` - the index of the current `M::State` in `states`.
- * Returns:
- *  - `new_index` - updated `current_index`.
- */
-type RunFn = extern "C" fn(
-    /* pool */ *mut u64,
-    /* current_index */ usize,
-) -> /* new_index */ usize;
-
 //-----------------------------------------------------------------------------
+
+struct SpecializationInfo {
+    pub relatives: Relatives,
+    pub compiled: Compiled,
+}
 
 /**
  * This only exists to keep the borrow checker happy.
@@ -104,7 +113,7 @@ struct Internals {
      * The specializations in the order they were compiled, excluding the
      * least specialization. Indexed by [`Specialization`].
      */
-    specializations: Vec<(Relatives, Compiled)>,
+    specializations: Vec<SpecializationInfo>,
     /**
      * Reached when a root specialization doesn't know what to do.
      * Can be viewed as the `fetch_label` of the least specialization.
@@ -129,10 +138,10 @@ impl Internals {
     ) -> Specialization {
         let this = Specialization::new(self.specializations.len()).unwrap();
         if let Some(parent) = fetch_parent {
-            self.specializations[parent.as_usize()].0.fetch_children.push(this);
+            self[parent].relatives.fetch_children.push(this);
         }
         if let Some(parent) = retire_parent {
-            self.specializations[parent.as_usize()].0.retire_children.push(this);
+            self[parent].relatives.retire_children.push(this);
         }
         let relatives = Relatives {
             _fetch_parent: fetch_parent,
@@ -140,25 +149,20 @@ impl Internals {
             fetch_children: Vec::new(),
             retire_children: Vec::new(),
         };
-        self.specializations.push((relatives, compiled));
+        self.specializations.push(SpecializationInfo {relatives, compiled});
         this
-    }
-
-    /** Returns the `convention` of `s`. */
-    fn convention(&self, s: Specialization) -> &Convention {
-        &self.specializations[s.as_usize()].1.convention
     }
 
     /** Returns the `slots_used` of `s`, or of the least specialization. */
     fn slots_used(&self, s: Option<Specialization>) -> usize {
-        s.map_or(0, |s| self.convention(s).slots_used)
+        s.map_or(0, |s| self[s].compiled.convention.slots_used)
     }
 
     /** Returns the `fetch_label` of `s`, or of the least specialization. */
     fn fetch_label(&mut self, s: Option<Specialization>) -> &mut Label {
         match s {
             None => &mut self.fetch_label,
-            Some(s) => &mut self.specializations[s.as_usize()].1.fetch_label,
+            Some(s) => &mut self[s].compiled.fetch_label,
         }
     }
 
@@ -166,10 +170,26 @@ impl Internals {
     fn retire_label(&mut self, s: Option<Specialization>) -> &mut Label {
         match s {
             None => &mut self.retire_label,
-            Some(s) => &mut self.specializations[s.as_usize()].1.retire_label,
+            Some(s) => &mut self[s].compiled.retire_label,
         }
     }
 }
+
+impl Index<Specialization> for Internals {
+    type Output = SpecializationInfo;
+
+    fn index(&self, s: Specialization) -> &Self::Output {
+        &self.specializations[s.as_usize()]
+    }
+}
+
+impl IndexMut<Specialization> for Internals {
+    fn index_mut(&mut self, s: Specialization) -> &mut Self::Output {
+        &mut self.specializations[s.as_usize()]
+    }
+}
+
+//-----------------------------------------------------------------------------
 
 /**
  * The state of the JIT compiler. This includes the memory allocated for the
@@ -279,8 +299,8 @@ impl<T: Target> JitInner<T> {
     ) -> Specialization {
         let fetch_code = optimizer::optimize(
             self.lowerer.pool().num_globals(),
-            self.internals.convention(fetch_parent),
-            self.internals.convention(retire_parent),
+            &self.internals[fetch_parent].compiled.convention,
+            &self.internals[retire_parent].compiled.convention,
             actions,
         );
         self.compile_inner(
@@ -288,7 +308,7 @@ impl<T: Target> JitInner<T> {
             Some(retire_parent),
             guard,
             fetch_code,
-            self.internals.convention(retire_parent).clone(),
+            self.internals[retire_parent].compiled.convention.clone(),
             Box::new([]),
         )
     }
