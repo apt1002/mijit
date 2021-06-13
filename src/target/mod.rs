@@ -1,7 +1,7 @@
 use super::{buffer, code};
 
 mod pool;
-pub use pool::{Word, Pool};
+pub use pool::{Counter, Word, Pool};
 
 mod label;
 pub use label::{Patch, Label};
@@ -17,8 +17,6 @@ pub mod x86_64;
  */
 // TODO: Somehow hide the state index from this module, and delete this.
 pub const STATE_INDEX: code::Register = code::REGISTERS[0];
-
-//-----------------------------------------------------------------------------
 
 /** A [`Target`] that generates code which can be executed. */
 pub fn native() -> impl Target {

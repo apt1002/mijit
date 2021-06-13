@@ -4,6 +4,12 @@ use std::fmt::{self, Debug};
 
 use super::code::{Global};
 
+/** Names a profiling counter. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Counter(usize);
+
+//-----------------------------------------------------------------------------
+
 /** An untyped 64-bit value. */
 #[repr(C)]
 #[derive(Copy, Clone, Eq)]
@@ -55,6 +61,13 @@ impl Pool {
         Pool {num_globals, pool}
     }
 
+    /** Allocate a profiling counter, initialized to `0`. */
+    pub fn new_counter(&mut self) -> Counter {
+        let ret = Counter(self.pool.len() - self.index_of_counter(Counter(0)));
+        self.pool.push(Word {w: Wrapping(0)});
+        ret
+    }
+
     /**
      * The number of [`Global`]s that persist when Mijit is not running.
      * This is the value passed to [`Target::lowerer()`].
@@ -67,9 +80,9 @@ impl Pool {
         global.0
     }
 
-    /** The position in the pool of the counter with the given index. */
-    pub fn index_of_counter(&self, index: usize) -> usize {
-        self.num_globals + index
+    /** The position in the pool of the given [`Counter`]. */
+    pub fn index_of_counter(&self, counter: Counter) -> usize {
+        self.num_globals + counter.0
     }
 }
 

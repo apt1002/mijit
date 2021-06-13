@@ -80,7 +80,7 @@ pub const FAST_VALUES: [Value; 64] = [
     make_slot(48), make_slot(49), make_slot(50), make_slot(51),
 ];
 
-/** A value that persists when Mijit is not running. */
+/** Names a value that persists when Mijit is not running. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Global(pub usize);
 

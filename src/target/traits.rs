@@ -1,4 +1,4 @@
-use super::{code, Word, Pool, Patch, Label};
+use super::{code, Counter, Word, Pool, Patch, Label};
 use code::{Precision, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
 
 /**
@@ -117,6 +117,9 @@ pub trait Lower: Sized {
      * Assemble code to perform the given `action`.
      */
     fn lower_action(&mut self, action: Action);
+
+    /** Assemble code to increment the given `counter`. */
+    fn lower_count(&mut self, counter: Counter);
 }
 
 //-----------------------------------------------------------------------------

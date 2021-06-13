@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Label, Word, Pool, Lower, Execute, Target, STATE_INDEX};
+use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
@@ -66,7 +66,7 @@ struct Compiled {
     /** The test which must pass in order to execute `fetch`. */
     pub _guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
-    pub _fetch_code: Box<[Action]>,
+    pub fetch_code: Box<[Action]>,
     /**
      * The address just after `fetch_code`.
      * Retire children jump here.
@@ -83,7 +83,9 @@ struct Compiled {
      */
     pub retire_label: Label,
     /** The retire code that was compiled for this specialization. */
-    pub _retire_code: Box<[Action]>,
+    pub retire_code: Box<[Action]>,
+    /** The profiling counter for `_retire_code`. */
+    pub retire_counter: Counter,
 }
 
 //-----------------------------------------------------------------------------
@@ -243,11 +245,12 @@ impl<T: Target> JitInner<T> {
     ) -> Specialization {
         let compiled = Compiled {
             _guard: guard,
-            _fetch_code: fetch_code,
+            fetch_code: fetch_code,
             fetch_label: Label::new(None),
             convention,
             retire_label: Label::new(None),
-            _retire_code: retire_code,
+            retire_code: retire_code,
+            retire_counter: self.lowerer.pool_mut().new_counter(),
         };
         let this = self.internals.new_specialization(fetch_parent, retire_parent, compiled);
         let lo = &mut self.lowerer;
@@ -256,10 +259,10 @@ impl<T: Target> JitInner<T> {
         let if_fail = self.internals.retire_label_mut(fetch_parent);
         lo.steal(&mut lo.here(), if_fail);
         lo.lower_test_op(guard, if_fail);
-        { // Lifetime of `compiled`.
+        { // Lifetime of `compiled` (can't touch `self.internals`).
             let compiled = &mut self.internals[this].compiled;
             // Compile `fetch_code`.
-            for &action in compiled._fetch_code.iter() {
+            for &action in compiled.fetch_code.iter() {
                 lo.lower_action(action);
             }
             lo.define(&mut compiled.fetch_label);
@@ -269,9 +272,10 @@ impl<T: Target> JitInner<T> {
             lo.define(&mut compiled.retire_label);
             // TODO: Optimize the case where `retire_code` is empty.
             // The preceding jump should jump straight to `retire_parent`.
-            for &action in compiled._retire_code.iter() {
+            for &action in compiled.retire_code.iter() {
                 lo.lower_action(action);
             }
+            lo.lower_count(compiled.retire_counter);
         }
         lo.jump(self.internals.fetch_label_mut(retire_parent));
         assert_eq!(*lo.slots_used(), self.internals.slots_used(retire_parent));
@@ -466,8 +470,9 @@ pub mod tests {
     use super::*;
 
     use std::convert::{TryFrom};
+    use std::num::{Wrapping};
 
-    use super::super::target::{native};
+    use super::super::target::{Word, native};
 
     /** An amount of code space suitable for running tests. */
     pub const CODE_SIZE: usize = 1 << 20;
@@ -494,5 +499,20 @@ pub mod tests {
         };
         assert_eq!(final_state, Return);
         assert_eq!(*jit.global_mut(Global::try_from(reg::RESULT).unwrap()), Word {u: 120});
+
+        // Check profiling counter.
+        let expected = [
+            Word {w: Wrapping(0)},
+            Word {w: Wrapping(0)},
+            Word {w: Wrapping(1)},
+            Word {w: Wrapping(1)},
+            Word {w: Wrapping(1)},
+            Word {w: Wrapping(5)},
+        ];
+        let pool = jit.inner.lowerer.pool();
+        for (info, &expected) in jit.inner.internals.specializations.iter().zip(&expected) {
+            let observed = pool[pool.index_of_counter(info.compiled.retire_counter)];
+            assert_eq!(expected, observed);
+        }
     }
 }
