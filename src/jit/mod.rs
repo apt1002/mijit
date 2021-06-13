@@ -1,7 +1,8 @@
+use std::num::{Wrapping};
 use std::ops::{Index, IndexMut};
 use indexmap::{IndexSet};
 
-use crate::util::{AsUsize};
+use crate::util::{AsUsize, ArrayMap};
 use super::{code, optimizer};
 use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
@@ -36,6 +37,19 @@ pub struct Convention {
 
 //-----------------------------------------------------------------------------
 
+/** Tracks the statistics for a [`Specialization`]. */
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Statistics {
+    /** How often the fetch transition is executed. */
+    pub fetches: u64,
+    /** How often the retire transition is executed. */
+    pub retires: u64,
+    /** How often the specialization is visited. */
+    pub visits: u64,
+}
+
+//-----------------------------------------------------------------------------
+
 // Specialization
 array_index! {
     /** Identifies a specialization of a `Jit`. */
@@ -50,6 +64,7 @@ array_index! {
  * Tracks the relatives of a [`Specialization`].
  * See "doc/theory" for terminology.
  */
+#[derive(Debug)]
 struct Relatives {
     /** The fetch parent. `None` means the least specialization. */
     pub _fetch_parent: Option<Specialization>,
@@ -84,9 +99,16 @@ struct Compiled {
     pub retire_label: Label,
     /** The retire code that was compiled for this specialization. */
     pub retire_code: Box<[Action]>,
-    /** The profiling counter for `_retire_code`. */
+    /**
+     * The profiling counter for `retire_code`. Counts up to zero.
+     * `retire_counter = [Statistics].retires - retire_threshold`.
+     */
     pub retire_counter: Counter,
+    /** The number of retire events at which we should interrupt the VM. */
+    pub retire_threshold: Wrapping<u64>,
 }
+
+const DEFAULT_THRESHOLD_INCREMENT: u64 = 1000;
 
 //-----------------------------------------------------------------------------
 
@@ -142,6 +164,11 @@ impl Internals {
         };
         self.specializations.push(SpecializationInfo {relatives, compiled});
         this
+    }
+
+    /** Returns an iterator through all the existing specializations. */
+    fn all_specializations(&self) -> impl Iterator<Item=Specialization> + DoubleEndedIterator {
+        (0..self.specializations.len()).map(|i| Specialization::new(i).unwrap())
     }
 
     /** Returns the `slots_used` of `s`, or of the least specialization. */
@@ -230,6 +257,46 @@ impl<T: Target> JitInner<T> {
     }
 
     /**
+     * The profiling subsystem interrupts execution of the VM when
+     * [`Statistics.retires`] reaches a threshold value. When a
+     * [`Specialization`] is constructed, and after each interrupt, it is
+     * necessary to increment its threshold to rearm it.
+     */
+    fn increase_retire_threshold(&mut self, s: Specialization, increment: u64) {
+        let increment = Wrapping(increment);
+        let compiled = &mut self.internals[s].compiled;
+        compiled.retire_threshold += increment;
+        self.lowerer.pool_mut()[compiled.retire_counter] -= increment;
+    }
+
+    /**
+     * Loop through all [`Specialization`]s and bring their [`Statistics`]
+     * up to date.
+     */
+    pub fn compute_statistics(&mut self) -> ArrayMap<Specialization, Statistics> {
+        let mut ret: ArrayMap<_, Statistics> = ArrayMap::new(self.internals.specializations.len());
+        for s in self.internals.all_specializations().rev() {
+            // Read-only portion.
+            let SpecializationInfo {relatives, compiled} = &self.internals[s];
+            let child_fetches: u64 = relatives.fetch_children.iter().map(|&c| {
+                assert!(c.as_usize() > s.as_usize());
+                ret[c].fetches
+            }).sum();
+            let child_retires: u64 = relatives.retire_children.iter().map(|&c| {
+                assert!(c.as_usize() > s.as_usize());
+                ret[c].retires
+            }).sum();
+            // Write portion.
+            let counter_value = self.lowerer.pool_mut()[compiled.retire_counter];
+            let retires = (compiled.retire_threshold + counter_value).0;
+            let visits = retires + child_fetches;
+            let fetches = visits - child_retires;
+            ret[s] = Statistics {fetches, retires, visits};
+        }
+        ret
+    }
+
+    /**
      * Compile code for a new [`Specialization`].
      * Unlike `compile()`, this method does not do any optimization. The caller
      * has control over `fetch_code`, `convention` and `retire_code`.
@@ -251,6 +318,7 @@ impl<T: Target> JitInner<T> {
             retire_label: Label::new(None),
             retire_code: retire_code,
             retire_counter: self.lowerer.pool_mut().new_counter(),
+            retire_threshold: Wrapping(0),
         };
         let this = self.internals.new_specialization(fetch_parent, retire_parent, compiled);
         let lo = &mut self.lowerer;
@@ -304,14 +372,16 @@ impl<T: Target> JitInner<T> {
             &self.internals[retire_parent].compiled.convention,
             actions,
         );
-        self.compile_inner(
+        let this = self.compile_inner(
             Some(fetch_parent),
             Some(retire_parent),
             guard,
             fetch_code,
             self.internals[retire_parent].compiled.convention.clone(),
             Box::new([]),
-        )
+        );
+        self.increase_retire_threshold(this, DEFAULT_THRESHOLD_INCREMENT);
+        this
     }
 
     /**
@@ -470,7 +540,6 @@ pub mod tests {
     use super::*;
 
     use std::convert::{TryFrom};
-    use std::num::{Wrapping};
 
     use super::super::target::{Word, native};
 
@@ -501,18 +570,17 @@ pub mod tests {
         assert_eq!(*jit.global_mut(Global::try_from(reg::RESULT).unwrap()), Word {u: 120});
 
         // Check profiling counter.
-        let expected = [
-            Word {w: Wrapping(0)},
-            Word {w: Wrapping(0)},
-            Word {w: Wrapping(1)},
-            Word {w: Wrapping(1)},
-            Word {w: Wrapping(1)},
-            Word {w: Wrapping(5)},
+        let expected = vec![
+            Statistics {fetches: 1, retires: 0, visits: 1},
+            Statistics {fetches: 0, retires: 0, visits: 6},
+            Statistics {fetches: 1, retires: 1, visits: 1},
+            Statistics {fetches: 0, retires: 1, visits: 1},
+            Statistics {fetches: 1, retires: 1, visits: 1},
+            Statistics {fetches: 5, retires: 5, visits: 5},
         ];
-        let pool = jit.inner.lowerer.pool();
-        for (info, &expected) in jit.inner.internals.specializations.iter().zip(&expected) {
-            let observed = pool[pool.index_of_counter(info.compiled.retire_counter)];
-            assert_eq!(expected, observed);
+        let observed = jit.inner.compute_statistics();
+        for (s, expected) in jit.inner.internals.all_specializations().zip(&expected) {
+            assert_eq!(expected, &observed[s]);
         }
     }
 }
