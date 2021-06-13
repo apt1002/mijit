@@ -148,7 +148,7 @@ impl Internals {
     }
 
     /** Returns the `fetch_label` of `s`, or of the least specialization. */
-    fn fetch_label(&mut self, s: Option<Specialization>) -> &mut Label {
+    fn fetch_label_mut(&mut self, s: Option<Specialization>) -> &mut Label {
         match s {
             None => &mut self.fetch_label,
             Some(s) => &mut self[s].compiled.fetch_label,
@@ -156,7 +156,7 @@ impl Internals {
     }
 
     /** Returns the `retire_label` of `s`, or of the least specialization. */
-    fn retire_label(&mut self, s: Option<Specialization>) -> &mut Label {
+    fn retire_label_mut(&mut self, s: Option<Specialization>) -> &mut Label {
         match s {
             None => &mut self.retire_label,
             Some(s) => &mut self[s].compiled.retire_label,
@@ -241,39 +241,41 @@ impl<T: Target> JitInner<T> {
         convention: Convention,
         retire_code: Box<[Action]>,
     ) -> Specialization {
-        let lo = &mut self.lowerer;
-        *lo.slots_used() = self.internals.slots_used(fetch_parent);
-        let mut fetch_label = Label::new(None);
-        let mut retire_label = Label::new(None);
-        // Compile `guard`.
-        let if_fail = self.internals.retire_label(fetch_parent);
-        lo.steal(&mut lo.here(), if_fail);
-        lo.lower_test_op(guard, if_fail);
-        // Compile `fetch_code`.
-        for &action in fetch_code.iter() {
-            lo.lower_action(action);
-        }
-        lo.define(&mut fetch_label);
-        lo.jump(&mut retire_label);
-        // Compile `retire_code`.
-        assert_eq!(*lo.slots_used(), convention.slots_used);
-        lo.define(&mut retire_label);
-        // TODO: Optimize the case where `retire_code` is empty.
-        // The preceding jump should jump straight to `retire_parent`.
-        for &action in retire_code.iter() {
-            lo.lower_action(action);
-        }
-        lo.jump(self.internals.fetch_label(retire_parent));
-        assert_eq!(*lo.slots_used(), self.internals.slots_used(retire_parent));
         let compiled = Compiled {
             _guard: guard,
             _fetch_code: fetch_code,
-            fetch_label,
+            fetch_label: Label::new(None),
             convention,
-            retire_label,
+            retire_label: Label::new(None),
             _retire_code: retire_code,
         };
-        self.internals.new_specialization(fetch_parent, retire_parent, compiled)
+        let this = self.internals.new_specialization(fetch_parent, retire_parent, compiled);
+        let lo = &mut self.lowerer;
+        *lo.slots_used() = self.internals.slots_used(fetch_parent);
+        // Compile `guard`.
+        let if_fail = self.internals.retire_label_mut(fetch_parent);
+        lo.steal(&mut lo.here(), if_fail);
+        lo.lower_test_op(guard, if_fail);
+        { // Lifetime of `compiled`.
+            let compiled = &mut self.internals[this].compiled;
+            // Compile `fetch_code`.
+            for &action in compiled._fetch_code.iter() {
+                lo.lower_action(action);
+            }
+            lo.define(&mut compiled.fetch_label);
+            lo.jump(&mut compiled.retire_label);
+            // Compile `retire_code`.
+            assert_eq!(*lo.slots_used(), compiled.convention.slots_used);
+            lo.define(&mut compiled.retire_label);
+            // TODO: Optimize the case where `retire_code` is empty.
+            // The preceding jump should jump straight to `retire_parent`.
+            for &action in compiled._retire_code.iter() {
+                lo.lower_action(action);
+            }
+        }
+        lo.jump(self.internals.fetch_label_mut(retire_parent));
+        assert_eq!(*lo.slots_used(), self.internals.slots_used(retire_parent));
+        this
     }
 
     /**
