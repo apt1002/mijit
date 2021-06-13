@@ -55,7 +55,7 @@ pub struct Pool {
 }
 
 impl Pool {
-    /** Allocate a new `Pool`. */
+    /** Allocate a new `Pool`, initially with no [`Counter`]s. */
     pub fn new(num_globals: usize) -> Self {
         let pool = vec![Word::default(); num_globals];
         Pool {num_globals, pool}
@@ -99,7 +99,7 @@ impl Index<usize> for Pool {
     fn index(&self, index: usize) -> &Self::Output { &self.pool[index] }
 }
 
-impl std::ops::IndexMut<usize> for Pool {
+impl IndexMut<usize> for Pool {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output { &mut self.pool[index] }
 }
 
@@ -116,5 +116,21 @@ impl IndexMut<Global> for Pool {
     fn index_mut(&mut self, g: Global) -> &mut Self::Output {
         let i = self.index_of_global(g);
         &mut self[i]
+    }
+}
+
+impl Index<Counter> for Pool {
+    type Output = Wrapping<u64>;
+
+    fn index(&self, c: Counter) -> &Self::Output {
+        let i = self.index_of_counter(c);
+        unsafe { &self[i].w }
+    }
+}
+
+impl IndexMut<Counter> for Pool {
+    fn index_mut(&mut self, c: Counter) -> &mut Self::Output {
+        let i = self.index_of_counter(c);
+        unsafe { &mut self[i].w }
     }
 }
