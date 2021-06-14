@@ -145,30 +145,224 @@ We mostly don't need the pair versions and the pre- and post-indexed versions, e
 
 ## Move
 
-Move register to register (including constant shifts and extensions).
-Move constant to register (consider ORR constant with ZR; consider PC-relative load).
+For moving a register to a register, `ORR` it with `RZR`.
+
+For moving a constant to a register, there are several cases to consider:
+ - If the constant PC-relative, use `ADR`.
+ - If the constant fits in 16 bits, use `MOVZ`.
+ - If the inverse of the constant fits in 16 bits, use `MOVN`.
+ - If the constant is an allowed logic immediate, `ORR` it with `RZR`.
+ - A few more options...
+ - Otherwise use a PC-relative load from a constant pool.
+
+```
+Mask        Asm     Rd      imm     Siz Meaning
+0x10000000  ADR     0:4     5:23    64  Rd <- PC + 4*imm
+0x12800000  MOVN    0:4     5:20    32  Rd <- ~imm
+0x92800000  MOVN    0:4     5:20    64  Rd <- ~imm
+0x52800000  MOVZ    0:4     5:20    32  Rd <- imm
+0xD2800000  MOVZ    0:4     5:20    64  Rd <- imm
+```
 
 
 ## Arithmetic
 
-ADD, SUB, ADDS, SUBS, each with immediate or shifted register.
-ADC, SBC, ADCS, SBCS, if easy.
-AND, ORR, EOR, ANDS, each with immeidate or shifted register, and each with second operand inverted.
+The third operand of an arithmetic instructions can be:
+ - a sign-extended register (omitted)
+ - an unsigned 12-bit immediate operand (shift omitted)
+ - a shifted register (all but `LSL` omitted).
+
+Variants that end with "S" set the condition flags.
+
+There are variants that read the carry flag (omitted).
+
+With an immediate operand:
+
+```
+Mask        Asm     Rd      Rn      imm     Siz Meaning
+0x11000000  ADD     0:4     5:9     10:21   32  Rd <- Rn + imm
+0x31000000  ADDS    0:4     5:9     10:21   32  Rd <- Rn + imm
+0x51000000  SUB     0:4     5:9     10:21   32  Rd <- Rn - imm
+0x71000000  SUBS    0:4     5:9     10:21   32  Rd <- Rn - imm
+0x91000000  ADD     0:4     5:9     10:21   64  Rd <- Rn + imm
+0xB1000000  ADDS    0:4     5:9     10:21   64  Rd <- Rn + imm
+0xD1000000  SUB     0:4     5:9     10:21   64  Rd <- Rn - imm
+0xF1000000  SUBS    0:4     5:9     10:21   64  Rd <- Rn - imm
+```
+
+With a shifted register operand:
+
+```
+Mask        Asm     Rd      Rn      imm     Rm      Siz Meaning
+0x0B000000  ADD     0:4     5:9     10:14   16:20   32  Rd <- Rn + (Rm << imm)
+0x2B000000  ADDS    0:4     5:9     10:14   16:20   32  Rd <- Rn + (Rm << imm)
+0x4B000000  SUB     0:4     5:9     10:14   16:20   32  Rd <- Rn - (Rm << imm)
+0x6B000000  SUBS    0:4     5:9     10:14   16:20   32  Rd <- Rn - (Rm << imm)
+0x8B000000  ADD     0:4     5:9     10:15   16:20   64  Rd <- Rn + (Rm << imm)
+0xAB000000  ADDS    0:4     5:9     10:15   16:20   64  Rd <- Rn + (Rm << imm)
+0xCB000000  SUB     0:4     5:9     10:15   16:20   64  Rd <- Rn - (Rm << imm)
+0xEB000000  SUBS    0:4     5:9     10:15   16:20   64  Rd <- Rn - (Rm << imm)
+```
+
+The following table indicates which registers can be `SP`; the rest can be `ZR`.
+
+```
+Asm         ADD     ADDS    SUB     SUBS
+Variant     i s     i s     i s     i s
+Rd=SP?      y n     n n     y n     n n
+Rn=SP?      y n     y n     y n     y n
+Rm=SP?      - n     - n     - n     - n
+```
+
+
+## Logic
+
+The third operand of an arithmetic instructions can be:
+ - a patterned bitmask immediate operand, encoded into a 13-bit field in a complicated way.
+ - a shifted register (all but `LSL` omitted).
+ - the inverse of a shifted register (omitted).
+
+Variants that end with "S" set the condition flags.
+
+With an immediate operand:
+
+```
+Mask        Asm     Rd      Rn      l_imm   Siz Meaning
+0x12000000  AND     0:4     5:9     10:21   32  Rd <- Rn & l_imm
+0x32000000  ORR     0:4     5:9     10:21   32  Rd <- Rn | l_imm
+0x52000000  EOR     0:4     5:9     10:21   32  Rd <- Rn ^ l_imm
+0x72000000  ANDS    0:4     5:9     10:21   32  Rd <- Rn & l_imm
+0x92000000  AND     0:4     5:9     10:22   64  Rd <- Rn & l_imm
+0xB2000000  ORR     0:4     5:9     10:22   64  Rd <- Rn | l_imm
+0xD2000000  EOR     0:4     5:9     10:22   64  Rd <- Rn ^ l_imm
+0xF2000000  ANDS    0:4     5:9     10:22   64  Rd <- Rn & l_imm
+```
+
+With a shifted register operand or its inverse:
+
+```
+Mask        Asm     Rd      Rn      imm     Rm      Siz Meaning
+0x0A000000  AND     0:4     5:9     10:14   16:20   32  Rd <- Rn & (Rm << imm)
+0x0A200000  BIC     0:4     5:9     10:14   16:20   32  Rd <- Rn & ~(Rm << imm)
+0x2A000000  ORR     0:4     5:9     10:14   16:20   32  Rd <- Rn | (Rm << imm)
+0x2A200000  ORN     0:4     5:9     10:14   16:20   32  Rd <- Rn | ~(Rm << imm)
+0x4A000000  EOR     0:4     5:9     10:14   16:20   32  Rd <- Rn ^ (Rm << imm)
+0x4A200000  EON     0:4     5:9     10:14   16:20   32  Rd <- Rn ^ ~(Rm << imm)
+0x6A000000  ANDS    0:4     5:9     10:14   16:20   32  Rd <- Rn & (Rm << imm)
+0x6A200000  BICS    0:4     5:9     10:14   16:20   32  Rd <- Rn & ~(Rm << imm)
+0x8A000000  AND     0:4     5:9     10:15   16:20   64  Rd <- Rn & (Rm << imm)
+0x8A200000  BIC     0:4     5:9     10:15   16:20   64  Rd <- Rn & ~(Rm << imm)
+0xAA000000  ORR     0:4     5:9     10:15   16:20   64  Rd <- Rn | (Rm << imm)
+0xAA200000  ORN     0:4     5:9     10:15   16:20   64  Rd <- Rn | ~(Rm << imm)
+0xCA000000  EOR     0:4     5:9     10:15   16:20   64  Rd <- Rn ^ (Rm << imm)
+0xCA200000  EON     0:4     5:9     10:15   16:20   64  Rd <- Rn ^ ~(Rm << imm)
+0xEA000000  ANDS    0:4     5:9     10:15   16:20   64  Rd <- Rn & (Rm << imm)
+0xEA200000  BICS    0:4     5:9     10:15   16:20   64  Rd <- Rn & ~(Rm << imm)
+```
+
+The following table indicates which registers can be `SP`; the rest can be `ZR`.
+
+```
+Asm         AND     ORR     EOR     ANDS
+Variant     i s     i s     i s     i s
+Rd=RSP?     y n     y n     y n     n n
+Rn=RSP?     n n     n n     n n     n n
+Rm=RSP?     - n     - n     - n     - n
+```
+
+
+## Bit fields
+
+`BFM` can be used to implement:
+ - Bit field clear.
+ - Bit field insert.
+ - Bit field extract and insert low.
+
+`SBFM` can be used to implement:
+ - `ASR` by a constant.
+ - Signed bit field insert into zero.
+ - Signed bit field extract.
+ - Sign-extend.
+
+`UBFM` can be used to implement:
+ - `LSL` and `LSR` by a constant.
+ - Bit field insert into zero.
+ - Bit field extract.
+ - Zero-extend.
+
+```
+Mask        Asm     Rd      Rn      imms    immr    Siz Meaning
+0x13000000  SBFM    0:4     5:9     10:14   16:20   32  See section C6.2.234
+0x33000000  BFM     0:4     5:9     10:14   16:20   32  See section C6.2.29
+0x53000000  UBFM    0:4     5:9     10:14   16:20   32  See section C6.2.337
+0x93400000  SBFM    0:4     5:9     10:15   16:21   64  See section C6.2.234
+0xB3400000  BFM     0:4     5:9     10:15   16:21   64  See section C6.2.29
+0xD3400000  UBFM    0:4     5:9     10:15   16:21   64  See section C6.2.337
+```
 
 
 ## Shifts
+
+None of the registers can be SP; any can be ZR.
+
+```
+Mask        Asm     Rd      Rn      Rm      Siz Meaning
+0x1AC02000  LSLV    0:4     5:9     16:20   32  Rd <- Rn << Rm
+0x1AC02400  LSRV    0:4     5:9     16:20   32  Rd <- Rn >>> Rm
+0x1AC02800  ASRV    0:4     5:9     16:20   32  Rd <- Rn >> Rm
+0x1AC02C00  RORV    0:4     5:9     16:20   32  Rd <- Rn ROR Rm
+0x9AC02000  LSLV    0:4     5:9     16:20   32  Rd <- Rn << Rm
+0x9AC02400  LSRV    0:4     5:9     16:20   32  Rd <- Rn >>> Rm
+0x9AC02800  ASRV    0:4     5:9     16:20   32  Rd <- Rn >> Rm
+0x9AC02C00  RORV    0:4     5:9     16:20   32  Rd <- Rn ROR Rm
+```
 
 LSLV, LSRV, ASRV, RORV.
 
 
 ## Multiply
 
-MULA, MULH.
+There are variants that compute the high word of the result (omitted).
+
+None of the registers can be SP; any can be ZR.
+
+```
+Mask        Asm     Rd      Rn      Ra      Rm      Siz Meaning
+0x1B000000  MADD    0:4     5:9     10:14   16:20   32  Rd <- Ra + Rn * Rm
+0x1B008000  MSUB    0:4     5:9     10:14   16:20   32  Rd <- Ra - Rn * Rm
+0x9B000000  MADD    0:4     5:9     10:14   16:20   64  Rd <- Ra + Rn * Rm
+0x9B008000  MSUB    0:4     5:9     10:14   16:20   64  Rd <- Ra - Rn * Rm
+```
 
 
 ## Divide
 
-UDIV, SDIV
+None of the registers can be SP; any can be ZR.
+
+```
+Mask        Asm     Rd      Rn      Rm      Siz Meaning
+0x1AC00800  UDIV    0:4     5:9     16:20   32  Rd <- Rn / Rm
+0x1AC00C00  SDIV    0:4     5:9     16:20   32  Rd <- Rn / Rm
+0x9AC00800  UDIV    0:4     5:9     16:20   64  Rd <- Rn / Rm
+0x9AC00C00  SDIV    0:4     5:9     16:20   64  Rd <- Rn / Rm
+```
+
+
+# Conditional select
+
+None of the registers can be SP; any can be ZR.
+
+```
+Mask        Asm     Rd      Rn      cond    Rm      Siz Meaning
+0x1A800000  CSEL    0:4     5:9     12:15   16:20   32  Rd <- cond ? Rn : Rm
+0x1A800400  CSINC   0:4     5:9     12:15   16:20   32  Rd <- cond ? Rn : Rm+1
+0x5A800000  CSINV   0:4     5:9     12:15   16:20   32  Rd <- cond ? Rn : ~Rm
+0x5A800400  CSNEG   0:4     5:9     12:15   16:20   32  Rd <- cond ? Rn : -Rm
+0x9A800000  CSEL    0:4     5:9     12:15   16:20   64  Rd <- cond ? Rn : Rm
+0x9A800400  CSINC   0:4     5:9     12:15   16:20   64  Rd <- cond ? Rn : Rm+1
+0xDA800000  CSINV   0:4     5:9     12:15   16:20   64  Rd <- cond ? Rn : ~Rm
+0xDA800400  CSNEG   0:4     5:9     12:15   16:20   64  Rd <- cond ? Rn : -Rm
+```
 
 
 ## Conditional branch
@@ -206,4 +400,4 @@ APCS permits variations in the following areas:
  - R29 is used on some platforms as a frame pointer. Doing so is the more choice, and probably improves the debugging experience, at the expense of adding one instruction per call and losing the use of R29.
  - SP is always required to be 16-byte aligned at calls, but on some platforms it is required to be 16-byte aligned at other times too.
 
-I suggest we treat R16, R17 and R18 as ordinary caller-saves registers, use R29 as a frame pointer, and keep SP 16-byte-aligned at all times. If and when using R18 turns out to be a problem, we can easily stop using it.
+I suggest we treat R16 and R17 as ordinary caller-saves registers, use R29 as a frame pointer, and keep SP 16-byte-aligned at all times. I'm on the fence about R18.
