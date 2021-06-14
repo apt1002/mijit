@@ -1,6 +1,6 @@
 /**
- * All AArch64 registers, except R18, which we avoid on [ARM's advice]. For our
- * purposes, `IP0` (=`R16`) and `IP1` (=`R17`) are ordinary registers.
+ * All AArch64 registers. For our purposes, `IP0` (=`R16`) and `IP1` (=`R17`)
+ * are ordinary registers. We also include R18, despite [ARM's advice].
  *
  * [ARM's advice]: https://github.com/ARM-software/abi-aa/blob/2bcab1e3b22d55170c563c3c7940134089176746/aapcs64/aapcs64.rst#general-purpose-registers
  *
@@ -11,37 +11,10 @@
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum Register {
-    R0 = 0,
-    R1 = 1,
-    R2 = 2,
-    R3 = 3,
-    R4 = 4,
-    R5 = 5,
-    R6 = 6,
-    R7 = 7,
-    R8 = 8,
-    R9 = 9,
-    R10 = 10,
-    R11 = 11,
-    R12 = 12,
-    R13 = 13,
-    R14 = 14,
-    R15 = 15,
-    R16 = 16,
-    R17 = 17,
-    R19 = 19,
-    R20 = 20,
-    R21 = 21,
-    R22 = 22,
-    R23 = 23,
-    R24 = 24,
-    R25 = 25,
-    R26 = 26,
-    R27 = 27,
-    R28 = 28,
-    RFP = 29,
-    RLR = 30,
-    RZR = 31,
+    R0  = 0x00, R1  = 0x01, R2  = 0x02, R3  = 0x03, R4  = 0x04, R5  = 0x05, R6  = 0x06, R7  = 0x07,
+    R8  = 0x08, R9  = 0x09, R10 = 0x0A, R11 = 0x0B, R12 = 0x0C, R13 = 0x0D, R14 = 0x0E, R15 = 0x0F,
+    R16 = 0x10, R17 = 0x11, R18 = 0x12, R19 = 0x13, R20 = 0x14, R21 = 0x15, R22 = 0x16, R23 = 0x17,
+    R24 = 0x18, R25 = 0x19, R26 = 0x1A, R27 = 0x1B, R28 = 0x1C, RFP = 0x1D, RLR = 0x1E, RZR = 0x1F,
 }
 
 use Register::*;
@@ -54,29 +27,16 @@ pub const RSP: Register = RZR;
 
 //-----------------------------------------------------------------------------
 
-/**
- * Represents the precision of an arithmetic operation.
- * With P32, the arithmetic is performed with 32-bit precision, and written
- * into the bottom 32 bits of the destination. The top 32 bits are 0.
- */
-// TODO: Make portable and move to `mod target`.
+/** All AArch64 conditions except `AL` (and `NV`). */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
-pub enum Precision {
-    P32 = 0,
-    P64 = 1,
+#[allow(clippy::upper_case_acronyms)]
+pub enum Condition {
+    EQ = 0x0, NE = 0x1,
+    CS = 0x2, CC = 0x3,
+    MI = 0x4, PL = 0x5,
+    VS = 0x6, VC = 0x7,
+    HI = 0x8, LS = 0x9,
+    GE = 0xA, LT = 0xB,
+    GT = 0xC, LE = 0xD,
 }
-
-use Precision::*;
-
-impl Precision {
-    pub fn bits(self) -> usize {
-        match self {
-            P32 => 32,
-            P64 => 64,
-        }
-    }
-}
-
-//-----------------------------------------------------------------------------
-
