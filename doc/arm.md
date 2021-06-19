@@ -131,6 +131,7 @@ There are a few other differences, most of which are obvious:
 In addition to the register size flag, some 64-bit instructions have the ability to zero-extend (`UXT`) or sign-extend (`SXT`) one of their operands from 32 bits to 64 bits before combining it with the other (64-bit) operand.
 
 
+
 # Recommended instructions
 
 
@@ -367,12 +368,47 @@ Mask        Asm     Rd      Rn      cond    Rm      Siz Meaning
 
 ## Conditional branch
 
-B.cond, CBZ, CBNZ.
+```
+Mask        Asm     cond    imm     Meaning
+0x54000000  B.cond  0:3     5:23    if cond { PC <- PC + 4*imm }
+```
+
+```
+Mask        Asm     Rt      imm     Siz Meaning
+0x34000000  CBZ     0:4     5:23    32  if Rt == 0 { PC <- PC + 4*imm }
+0xB4000000  CBZ     0:4     5:23    64  if Rt == 0 { PC <- PC + 4*imm }
+0x35000000  CBNZ    0:4     5:23    32  if Rt != 0 { PC <- PC + 4*imm }
+0xB5000000  CBNZ    0:4     5:23    64  if Rt != 0 { PC <- PC + 4*imm }
+```
+
+```
+Mask        Asm     Rt      imm     bit         Meaning
+0x36000000  TBZ     0:4     5:18    19:23,31    if (Rt & (1<<bit)) == 0 { PC <- PC + 4*imm }
+0x37000000  TBNZ    0:4     5:18    19:23,31    if (Rt & (1<<bit)) != 0 { PC <- PC + 4*imm }
+```
 
 
 ## Jump, call and return
 
-B, BL, BR, BRL, RET
+Jump or call a constant:
+
+```
+Mask        Asm     imm     Meaning
+0x14000000  B       0::25   PC <- PC + 4*imm
+0x94000000  BL      0::25   LR <- PC + 4; PC <- PC + 4*imm
+```
+
+Jump or call a register:
+
+```
+Mask        Asm     Rn      Meaning
+0xD61F0000  BR      5:9     PC <- Rn
+0xD63F0000  BLR     5:9     LR <- PC + 4; PC <- Rn
+0xD65F0000  RET     5:9     PC <- Rn
+```
+
+The difference between BR and RET is the branch prediction behaviour.
+
 
 ### Calling convention
 
