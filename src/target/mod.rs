@@ -97,12 +97,9 @@ impl PartialEq for Word {
  * A contiguous array of 64-bit words, rewriteable at runtime by the compiled
  * code, providing storage to a virtual machine instance.
  *
- * A pool contains constant values defined by the [`Target`], [`Global`]s, and
- * profiling counters.
+ * A pool contains [`Global`]s and profiling counters.
  */
 pub struct Pool {
-    /** The number of constants defined by the [`Target`]. */
-    num_constants: usize,
     /** The number of [`Global`]s used by the [`code::Machine`]. */
     num_globals: usize,
     /** The words. */
@@ -111,16 +108,10 @@ pub struct Pool {
 
 impl Pool {
     /** Allocate a new `Pool`. */
-    pub fn new(target: &impl Target, num_globals: usize) -> Self {
-        let constants = target.constants();
-        let num_constants = constants.len();
-        let mut pool = vec![Word::default(); num_constants + num_globals];
-        pool[..num_constants].copy_from_slice(constants);
-        Pool {num_constants, num_globals, pool}
+    pub fn new(num_globals: usize) -> Self {
+        let pool = vec![Word::default(); num_globals];
+        Pool {num_globals, pool}
     }
-
-    /** The number of constants needed by the [`Target`]. */
-    pub fn num_constants(&self) -> usize { self.num_constants }
 
     /**
      * The number of [`Global`]s that persist when Mijit is not running.
@@ -128,21 +119,15 @@ impl Pool {
      */
     pub fn num_globals(&self) -> usize { self.num_globals }
 
-    /** The position in the pool of the constant with the given index. */
-    pub fn index_of_constant(&self, index: usize) -> usize {
-        assert!(index < self.num_constants);
-        index
-    }
-
     /** The position in the pool of the given [`Global`]. */
     pub fn index_of_global(&self, global: Global) -> usize {
         assert!(global.0 < self.num_globals);
-        self.num_constants + global.0
+        global.0
     }
 
     /** The position in the pool of the counter with the given index. */
     pub fn index_of_counter(&self, index: usize) -> usize {
-        self.num_constants + self.num_globals + index
+        self.num_globals + index
     }
 }
 
@@ -328,9 +313,6 @@ pub trait Target {
 
     /** The number of registers available for allocation. */
     const NUM_REGISTERS: usize;
-
-    /** Returns some constants to copy into the per-VM pool of memory. */
-    fn constants(&self) -> &[Word];
 
     /**
      * Construct a [`Lowerer`] for this `Target`.

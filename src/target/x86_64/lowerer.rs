@@ -12,10 +12,19 @@ use ShiftOp::*;
 //-----------------------------------------------------------------------------
 
 /** The constants that [`Lowerer`] requires to be in the [`Pool`]. */
-pub const POOL_CONSTANTS: &[Word] = &[Word {u: 0}];
+pub const CONSTANTS: [Word; 8] = [
+    Word {u: 0},
+    Word {u: 0}, // unused
+    Word {u: 0}, // unused
+    Word {u: 0}, // unused
+    Word {u: 0}, // unused
+    Word {u: 0}, // unused
+    Word {u: 0}, // unused
+    Word {u: 0}, // unused
+];
 
-/** The offset of the zero constant in the pool. */
-const POOL_ZERO: usize = 0;
+/** The address of zero. */
+const ZERO_ADDRESS: usize = 0;
 
 /** The [`Register`] used for the pool pointer. */
 const POOL: Register = R8;
@@ -109,7 +118,11 @@ pub struct Lowerer<B: Buffer> {
 }
 
 impl<B: Buffer> Lowerer<B> {
-    pub fn new(a: Assembler<B>, pool: Pool) -> Self {
+    pub fn new(mut a: Assembler<B>, pool: Pool) -> Self {
+        // Fill the first cache line with useful constants.
+        for &word in &CONSTANTS {
+            a.write_imm64(unsafe {word.s});
+        }
         Self {a, pool, slots_used: 0}
     }
 
@@ -173,11 +186,6 @@ impl<B: Buffer> Lowerer<B> {
         } else {
             src
         }
-    }
-
-    /** Returns the base and offset of the zero constant. */
-    fn zero_address(&self) -> (Register, i32) {
-        (POOL, (self.pool.index_of_constant(POOL_ZERO) * 8) as i32)
     }
 
     /** Returns the base and offset of `global`. */
@@ -502,24 +510,21 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                 });
             },
             code::BinaryOp::Lt => {
-                let zero_address = self.zero_address();
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::L, false, prec, dest, zero_address);
+                    l.a.load_pc_relative_if(Condition::L, false, prec, dest, ZERO_ADDRESS);
                 });
             },
             code::BinaryOp::Ult => {
-                let zero_address = self.zero_address();
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::B, false, prec, dest, zero_address);
+                    l.a.load_pc_relative_if(Condition::B, false, prec, dest, ZERO_ADDRESS);
                 });
             },
             code::BinaryOp::Eq => {
-                let zero_address = self.zero_address();
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_if(Condition::Z, false, prec, dest, zero_address);
+                    l.a.load_pc_relative_if(Condition::Z, false, prec, dest, ZERO_ADDRESS);
                 });
             },
             code::BinaryOp::Max => {
@@ -626,6 +631,8 @@ impl super::super::Execute for Lowerer<Mmap> {
 
 #[cfg(test)]
 pub mod tests {
+    use std::mem::{size_of};
+
     use super::*;
     use super::super::assembler::tests::{new_assembler, disassemble};
     use super::super::Condition::Z;
@@ -644,23 +651,26 @@ pub mod tests {
     /** Test that we can patch jumps and calls. */
     #[test]
     fn patch() {
-        let pool = Pool::new(&super::super::Target, 0);
+        let pool = Pool::new(0);
         let mut lo = Lowerer::new(new_assembler(), pool);
+        let mut start = Label::new();
+        lo.define(&mut start);
+        let start = start.target.unwrap();
         let mut label = Label::new();
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
         lo.const_call(&mut label);
         let len = lo.a.get_pos();
-        disassemble(&lo.a, vec![
-            "je near 0FFFFFFFF80000006h",
-            "jmp 0FFFFFFFF8000000Ch",
-            "call 0FFFFFFFF80000012h",
+        disassemble(&lo.a, start, vec![
+            "je near 0FFFFFFFF80000046h",
+            "jmp 0FFFFFFFF8000004Ch",
+            "call 0FFFFFFFF80000052h",
         ]).unwrap();
         lo.a.set_pos(LABEL);
         let old = lo.patch(&mut label);
         assert_eq!(old.target, None);
         lo.a.set_pos(len);
-        disassemble(&lo.a, vec![
+        disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
@@ -669,7 +679,7 @@ pub mod tests {
         let old = lo.patch(&mut label);
         assert_eq!(old.target, Some(LABEL));
         lo.a.set_pos(len);
-        disassemble(&lo.a, vec![
+        disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
@@ -678,7 +688,6 @@ pub mod tests {
 
     #[test]
     fn constants() {
-        assert_eq!(POOL_CONSTANTS[POOL_ZERO], Word {u: 0});
-        assert_eq!(POOL_CONSTANTS.len(), 1);
+        assert_eq!(CONSTANTS[ZERO_ADDRESS / size_of::<Word>()], Word {u: 0});
     }
 }

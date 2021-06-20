@@ -723,26 +723,28 @@ pub mod tests {
     }
 
     /**
-     * Disassemble the code that has been assembled by `a` as if it were at
-     * offset 0.
+     * Disassemble the code that has been assembled by `a` as if the [`Buffer`]
+     * were at offset 0.
      *  - `a` - an assembler which has generated some code.
-     *  - `expected` - the expected disassembly of the
+     *  - `start_address` - the address (relative to the `Buffer`) at which to
+     *    start disassembling.
+     *  - `expected` - the expected disassembly of the code.
      */
-    pub fn disassemble<B: Buffer>(a: &Assembler<B>, expected: Vec<&str>)
+    pub fn disassemble<B: Buffer>(a: &Assembler<B>, start_address: usize, expected: Vec<&str>)
     -> Result<(), Vec<String>> {
         // Disassemble the code.
-        let code_bytes = &a.buffer[..a.get_pos()];
+        let code_bytes = &a.buffer[start_address..a.get_pos()];
         let mut decoder = Decoder::new(64, code_bytes, 0);
-        decoder.set_ip(0);
+        decoder.set_ip(start_address as u64);
         let mut formatter = NasmFormatter::new();
         let mut ips = Vec::new();
-        let mut byteses = Vec::new();
+        let mut hex_dumps = Vec::new();
         let mut observed = Vec::new();
         for instruction in decoder {
-            let start = instruction.ip() as usize;
+            let start = instruction.ip() as usize - start_address;
             let len = instruction.len() as usize;
             ips.push(start);
-            byteses.push(code_bytes[start..][..len].iter().rev().map(
+            hex_dumps.push(code_bytes[start..][..len].iter().rev().map(
                 |b| format!("{:02X}", b)
             ).collect::<Vec<String>>().join(" "));
             let mut assembly = String::with_capacity(80);
@@ -757,7 +759,7 @@ pub mod tests {
             let o_line = if i < observed.len() { &observed[i] } else { "missing" };
             if e_line != o_line {
                 println!("Difference in line {}", i+1);
-                println!("{:016X}   {:>32}   {}", ips[i], byteses[i], o_line);
+                println!("{:016X}   {:>32}   {}", ips[i], hex_dumps[i], o_line);
                 println!("{:>16}   {:>32}   {}", "Expected", "", e_line);
                 error = true;
             }
@@ -785,7 +787,7 @@ pub mod tests {
     fn test_disassemble() {
         let mut a = new_assembler();
         a.buffer.write(0x00005510245C8948, 6);
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "mov [rsp+10h],rbx",
             "push rbp",
         ]).unwrap();
@@ -802,7 +804,7 @@ pub mod tests {
         for &r in &ALL_REGISTERS {
             a.move_(P32, r, r);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "mov eax,eax",
             "mov ecx,ecx",
             "mov edx,edx",
@@ -829,7 +831,7 @@ pub mod tests {
         for &p in &ALL_PRECISIONS {
             a.move_(p, RA, RA);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "mov eax,eax",
             "mov rax,rax",
         ]).unwrap();
@@ -845,7 +847,7 @@ pub mod tests {
                 a.const_(p, R15, !c);
             }
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "xor r8d,r8d",
             "mov r15d,0FFFFFFFFh",
             "mov r8d,1",
@@ -881,7 +883,7 @@ pub mod tests {
             a.load(p, R11, (R12, DISP));
             a.load_pc_relative(p, R12, DISP as usize);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "mov r10d,r9d",
             "mov [r8+12345678h],r10d",
             "mov [r12+12345678h],r10d",
@@ -904,7 +906,7 @@ pub mod tests {
         for &op in &ALL_BINARY_OPS {
             a.op(op, P32, R10, R9);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "add r10d,r9d",
             "or r10d,r9d",
             "adc r10d,r9d",
@@ -926,7 +928,7 @@ pub mod tests {
             a.load_op(Add, p, R9, (R8, DISP));
             a.load_op(Add, p, R9, (R12, DISP));
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "add r10d,r9d",
             "add r10d,76543210h",
             "add r9d,[r8+12345678h]",
@@ -945,7 +947,7 @@ pub mod tests {
         for &op in &ALL_SHIFT_OPS {
             a.shift(op, P32, R8);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "rol r8d,cl",
             "ror r8d,cl",
             "rcl r8d,cl",
@@ -964,7 +966,7 @@ pub mod tests {
             a.shift(Shl, p, R8);
             a.const_shift(Shl, p, R8, 7);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "shl r8d,cl",
             "shl r8d,7",
             "shl r8,cl",
@@ -982,7 +984,7 @@ pub mod tests {
             a.load_mul(p, R13, (R14, DISP));
             a.load_mul(p, R13, (R12, DISP));
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "imul r8d,r9d",
             "imul r10d,r11d,76543210h",
             "imul r13d,[r14+12345678h]",
@@ -1003,7 +1005,7 @@ pub mod tests {
             a.load_udiv(p, (R14, DISP));
             a.load_udiv(p, (R12, DISP));
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "div r8d",
             "div dword [r14+12345678h]",
             "div dword [r12+12345678h]",
@@ -1025,7 +1027,7 @@ pub mod tests {
             a.jump_if(cc, true, target);
             a.jump_if(cc, false, target);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "jo near 0000000000000028h",
             "jno near 0000000000000028h",
             "jno near 0000000000000028h",
@@ -1073,7 +1075,7 @@ pub mod tests {
             a.load_if(G, false, p, R14, (R12, DISP));
             a.load_pc_relative_if(G, false, p, R12, DISP as usize);
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "cmovg r8d,r9d",
             "cmovle r10d,r11d",
             "cmovg ebp,[r13+12345678h]",
@@ -1095,7 +1097,7 @@ pub mod tests {
         let mut a = new_assembler();
         a.jump(R8);
         a.const_jump(Some(LABEL));
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "jmp r8",
             "jmp 0000000002461357h",
         ]).unwrap();
@@ -1108,7 +1110,7 @@ pub mod tests {
         a.call(R8);
         a.const_call(Some(LABEL));
         a.ret();
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "call r8",
             "call 0000000002461357h",
             "ret",
@@ -1121,7 +1123,7 @@ pub mod tests {
         let mut a = new_assembler();
         a.push(R8);
         a.pop(R9);
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "push r8",
             "pop r9",
         ]).unwrap();
@@ -1139,7 +1141,7 @@ pub mod tests {
                 a.store_narrow(w, (R12, DISP), R9);
             }
         }
-        disassemble(&a, vec![
+        disassemble(&a, 0, vec![
             "movzx r9d,byte [r8+12345678h]",
             "movzx r9d,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",

@@ -209,7 +209,7 @@ pub struct JitInner<T: Target> {
 
 impl<T: Target> JitInner<T> {
     pub fn new(target: T, code_size: usize, num_globals: usize) -> Self {
-        let pool = Pool::new(&target, num_globals);
+        let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool, code_size);
         let internals = Internals {
             specializations: Vec::new(),
