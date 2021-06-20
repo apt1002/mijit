@@ -201,6 +201,8 @@ pub struct JitInner<T: Target> {
     _target: T,
     /** The code compiled so far. */
     lowerer: T::Lowerer,
+    /** The main entry point of the compiled code. */
+    entry_point: Label,
     /** This nested struct can be borrowed independently of `lowerer`. */
     internals: Internals,
 }
@@ -214,12 +216,14 @@ impl<T: Target> JitInner<T> {
             fetch_label: Label::new(),
             retire_label: Label::new(),
         };
-        JitInner {_target: target, lowerer, internals}._init()
+        let entry_point = Label::new();
+        JitInner {_target: target, lowerer, entry_point, internals}._init()
     }
 
     fn _init(mut self) -> Self {
         let lo = &mut self.lowerer;
         // Assemble the function prologue and epilogue.
+        lo.define(&mut self.entry_point);
         lo.lower_prologue();
         lo.jump(&mut self.internals.retire_label);
         // Root specializations are inserted here.
@@ -322,7 +326,7 @@ impl<T: Target> JitInner<T> {
      */
     pub unsafe fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
         // FIXME: assert we are on x86_64 at compile time.
-        let (lowerer, ret) = self.lowerer.execute(|bytes, pool| {
+        let (lowerer, ret) = self.lowerer.execute(&self.entry_point, |bytes, pool| {
             let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
             // Here is a good place to set a gdb breakpoint.
             f(pool.as_mut().as_mut_ptr(), argument)

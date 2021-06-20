@@ -306,15 +306,17 @@ pub trait Lowerer: Sized {
 /** Add to a [`Lowerer`] the ability to execute the compiled code. */
 pub trait Execute: Sized + Lowerer {
     /**
-     * Make the memory backing `self` executable, pass it and the words of
-     * the [`Pool`] to `callback`, then make it writeable again.
+     * Make the memory backing `self` executable, pass the code at `label` and
+     * the words of the [`Pool`] to `callback`, then make the memory writeable
+     * (and not executable) again.
      *
-     * If we can't change the buffer permissions, you get an [`Err`] and `self`
+     * If we can't change the memory permissions, you get an [`Err`] and `self`
      * is gone. `T` can itself be a [`Result`] if necessary to represent errors
      * returned by `callback`.
      */
     fn execute<T>(
         self,
+        label: &Label,
         callback: impl FnOnce(&[u8], &mut [Word]) -> T,
     ) -> std::io::Result<(Self, T)>;
 }
