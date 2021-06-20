@@ -137,11 +137,102 @@ In addition to the register size flag, some 64-bit instructions have the ability
 
 ## Load and store
 
-PC-relative.
-Register plus scaled constant.
-Register plus scaled register.
+ARMv8 includes many variants of load (`LDR`) and store (`STR`) instructions, most of which are omitted here. The main axes of variation are:
 
-We mostly don't need the pair versions and the pre- and post-indexed versions, except to implement Push and Pop.
+ - How much data is transferred:
+    - An 8-, 16-, 32- or 64-bit value
+    - A pair of 32- or 64-bit values
+
+ - (For loads) whether the data is sign-extended, and to what size
+
+ - How the address is calculated:
+    - PC + offset
+    - Register + unsigned offset
+    - Register + optionally shifted register
+    - Register + signed offset
+    - Register plus extended register, optionally shifted
+
+ - (For register + offset) whether the base address register is modified.
+
+In addition, there are lots of variants that control cache behaviour, that synchronise with other cores, and that perform various security checks.
+
+An `LDRS` of 64 bits would be useless (it is equivalent to `LDR`), and a special case applies. Instead of the regular meaning, the bit pattern encodes a prefetch instruction (`PRFM`). Be careful not to assemble this by accident.
+
+### PC-relative
+
+This variant of `LDR` computes the address as `PC + constant`.
+
+```
+Mask        Asm     Rt      imm     Meaning
+0x58000000  LDR     0:4     5:23    Rt <- [PC + 4 * imm]
+```
+
+### Register + immediate
+
+These variants of `LDR` and `STR` compute the address as `Rn + constant`. `Rn` can be `SP`, and `Rt` can be `ZR`.
+
+The amount of data transferred is determined by the `size` field (bits 30:31) as follows:
+
+```
+size    Asm bits
+0       B   8
+1       H   16
+2       W   32
+3           64
+```
+
+Unsigned scaled offset:
+
+```
+Mask        Asm         Rt      Rn      imm     Size    Meaning
+0x39000000  STR[BHW]?   0:4     5:9     10:21   30:31   [Rn + (imm << size)] <- Rt
+0x39400000  LDR[BHW]?   0:4     5:9     10:21   30:31   Rt <- zero_extend([Rn + (imm << size)])
+0x39800000  LDRS[BHW]?  0:4     5:9     10:21   30:31   Rt <- sign_extend([Rn + (imm << size)])
+```
+
+Signed unscaled offset:
+
+```
+Mask        Asm         Rt      Rn      imm     Size    Meaning
+0x38000000  STRU[BHW]?  0:4     5:9     12:20   30:31   [Rn + imm] <- Rt
+0x38400000  LDRU[BHW]?  0:4     5:9     12:20   30:31   Rt <- zero_extend([Rn + imm])
+0x38800000  LDRUS[BHW]? 0:4     5:9     12:20   30:31   Rt <- sign_extend([Rn + imm])
+```
+
+### Register + shifted register
+
+These variants of `LDR` and `STR` compute the address as `Rn + (Rm << shift)`. The data is transferred to/from `Rt`. `Rn` can be `SP`, and `Rm` and `Rt` can be `ZR`.
+
+```
+Mask        Asm         Rt      Rn      S   Rm      size    Meaning
+0x38206800  STR[BHW]?   0:4     5:9     12  16:20   30:31   [Rm + (Rn << shift)] <- Rt
+0x38606800  LDR[BHW]?   0:4     5:9     12  16:20   30:31   Rt <- zero_extend([Rm + (Rn << shift)])
+0x38A06800  LDRS[BHW]?  0:4     5:9     12  16:20   30:31   Rt <- sign_extend([Rm + (Rn << shift)])
+```
+
+The amount of data transferred is determined by the `size` field (bits 30:31) as follows:
+
+```
+size    Asm bits
+0       B   8
+1       H   16
+2       W   32
+3           64
+```
+
+The `S` flag (bit 12) and the `size` field (bits 30:31) together determine `shift` as follows:
+
+```
+S   size    Meaning
+0   -       0
+1   0       1
+1   1       1
+1   2       2
+1   3       3
+```
+
+TODO:
+ - Push and pop pair.
 
 
 ## Move
