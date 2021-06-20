@@ -402,6 +402,13 @@ impl<B: Buffer> Assembler<B> {
         self.write_imm32(dest.1);
     }
 
+    /** Move nearby memory to register. */
+    pub fn load_pc_relative(&mut self, prec: Precision, dest: Register, address: usize) {
+        self.write_rom_2(0x008B40, prec, RBP, dest);
+        // No SIB fix needed when `rm` is `RBP`.
+        self.write_imm32(disp32(self.get_pos() + 4, address));
+    }
+
     /**
      * Move constant to register.
      * If `imm` is zero, this will assemble the "zero idiom" xor instruction,
@@ -861,6 +868,7 @@ pub mod tests {
             a.store(p, (R12, DISP), R10);
             a.load(p, R11, (R8, DISP));
             a.load(p, R11, (R12, DISP));
+            a.load_pc_relative(p, R12, DISP as usize);
         }
         disassemble(&a, vec![
             "mov r10d,r9d",
@@ -868,11 +876,13 @@ pub mod tests {
             "mov [r12+12345678h],r10d",
             "mov r11d,[r8+12345678h]",
             "mov r11d,[r12+12345678h]",
+            "mov r12d,[rel 12345678h]",
             "mov r10,r9",
             "mov [r8+12345678h],r10",
             "mov [r12+12345678h],r10",
             "mov r11,[r8+12345678h]",
             "mov r11,[r12+12345678h]",
+            "mov r12,[rel 12345678h]",
         ]).unwrap();
     }
 
