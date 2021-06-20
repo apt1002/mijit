@@ -128,9 +128,6 @@ impl Pool {
      */
     pub fn num_globals(&self) -> usize { self.num_globals }
 
-    /** Provides access to the words. */
-    pub fn as_mut_ptr(&mut self) -> *mut Word { self.pool.as_mut_ptr() }
-
     /** The position in the pool of the constant with the given index. */
     pub fn index_of_constant(&self, index: usize) -> usize {
         assert!(index < self.num_constants);
@@ -147,6 +144,14 @@ impl Pool {
     pub fn index_of_counter(&self, index: usize) -> usize {
         self.num_constants + self.num_globals + index
     }
+}
+
+impl AsRef<[Word]> for Pool {
+    fn as_ref(&self) -> &[Word] { self.pool.as_ref() }
+}
+
+impl AsMut<[Word]> for Pool {
+    fn as_mut(&mut self) -> &mut [Word] { self.pool.as_mut() }
 }
 
 impl Index<usize> for Pool {
@@ -298,8 +303,26 @@ pub trait Lowerer: Sized {
 
 //-----------------------------------------------------------------------------
 
+/** Add to a [`Lowerer`] the ability to execute the compiled code. */
+pub trait Execute: Sized + Lowerer {
+    /**
+     * Make the memory backing `self` executable, pass it and the words of
+     * the [`Pool`] to `callback`, then make it writeable again.
+     *
+     * If we can't change the buffer permissions, you get an [`Err`] and `self`
+     * is gone. `T` can itself be a [`Result`] if necessary to represent errors
+     * returned by `callback`.
+     */
+    fn execute<T>(
+        self,
+        callback: impl FnOnce(&[u8], &mut [Word]) -> T,
+    ) -> std::io::Result<(Self, T)>;
+}
+
+//-----------------------------------------------------------------------------
+
 pub trait Target {
-    type Lowerer: Lowerer;
+    type Lowerer: Lowerer + Execute;
 
     /** The number of registers available for allocation. */
     const NUM_REGISTERS: usize;
@@ -314,20 +337,6 @@ pub trait Target {
      */
     // TODO: Remove `code_size` and make the lowerer auto-extend its buffer.
     fn lowerer(&self, pool: Pool, code_size: usize) -> Self::Lowerer;
-
-    /**
-     * Make the memory backing `lowerer` executable, pass it to `callback`,
-     * then make it writeable again.
-     *
-     * If we can't change the buffer permissions, you get an [`Err`] and the
-     * `lowerer` is gone. `T` can itself be a [`Result`] if necessary to
-     * represent errors returned by `callback`.
-     */
-    fn execute<T>(
-        &self,
-        lowerer: Self::Lowerer,
-        callback: impl FnOnce(&[u8]) -> T,
-    ) -> std::io::Result<(Self::Lowerer, T)>;
 }
 
 /** A [`Target`] that generates code which can be executed. */

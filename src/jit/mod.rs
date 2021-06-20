@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Label, Word, Pool, Lowerer, Target, STATE_INDEX};
+use super::target::{Label, Word, Pool, Lowerer, Execute, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
@@ -198,7 +198,7 @@ impl IndexMut<Specialization> for Internals {
 #[allow(clippy::module_name_repetitions)]
 pub struct JitInner<T: Target> {
     /** The compilation target. */
-    target: T,
+    _target: T,
     /** The code compiled so far. */
     lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
@@ -214,7 +214,7 @@ impl<T: Target> JitInner<T> {
             fetch_label: Label::new(),
             retire_label: Label::new(),
         };
-        JitInner {target, lowerer, internals}._init()
+        JitInner {_target: target, lowerer, internals}._init()
     }
 
     fn _init(mut self) -> Self {
@@ -322,11 +322,10 @@ impl<T: Target> JitInner<T> {
      */
     pub unsafe fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
         // FIXME: assert we are on x86_64 at compile time.
-        let pool = self.lowerer.pool_mut().as_mut_ptr();
-        let (lowerer, ret) = self.target.execute(self.lowerer, |bytes| {
+        let (lowerer, ret) = self.lowerer.execute(|bytes, pool| {
             let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
             // Here is a good place to set a gdb breakpoint.
-            f(pool, argument)
+            f(pool.as_mut().as_mut_ptr(), argument)
         })?;
         self.lowerer = lowerer;
         Ok((self, ret))

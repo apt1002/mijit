@@ -51,16 +51,4 @@ impl super::Target for Target {
         let buffer = Mmap::new(code_size).expect("Allocation failed");
         Lowerer::new(Assembler::new(buffer), pool)
     }
-
-    fn execute<T>(
-        &self,
-        lowerer: Self::Lowerer,
-        callback: impl FnOnce(&[u8]) -> T,
-    ) -> std::io::Result<(Self::Lowerer, T)> {
-        lowerer.use_assembler(|a| {
-            a.use_buffer(|b| {
-                b.execute(callback)
-            })
-        })
-    }
 }

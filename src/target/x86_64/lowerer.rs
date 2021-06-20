@@ -1,6 +1,6 @@
 use super::super::super::{code};
 use super::super::{STATE_INDEX, Label, Word, Pool};
-use super::{Buffer, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
+use super::{Buffer, Mmap, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
 use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
 use code::{Action, TestOp, Global, Slot};
@@ -603,6 +603,20 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
                 self.a.debug(x);
             },
         };
+    }
+}
+
+impl super::super::Execute for Lowerer<Mmap> {
+    fn execute<T>(
+        mut self,
+        callback: impl FnOnce(&[u8], &mut [Word]) -> T,
+    ) -> std::io::Result<(Self, T)> {
+        let pool = self.pool.as_mut();
+        let (a, ret) = self.a.use_buffer(|b| {
+            b.execute(|bytes| callback(bytes, pool))
+        })?;
+        self.a = a;
+        Ok((self, ret))
     }
 }
 
