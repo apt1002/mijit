@@ -189,6 +189,10 @@ impl Condition {
         0x80400F40 | ((!is_true as u64) ^ (self as u64)) << 16
     }
 
+    pub fn load_pc_relative_if(self, is_true: bool) -> u64 {
+        0x00400F40 | ((!is_true as u64) ^ (self as u64)) << 16
+    }
+
     pub fn jump_if(self, is_true: bool) -> u64 {
         0x800F | ((!is_true as u64) ^ (self as u64)) << 8
     }
@@ -516,6 +520,13 @@ impl<B: Buffer> Assembler<B> {
         self.write_room_2(cc.load_if(is_true), prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
+    }
+
+    /** Conditional load from nearby. */
+    pub fn load_pc_relative_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, address: usize) {
+        self.write_room_2(cc.load_pc_relative_if(is_true), prec, RBP, dest);
+        // No SIB fix needed when `rm` is `RBP`.
+        self.write_imm32(disp32(self.get_pos() + 4, address));
     }
 
     /** Conditional branch. */
@@ -1060,6 +1071,7 @@ pub mod tests {
             a.load_if(G, true, p, RBP, (R13, DISP));
             a.load_if(G, false, p, R14, (R15, DISP));
             a.load_if(G, false, p, R14, (R12, DISP));
+            a.load_pc_relative_if(G, false, p, R12, DISP as usize);
         }
         disassemble(&a, vec![
             "cmovg r8d,r9d",
@@ -1067,11 +1079,13 @@ pub mod tests {
             "cmovg ebp,[r13+12345678h]",
             "cmovle r14d,[r15+12345678h]",
             "cmovle r14d,[r12+12345678h]",
+            "cmovle r12d,[rel 12345678h]",
             "cmovg r8,r9",
             "cmovle r10,r11",
             "cmovg rbp,[r13+12345678h]",
             "cmovle r14,[r15+12345678h]",
             "cmovle r14,[r12+12345678h]",
+            "cmovle r12,[rel 12345678h]",
         ]).unwrap();
     }
 
