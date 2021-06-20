@@ -1,5 +1,5 @@
 use super::super::super::{code};
-use super::super::{STATE_INDEX, Label, Pool};
+use super::super::{STATE_INDEX, Label, Word, Pool};
 use super::{Buffer, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
 use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
@@ -12,7 +12,7 @@ use ShiftOp::*;
 //-----------------------------------------------------------------------------
 
 /** The constants that [`Lowerer`] requires to be in the [`Pool`]. */
-pub const POOL_CONSTANTS: &[u64] = &[0];
+pub const POOL_CONSTANTS: &[Word] = &[Word {u: 0}];
 
 /** The offset of the zero constant in the pool. */
 const POOL_ZERO: usize = 0;
@@ -662,7 +662,7 @@ pub mod tests {
 
     #[test]
     fn constants() {
-        assert_eq!(POOL_CONSTANTS[POOL_ZERO], 0);
+        assert_eq!(POOL_CONSTANTS[POOL_ZERO], Word {u: 0});
         assert_eq!(POOL_CONSTANTS.len(), 1);
     }
 }

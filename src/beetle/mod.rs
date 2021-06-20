@@ -2,7 +2,7 @@ use std::convert::{TryFrom};
 use std::num::{Wrapping};
 use memoffset::{offset_of};
 
-use super::target::{Target};
+use super::target::{Target, Word};
 use super::{jit};
 use super::code::{
     self, TestOp, Precision, UnaryOp, BinaryOp, Width,
@@ -214,7 +214,7 @@ impl<T: Target> VM<T> {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
         self.state.memory = self.memory.as_mut_ptr() as u64;
-        *self.jit.global(code::Global(0)) = &mut self.state as *mut AllRegisters as u64;
+        *self.jit.global_mut(code::Global(0)) = Word {mp: (&mut self.state as *mut AllRegisters).cast()};
         let (jit, state) = self.jit.execute(&State::Root).expect("Execute failed");
         assert_eq!(state, State::Halt);
         self.jit = jit;

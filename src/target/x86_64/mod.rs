@@ -39,7 +39,7 @@ impl super::Target for Target {
 
     const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
-    fn constants(&self) -> &[u64] {
+    fn constants(&self) -> &[super::Word] {
         &POOL_CONSTANTS
     }
 

@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Label, Pool, Lowerer, Target, STATE_INDEX};
+use super::target::{Label, Word, Pool, Lowerer, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
@@ -41,7 +41,7 @@ pub struct Convention {
  *  - `new_index` - updated `current_index`.
  */
 type RunFn = extern "C" fn(
-    /* pool */ *mut u64,
+    /* pool */ *mut Word,
     /* current_index */ usize,
 ) -> /* new_index */ usize;
 
@@ -230,9 +230,8 @@ impl<T: Target> JitInner<T> {
         self
     }
 
-    pub fn global(&mut self, global: Global) -> &mut u64 {
-        let i = self.lowerer.pool().index_of_global(global);
-        &mut self.lowerer.pool_mut()[i]
+    pub fn global_mut(&mut self, global: Global) -> &mut Word {
+        &mut self.lowerer.pool_mut()[global]
     }
 
     /**
@@ -388,8 +387,8 @@ impl<M: Machine, T: Target> Jit<M, T> {
         &self.states
     }
 
-    pub fn global(&mut self, global: Global) -> &mut u64 {
-        self.inner.global(global)
+    pub fn global_mut(&mut self, global: Global) -> &mut Word {
+        self.inner.global_mut(global)
     }
 
     /** Ensure there is a root [`Specialization`] for `state`. */
@@ -491,11 +490,11 @@ pub mod tests {
         assert_eq!(jit.states(), &expected);
 
         // Run some "code".
-        *jit.global(Global::try_from(reg::N).unwrap()) = 5;
+        *jit.global_mut(Global::try_from(reg::N).unwrap()) = Word {u: 5};
         let (mut jit, final_state) = unsafe {
             jit.execute(&Start).expect("Execute failed")
         };
         assert_eq!(final_state, Return);
-        assert_eq!(*jit.global(Global::try_from(reg::RESULT).unwrap()), 120);
+        assert_eq!(*jit.global_mut(Global::try_from(reg::RESULT).unwrap()), Word {u: 120});
     }
 }

@@ -1,4 +1,6 @@
-use std::fmt::{Debug};
+use std::num::{Wrapping};
+use std::ops::{Index, IndexMut};
+use std::fmt::{self, Debug};
 
 use super::{code};
 use code::{Precision, Global, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
@@ -62,6 +64,35 @@ impl Default for Label {
 
 //-----------------------------------------------------------------------------
 
+/** An untyped 64-bit value. */
+#[repr(C)]
+#[derive(Copy, Clone, Eq)]
+pub union Word {
+    pub u: u64,
+    pub s: i64,
+    pub w: Wrapping<u64>,
+    pub p: *const (),
+    pub mp: *mut (),
+}
+
+impl Default for Word {
+    fn default() -> Self { Word {u: 0} }
+}
+
+impl Debug for Word {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.debug_struct("Word")
+            .field("u", &format!("{:#x}", unsafe {self.u}))
+            .finish()
+    }
+}
+
+impl PartialEq for Word {
+    fn eq(&self, other: &Self) -> bool {
+        unsafe {self.u == other.u}
+    }
+}
+
 /**
  * A contiguous array of 64-bit words, rewriteable at runtime by the compiled
  * code, providing storage to a virtual machine instance.
@@ -75,7 +106,7 @@ pub struct Pool {
     /** The number of [`Global`]s used by the [`code::Machine`]. */
     num_globals: usize,
     /** The words. */
-    pool: Vec<u64>,
+    pool: Vec<Word>,
 }
 
 impl Pool {
@@ -83,7 +114,7 @@ impl Pool {
     pub fn new(target: &impl Target, num_globals: usize) -> Self {
         let constants = target.constants();
         let num_constants = constants.len();
-        let mut pool = vec![0; num_constants + num_globals];
+        let mut pool = vec![Word::default(); num_constants + num_globals];
         pool[..num_constants].copy_from_slice(constants);
         Pool {num_constants, num_globals, pool}
     }
@@ -98,7 +129,7 @@ impl Pool {
     pub fn num_globals(&self) -> usize { self.num_globals }
 
     /** Provides access to the words. */
-    pub fn as_mut_ptr(&mut self) -> *mut u64 { self.pool.as_mut_ptr() }
+    pub fn as_mut_ptr(&mut self) -> *mut Word { self.pool.as_mut_ptr() }
 
     /** The position in the pool of the constant with the given index. */
     pub fn index_of_constant(&self, index: usize) -> usize {
@@ -118,13 +149,29 @@ impl Pool {
     }
 }
 
-impl std::ops::Index<usize> for Pool {
-    type Output = u64;
+impl Index<usize> for Pool {
+    type Output = Word;
     fn index(&self, index: usize) -> &Self::Output { &self.pool[index] }
 }
 
 impl std::ops::IndexMut<usize> for Pool {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output { &mut self.pool[index] }
+}
+
+impl Index<Global> for Pool {
+    type Output = Word;
+
+    fn index(&self, g: Global) -> &Self::Output {
+        let i = self.index_of_global(g);
+        &self[i]
+    }
+}
+
+impl IndexMut<Global> for Pool {
+    fn index_mut(&mut self, g: Global) -> &mut Self::Output {
+        let i = self.index_of_global(g);
+        &mut self[i]
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -258,7 +305,7 @@ pub trait Target {
     const NUM_REGISTERS: usize;
 
     /** Returns some constants to copy into the per-VM pool of memory. */
-    fn constants(&self) -> &[u64];
+    fn constants(&self) -> &[Word];
 
     /**
      * Construct a [`Lowerer`] for this `Target`.
