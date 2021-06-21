@@ -150,20 +150,20 @@ impl<B: Buffer> Lowerer<B> {
 
     /** Conditional branch. */
     fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
-        let patch = self.a.jump_if(cc, is_true, target.target);
+        let patch = self.a.jump_if(cc, is_true, target.target());
         target.push(patch);
     }
 
     /** Unconditional jump to a constant. */
     fn const_jump(&mut self, target: &mut Label) {
-        let patch = self.a.const_jump(target.target);
+        let patch = self.a.const_jump(target.target());
         target.push(patch);
     }
 
     /** Unconditional call to a constant. */
     #[allow(dead_code)]
     fn const_call(&mut self, target: &mut Label) {
-        let patch = self.a.const_call(target.target);
+        let patch = self.a.const_call(target.target());
         target.push(patch);
     }
 
@@ -341,9 +341,9 @@ impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
     fn here(&self) -> usize { self.a.get_pos() }
 
     fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
-        let loser_target = loser.target;
+        let loser_target = loser.target();
         for patch in loser.drain() {
-            self.a.patch(patch, winner.target, loser_target);
+            self.a.patch(patch, winner.target(), loser_target);
             winner.push(patch);
         }
     }
@@ -617,7 +617,7 @@ impl super::super::Execute for Lowerer<Mmap> {
         label: &Label,
         callback: impl FnOnce(&[u8], &mut [Word]) -> T,
     ) -> std::io::Result<(Self, T)> {
-        let target = label.target.expect("Label is not defined");
+        let target = label.target().expect("Label is not defined");
         let pool = self.pool.as_mut();
         let (a, ret) = self.a.use_buffer(|b| {
             b.execute(|bytes| callback(&bytes[target..], pool))
@@ -655,7 +655,7 @@ pub mod tests {
         let mut lo = Lowerer::new(new_assembler(), pool);
         let mut start = Label::new();
         lo.define(&mut start);
-        let start = start.target.unwrap();
+        let start = start.target().unwrap();
         let mut label = Label::new();
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
@@ -668,7 +668,7 @@ pub mod tests {
         ]).unwrap();
         lo.a.set_pos(LABEL);
         let old = lo.patch(&mut label);
-        assert_eq!(old.target, None);
+        assert_eq!(old.target(), None);
         lo.a.set_pos(len);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
@@ -677,7 +677,7 @@ pub mod tests {
         ]).unwrap();
         lo.a.set_pos(LABEL);
         let old = lo.patch(&mut label);
-        assert_eq!(old.target, Some(LABEL));
+        assert_eq!(old.target(), Some(LABEL));
         lo.a.set_pos(len);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",

@@ -20,14 +20,15 @@ pub struct Patch(usize);
 
 /**
  * Represents a possibly unknown control-flow target, and accumulates a
- * set of instructions that jump to it. The target of a `Label` can be
- * changed by calling [`patch()`].
+ * set of instructions that jump to it. Undefined `Label`s can be resolved
+ * using `Lowerer::define()`. The instructions that jump to a `Label`
+ * can be redirected to another `Label` using `Lowerer::steal()`.
  *
  * There may be more than one `Label` targeting the same address; each can
- * be [`patch()`]ed separately. Each control-flow instruction targets
+ * be [`steal()`]ed separately. Each control-flow instruction targets
  * exactly one `Label`.
  *
- * [`patch()`]: Lowerer::patch
+ * [`steal()`]: Lowerer::steal
  */
 #[derive(Debug)]
 pub struct Label {
@@ -41,9 +42,12 @@ impl Label {
         Label {target: None, patches: Vec::new()}
     }
 
+    /** Returns the target address of this `Label`, if known. */
+    pub fn target(&self) -> Option<usize> { self.target }
+
     /** Tests whether `label` has a known target address. */
     pub fn is_defined(&self) -> bool {
-        self.target.is_some()
+        self.target().is_some()
     }
 
     /** Appends `patch` to the list of instructions that jump to `self`. */
