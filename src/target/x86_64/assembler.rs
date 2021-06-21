@@ -11,7 +11,7 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 
-use super::super::{Patch};
+use super::super::label::{Patch};
 use super::{Buffer, CALLER_SAVES};
 
 /**
@@ -532,7 +532,7 @@ impl<B: Buffer> Assembler<B> {
     /** Conditional branch. */
     pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: Option<usize>)
     -> Patch {
-        let patch = Patch(self.get_pos());
+        let patch = Patch::new(self.get_pos());
         self.write_oo_0(cc.jump_if(is_true));
         self.write_imm32(UNKNOWN_DISP);
         self.patch(patch, target, None);
@@ -546,7 +546,7 @@ impl<B: Buffer> Assembler<B> {
 
     /** Unconditional jump to a constant. */
     pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
-        let patch = Patch(self.get_pos());
+        let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE940);
         self.write_imm32(UNKNOWN_DISP);
         self.patch(patch, target, None);
@@ -560,7 +560,7 @@ impl<B: Buffer> Assembler<B> {
 
     /** Unconditional call to a constant. */
     pub fn const_call(&mut self, target: Option<usize>) -> Patch {
-        let patch = Patch(self.get_pos());
+        let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE840);
         self.write_imm32(UNKNOWN_DISP);
         self.patch(patch, target, None);
@@ -575,7 +575,7 @@ impl<B: Buffer> Assembler<B> {
      * - old_target - an offset from the beginning of the buffer, or `None`.
      */
     pub fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
-        let pos = patch.0;
+        let pos = patch.address();
         #[allow(clippy::if_same_then_else)]
         let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
             // jump_if

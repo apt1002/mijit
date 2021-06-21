@@ -4,6 +4,9 @@ use code::{Precision, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
 mod pool;
 pub use pool::{Word, Pool};
 
+mod label;
+pub use label::{Label};
+
 pub mod x86_64;
 
 /**
@@ -11,59 +14,6 @@ pub mod x86_64;
  */
 // TODO: Somehow hide the state index from this module, and delete this.
 pub const STATE_INDEX: Register = code::REGISTERS[0];
-
-//-----------------------------------------------------------------------------
-
-/** Represents the address of an instruction that jumps to a `Label`. */
-#[derive(Debug, Copy, Clone)]
-pub struct Patch(usize);
-
-/**
- * Represents a possibly unknown control-flow target, and accumulates a
- * set of instructions that jump to it. Undefined `Label`s can be resolved
- * using `Lowerer::define()`. The instructions that jump to a `Label`
- * can be redirected to another `Label` using `Lowerer::steal()`.
- *
- * There may be more than one `Label` targeting the same address; each can
- * be [`steal()`]ed separately. Each control-flow instruction targets
- * exactly one `Label`.
- *
- * [`steal()`]: Lowerer::steal
- */
-#[derive(Debug)]
-pub struct Label {
-    target: Option<usize>,
-    patches: Vec<Patch>,
-}
-
-impl Label {
-    /** Constructs an unused `Label` with an unknown target address. */
-    pub fn new() -> Self {
-        Label {target: None, patches: Vec::new()}
-    }
-
-    /** Returns the target address of this `Label`, if known. */
-    pub fn target(&self) -> Option<usize> { self.target }
-
-    /** Tests whether `label` has a known target address. */
-    pub fn is_defined(&self) -> bool {
-        self.target().is_some()
-    }
-
-    /** Appends `patch` to the list of instructions that jump to `self`. */
-    pub fn push(&mut self, patch: Patch) {
-        self.patches.push(patch);
-    }
-
-    /** Returns and forgets all the instructions that jump to `self`. */
-    pub fn drain(&mut self) -> impl Iterator<Item=Patch> + '_ {
-        self.patches.drain(..)
-    }
-}
-
-impl Default for Label {
-    fn default() -> Self { Label::new() }
-}
 
 //-----------------------------------------------------------------------------
 
@@ -121,7 +71,7 @@ pub trait Lowerer: Sized {
      */
     fn patch(&mut self, label: &mut Label) -> Label {
         let mut old = Label::new();
-        old.target = Some(self.here());
+        label::define(&mut old, self.here());
         std::mem::swap(label, &mut old);
         self.steal(label, &mut old);
         old
