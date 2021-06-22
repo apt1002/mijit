@@ -11,8 +11,8 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 
-use super::super::label::{Patch};
-use super::{Buffer, CALLER_SAVES};
+use super::{buffer, Patch, CALLER_SAVES};
+use buffer::{Buffer};
 
 /**
  * All x86_64 registers that can be used interchangeably in our chosen subset

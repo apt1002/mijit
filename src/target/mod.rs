@@ -1,10 +1,10 @@
-use super::{code};
+use super::{buffer, code};
 
 mod pool;
 pub use pool::{Word, Pool};
 
 mod label;
-pub use label::{Label};
+pub use label::{Patch, Label};
 
 mod traits;
 pub use traits::{Lower, Execute, Target};

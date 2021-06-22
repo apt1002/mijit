@@ -1,8 +1,11 @@
-use super::super::super::{code};
-use super::super::{STATE_INDEX, Label, Word, Pool};
-use super::{Buffer, Mmap, Assembler, Register, CALLEE_SAVES, ARGUMENTS, RESULTS};
 use crate::util::{AsUsize};
-use super::assembler::{Precision, BinaryOp, ShiftOp, Condition, Width};
+use super::{
+    buffer, code,
+    Label, Word, Pool, STATE_INDEX,
+    Assembler, Precision, Register, BinaryOp, ShiftOp, Condition, Width,
+    CALLEE_SAVES, ARGUMENTS, RESULTS,
+};
+use buffer::{Buffer, Mmap};
 use code::{Action, TestOp, Global, Slot};
 use Register::*;
 use Precision::*;
@@ -331,7 +334,7 @@ impl<B: Buffer> Lowerer<B> {
 
 //-----------------------------------------------------------------------------
 
-impl<B: Buffer> super::super::Lower for Lowerer<B> {
+impl<B: Buffer> super::Lower for Lowerer<B> {
     fn pool(&self) -> &Pool { &self.pool }
 
     fn pool_mut(&mut self) -> &mut Pool { &mut self.pool }
@@ -611,7 +614,9 @@ impl<B: Buffer> super::super::Lower for Lowerer<B> {
     }
 }
 
-impl super::super::Execute for Lowerer<Mmap> {
+//-----------------------------------------------------------------------------
+
+impl super::Execute for Lowerer<Mmap> {
     fn execute<T>(
         mut self,
         label: &Label,

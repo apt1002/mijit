@@ -1,4 +1,5 @@
-use super::super::buffer::{Buffer, Mmap};
+use super::{buffer, code, Patch, Label, Word, Pool, Lower, Execute, STATE_INDEX};
+use buffer::{Mmap};
 
 mod assembler;
 pub use assembler::{Assembler, Precision, Register, BinaryOp, ShiftOp, Condition, Width};
