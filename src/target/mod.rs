@@ -19,15 +19,16 @@ pub const STATE_INDEX: Register = code::REGISTERS[0];
 
 /**
  * Wraps a contiguous block of executable memory, and provides methods for
- * assembling machine code into it.
+ * assembling machine code into it. Also wraps a [`Pool`] that can be accessed
+ * by the machine code.
  *
  * The low-level memory address of the executable memory will remain constant
  * while the code is executing, but it could change at other times, e.g.
- * because the buffer grows and gets reallocated. Therefore, be wary of absolute
- * memory addresses. Lowerer itself never uses them. For code addresses,
- * use [`Label`].
+ * because the buffer grows and gets reallocated. Therefore, be wary of
+ * absolute memory addresses. `Lower` itself always expresses addresses as
+ * a byte offset into the code area. [`Label`] provides a higher-level API.
  */
-pub trait Lowerer: Sized {
+pub trait Lower: Sized {
     /** The [`Pool`]. */
     fn pool(&self) -> &Pool;
 
@@ -48,7 +49,7 @@ pub trait Lowerer: Sized {
      */
     fn slots_used(&mut self) -> &mut usize;
 
-    /** Returns the current assembly address. */
+    /** Returns the current assembly address (a byte offset into the code). */
     fn here(&self) -> usize;
 
     /**
@@ -139,8 +140,8 @@ pub trait Lowerer: Sized {
 
 //-----------------------------------------------------------------------------
 
-/** Add to a [`Lowerer`] the ability to execute the compiled code. */
-pub trait Execute: Sized + Lowerer {
+/** Add to [`Lower`] the ability to execute the compiled code. */
+pub trait Execute: Sized + Lower {
     /**
      * Make the memory backing `self` executable, pass the code at `label` and
      * the words of the [`Pool`] to `callback`, then make the memory writeable
@@ -160,7 +161,7 @@ pub trait Execute: Sized + Lowerer {
 //-----------------------------------------------------------------------------
 
 pub trait Target {
-    type Lowerer: Lowerer + Execute;
+    type Lowerer: Lower + Execute;
 
     /** The number of registers available for allocation. */
     const NUM_REGISTERS: usize;

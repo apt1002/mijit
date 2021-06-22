@@ -331,7 +331,7 @@ impl<B: Buffer> Lowerer<B> {
 
 //-----------------------------------------------------------------------------
 
-impl<B: Buffer> super::super::Lowerer for Lowerer<B> {
+impl<B: Buffer> super::super::Lower for Lowerer<B> {
     fn pool(&self) -> &Pool { &self.pool }
 
     fn pool_mut(&mut self) -> &mut Pool { &mut self.pool }
@@ -636,7 +636,7 @@ pub mod tests {
     use super::*;
     use super::super::assembler::tests::{new_assembler, disassemble};
     use super::super::Condition::Z;
-    use super::super::super::{Lowerer as _};
+    use super::super::super::{Lower as _};
 
     const LABEL: usize = 0x02461357;
 

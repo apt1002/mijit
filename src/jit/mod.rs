@@ -3,7 +3,7 @@ use indexmap::{IndexSet};
 
 use crate::util::{AsUsize};
 use super::{code, optimizer};
-use super::target::{Label, Word, Pool, Lowerer, Execute, Target, STATE_INDEX};
+use super::target::{Label, Word, Pool, Lower, Execute, Target, STATE_INDEX};
 use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
 use Precision::*;
 
