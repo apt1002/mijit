@@ -14,9 +14,11 @@ crate_type = ["rlib", "cdylib"]
 memmap = "0.6.2"
 memoffset = "0.6"
 indexmap = "1.4.0"
+
+[dev-dependencies]
 rand = "0.7"
 
-[dependencies.iced-x86]
+[dev-dependencies.iced-x86]
 version = "1.2.0"
 default-features = false
 # See below for all features
