@@ -7,7 +7,7 @@ mod label;
 pub use label::{Patch, Label};
 
 mod traits;
-pub use traits::{Lower, Execute, Target};
+pub use traits::{Lower, ExecuteFn, Execute, Target};
 
 pub mod x86_64;
 

@@ -124,6 +124,12 @@ pub trait Lower: Sized {
 
 //-----------------------------------------------------------------------------
 
+/** The type of the generated code. */
+pub type ExecuteFn = extern "C" fn(
+    /* pool */ *mut Word,
+    /* argument */ Word,
+) -> /* result */ Word;
+
 /** Add to [`Lower`] the ability to execute the compiled code. */
 pub trait Execute: Sized + Lower {
     /**
@@ -138,7 +144,7 @@ pub trait Execute: Sized + Lower {
     fn execute<T>(
         self,
         label: &Label,
-        callback: impl FnOnce(&[u8], &mut [Word]) -> T,
+        callback: impl FnOnce(ExecuteFn, &mut Pool) -> T,
     ) -> std::io::Result<(Self, T)>;
 }
 

@@ -34,17 +34,6 @@ pub struct Convention {
     pub slots_used: usize,
 }
 
-/**
- * The type of the generated code.
- *  - `current_index` - the index of the current `M::State` in `states`.
- * Returns:
- *  - `new_index` - updated `current_index`.
- */
-type RunFn = extern "C" fn(
-    /* pool */ *mut Word,
-    /* current_index */ usize,
-) -> /* new_index */ usize;
-
 //-----------------------------------------------------------------------------
 
 // Specialization
@@ -324,10 +313,9 @@ impl<T: Target> JitInner<T> {
      * This will crash if the code is compiled for the wrong [`Target`] or if
      * the code returned by the [`Machine`] is invalid.
      */
-    pub unsafe fn execute(mut self, argument: usize) -> std::io::Result<(Self, usize)> {
+    pub unsafe fn execute(mut self, argument: Word) -> std::io::Result<(Self, Word)> {
         // FIXME: assert we are on x86_64 at compile time.
-        let (lowerer, ret) = self.lowerer.execute(&self.entry_point, |bytes, pool| {
-            let f: RunFn = unsafe { std::mem::transmute(&bytes[0]) };
+        let (lowerer, ret) = self.lowerer.execute(&self.entry_point, |f, pool| {
             // Here is a good place to set a gdb breakpoint.
             f(pool.as_mut().as_mut_ptr(), argument)
         })?;
@@ -454,7 +442,9 @@ impl<M: Machine, T: Target> Jit<M, T> {
      */
     pub unsafe fn execute(mut self, state: &M::State) -> std::io::Result<(Self, M::State)> {
         let index = self.states.get_index_of(state).expect("invalid state");
+        let index = Word {u: index as u64};
         let (inner, new_index) = self.inner.execute(index)?;
+        let new_index = new_index.u as usize;
         self.inner = inner;
         let new_state = self.states.get_index(new_index).expect("invalid index").clone();
         Ok((self, new_state))
