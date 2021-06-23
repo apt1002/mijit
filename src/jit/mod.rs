@@ -202,10 +202,10 @@ impl<T: Target> JitInner<T> {
         let lowerer = target.lowerer(pool, code_size);
         let internals = Internals {
             specializations: Vec::new(),
-            fetch_label: Label::new(),
-            retire_label: Label::new(),
+            fetch_label: Label::new(None),
+            retire_label: Label::new(None),
         };
-        let entry_point = Label::new();
+        let entry_point = Label::new(None);
         JitInner {_target: target, lowerer, entry_point, internals}._init()
     }
 
@@ -243,13 +243,11 @@ impl<T: Target> JitInner<T> {
     ) -> Specialization {
         let lo = &mut self.lowerer;
         *lo.slots_used() = self.internals.slots_used(fetch_parent);
-        let mut fetch_label = Label::new();
-        let mut retire_label = Label::new();
+        let mut fetch_label = Label::new(None);
+        let mut retire_label = Label::new(None);
         // Compile `guard`.
         let if_fail = self.internals.retire_label(fetch_parent);
-        let mut test = Label::new();
-        lo.define(&mut test);
-        lo.steal(&mut test, if_fail);
+        lo.steal(&mut lo.here(), if_fail);
         lo.lower_test_op(guard, if_fail);
         // Compile `fetch_code`.
         for &action in fetch_code.iter() {

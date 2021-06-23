@@ -9,8 +9,8 @@ use code::{Precision, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
  * The low-level memory address of the executable memory will remain constant
  * while the code is executing, but it could change at other times, e.g.
  * because the buffer grows and gets reallocated. Therefore, be wary of
- * absolute memory addresses. `Lower` itself always expresses addresses as
- * a byte offset into the code area. [`Label`] provides a higher-level API.
+ * absolute memory addresses. `Lower` itself always expresses addresses using
+ * [`Label`].
  */
 pub trait Lower: Sized {
     /** The [`Pool`]. */
@@ -33,8 +33,8 @@ pub trait Lower: Sized {
      */
     fn slots_used(&mut self) -> &mut usize;
 
-    /** Returns the current assembly address (a byte offset into the code). */
-    fn here(&self) -> usize;
+    /** Returns the current assembly address as a fresh [`Label`]. */
+    fn here(&self) -> Label;
 
     /**
      * Modifies all instructions that jump to `loser` so that they instead
@@ -46,8 +46,7 @@ pub trait Lower: Sized {
     fn define(&mut self, label: &mut Label) {
         assert!(!label.is_defined());
         // Use `steal()` to modify all instructions that jump to `label`.
-        let mut new = Label::new();
-        super::label::define(&mut new, self.here());
+        let mut new = self.here();
         self.steal(&mut new, label);
         *label = new;
     }

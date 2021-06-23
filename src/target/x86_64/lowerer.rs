@@ -341,7 +341,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn slots_used(&mut self) -> &mut usize { &mut self.slots_used }
 
-    fn here(&self) -> usize { self.a.get_pos() }
+    fn here(&self) -> Label { Label::new(Some(self.a.get_pos())) }
 
     fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
         let loser_target = loser.target();
@@ -661,35 +661,26 @@ pub mod tests {
     fn steal() {
         let pool = Pool::new(0);
         let mut lo = Lowerer::new(new_assembler(), pool);
-        let mut start = Label::new();
-        lo.define(&mut start);
-        let start = start.target().unwrap();
-        let mut label = Label::new();
+        let start = lo.here().target().unwrap();
+        let mut label = Label::new(None);
         lo.jump_if(Z, true, &mut label);
         lo.const_jump(&mut label);
         lo.const_call(&mut label);
-        let len = lo.a.get_pos();
         disassemble(&lo.a, start, vec![
             "je near 0FFFFFFFF80000046h",
             "jmp 0FFFFFFFF8000004Ch",
             "call 0FFFFFFFF80000052h",
         ]).unwrap();
-        lo.a.set_pos(LABEL);
-        let mut new_label = Label::new();
-        lo.define(&mut new_label);
+        let mut new_label = Label::new(Some(LABEL));
         lo.steal(&mut new_label, &mut label);
         label = new_label;
-        lo.a.set_pos(len);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",
             "call 0000000002461357h",
         ]).unwrap();
-        lo.a.set_pos(LABEL);
-        let mut new_label = Label::new();
-        lo.define(&mut new_label);
+        let mut new_label = Label::new(Some(LABEL));
         lo.steal(&mut new_label, &mut label);
-        lo.a.set_pos(len);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",

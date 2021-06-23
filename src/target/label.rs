@@ -21,7 +21,7 @@ impl Patch {
  * be [`steal()`]ed separately. Each control-flow instruction targets
  * exactly one `Label`.
  *
- * [`steal()`]: Lowerer::steal
+ * [`steal()`]: super::Lower::steal
  */
 #[derive(Debug)]
 pub struct Label {
@@ -30,15 +30,18 @@ pub struct Label {
 }
 
 impl Label {
-    /** Constructs an unused `Label` with an unknown target address. */
-    pub fn new() -> Self {
-        Label {target: None, patches: Vec::new()}
+    /**
+     * Constructs an unused `Label`. See also [`here()`]
+     *  - target - the low-level target address of the `Label`, if known,
+     *    expressed as a byte offset into the compiled code.
+     *
+     * [here()]: super::Lower::here
+     */
+    pub fn new(target: Option<usize>) -> Self {
+        Label {target, patches: Vec::new()}
     }
 
-    /**
-     * Returns the low-level target address of this `Label`, if known. The
-     * address is expressed as a byte offset into the compiled code area.
-     */
+    /** Returns the low-level target address of this `Label`, if known. */
     pub fn target(&self) -> Option<usize> { self.target }
 
     /** Tests whether `label` has a known target address. */
@@ -58,11 +61,5 @@ impl Label {
 }
 
 impl Default for Label {
-    fn default() -> Self { Label::new() }
-}
-
-/** Define `label`, which must not previously have been defined. */
-pub fn define(label: &mut Label, target: usize) {
-    assert!(!label.is_defined());
-    label.target = Some(target);
+    fn default() -> Self { Label::new(None) }
 }
