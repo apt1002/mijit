@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{
     buffer, code,
-    Label, Word, Pool, STATE_INDEX,
+    Patch, Label, Word, Pool, STATE_INDEX,
     Assembler, Precision, Register, BinaryOp, ShiftOp, Condition, Width,
     CALLEE_SAVES, ARGUMENTS, RESULTS,
 };
@@ -343,12 +343,8 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn here(&self) -> Label { Label::new(Some(self.a.get_pos())) }
 
-    fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
-        let loser_target = loser.target();
-        for patch in loser.drain() {
-            self.a.patch(patch, winner.target(), loser_target);
-            winner.push(patch);
-        }
+    fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
+        self.a.patch(patch, old_target, new_target);
     }
 
     fn jump(&mut self, label: &mut Label) {

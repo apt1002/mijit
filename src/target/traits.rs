@@ -1,4 +1,4 @@
-use super::{code, Word, Pool, Label};
+use super::{code, Word, Pool, Patch, Label};
 use code::{Precision, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
 
 /**
@@ -37,10 +37,24 @@ pub trait Lower: Sized {
     fn here(&self) -> Label;
 
     /**
+     * Modify the instruction at `patch` so that instead of jumping to
+     * `old_target` it jumps to `new_target`.
+     *
+     * Normally you should prefer `steal()` or `define()`, which call this.
+     */
+    fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>);
+
+    /**
      * Modifies all instructions that jump to `loser` so that they instead
      * jump to `winner`.
      */
-    fn steal(&mut self, winner: &mut Label, loser: &mut Label);
+    fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
+        let loser_target = loser.target();
+        for patch in loser.drain() {
+            self.patch(patch, winner.target(), loser_target);
+            winner.push(patch);
+        }
+    }
 
     /** Define `label`, which must not previously have been defined. */
     fn define(&mut self, label: &mut Label) {
