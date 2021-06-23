@@ -245,14 +245,19 @@ impl<T: Target> JitInner<T> {
         *lo.slots_used() = self.internals.slots_used(fetch_parent);
         let mut fetch_label = Label::new();
         let mut retire_label = Label::new();
+        // Compile `guard`.
         let if_fail = self.internals.retire_label(fetch_parent);
-        *if_fail = lo.patch(if_fail);
+        let mut test = Label::new();
+        lo.define(&mut test);
+        lo.steal(&mut test, if_fail);
         lo.lower_test_op(guard, if_fail);
+        // Compile `fetch_code`.
         for &action in fetch_code.iter() {
             lo.lower_action(action);
         }
         lo.define(&mut fetch_label);
         lo.jump(&mut retire_label);
+        // Compile `retire_code`.
         assert_eq!(*lo.slots_used(), convention.slots_used);
         lo.define(&mut retire_label);
         // TODO: Optimize the case where `retire_code` is empty.
