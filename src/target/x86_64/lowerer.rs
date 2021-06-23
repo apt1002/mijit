@@ -658,7 +658,7 @@ pub mod tests {
 
     /** Test that we can patch jumps and calls. */
     #[test]
-    fn patch() {
+    fn steal() {
         let pool = Pool::new(0);
         let mut lo = Lowerer::new(new_assembler(), pool);
         let mut start = Label::new();
@@ -675,8 +675,10 @@ pub mod tests {
             "call 0FFFFFFFF80000052h",
         ]).unwrap();
         lo.a.set_pos(LABEL);
-        let old = lo.patch(&mut label);
-        assert_eq!(old.target(), None);
+        let mut new_label = Label::new();
+        lo.define(&mut new_label);
+        lo.steal(&mut new_label, &mut label);
+        label = new_label;
         lo.a.set_pos(len);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
@@ -684,8 +686,9 @@ pub mod tests {
             "call 0000000002461357h",
         ]).unwrap();
         lo.a.set_pos(LABEL);
-        let old = lo.patch(&mut label);
-        assert_eq!(old.target(), Some(LABEL));
+        let mut new_label = Label::new();
+        lo.define(&mut new_label);
+        lo.steal(&mut new_label, &mut label);
         lo.a.set_pos(len);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",

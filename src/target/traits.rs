@@ -42,30 +42,14 @@ pub trait Lower: Sized {
      */
     fn steal(&mut self, winner: &mut Label, loser: &mut Label);
 
-    /**
-     * Sets the target of `label` to the current assembly address, and writes
-     * it into all the instructions that jump to `label`. If `label` has not
-     * been defined before, prefer `define(&mut Label)`, which calls this.
-     *
-     * It is permitted to patch a Label more than once. For example, you could
-     * set the target to one bit of code, execute it for a while, then set the
-     * target to a different bit of code, and execute that.
-     *
-     * Returns the old target of this Label as a fresh (unused) Label. This is
-     * useful if you want to assemble some new code that jumps to the old code.
-     */
-    fn patch(&mut self, label: &mut Label) -> Label {
-        let mut old = Label::new();
-        super::label::define(&mut old, self.here());
-        std::mem::swap(label, &mut old);
-        self.steal(label, &mut old);
-        old
-    }
-
     /** Define `label`, which must not previously have been defined. */
     fn define(&mut self, label: &mut Label) {
         assert!(!label.is_defined());
-        let _unused_and_undefined = self.patch(label);
+        // Use `steal()` to modify all instructions that jump to `label`.
+        let mut new = Label::new();
+        super::label::define(&mut new, self.here());
+        self.steal(&mut new, label);
+        *label = new;
     }
 
     /** Assemble an unconditional jump to `label`. */
