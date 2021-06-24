@@ -43,7 +43,7 @@ mod tests {
     fn add5() {
         let target = native();
         let pool = Pool::new(0);
-        let mut lo = target.lowerer(pool, 0x1000);
+        let mut lo = target.lowerer(pool);
         let start = lo.here();
         lo.lower_prologue();
         lo.lower_action(Action::Constant(P64, R1, 5));

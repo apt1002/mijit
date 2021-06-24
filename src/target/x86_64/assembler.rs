@@ -282,9 +282,9 @@ pub struct Assembler<B: Buffer> {
 }
 
 impl<B: Buffer> Assembler<B> {
-    /** Construct an Assembler that writes to `buffer` */
-    pub fn new(buffer: B) -> Self {
-        Assembler {buffer: buffer}
+    /** Construct an Assembler. */
+    pub fn new() -> Self {
+        Assembler {buffer: B::new()}
     }
 
     /** Apply `callback` to the contained [`Buffer`]. */
@@ -718,10 +718,6 @@ pub mod tests {
     const ALL_WIDTHS: [Width; 8] =
         [U8, S8, U16, S16, U32, S32, U64, S64];
 
-    pub fn new_assembler() -> Assembler<VecU8> {
-        Assembler::new(VecU8::new(vec![0u8; 0x1000]))
-    }
-
     /**
      * Disassemble the code that has been assembled by `a` as if the [`Buffer`]
      * were at offset 0.
@@ -769,7 +765,7 @@ pub mod tests {
 
     #[test]
     fn test_disassemble() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         a.buffer.write(0x00005510245C8948, 6);
         disassemble(&a, 0, vec![
             "mov [rsp+10h],rbx",
@@ -784,7 +780,7 @@ pub mod tests {
     /** Test that the Registers are named correctly. */
     #[test]
     fn regs() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &r in &ALL_REGISTERS {
             a.move_(P32, r, r);
         }
@@ -811,7 +807,7 @@ pub mod tests {
     /** Test that the Precisions are named correctly. */
     #[test]
     fn precs() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.move_(p, RA, RA);
         }
@@ -824,7 +820,7 @@ pub mod tests {
     /** Test that we can assemble all the different sizes of constant. */
     #[test]
     fn const_() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             for &c in &[0, 1, 1000, 0x76543210, 0x76543210FEDCBA98] {
                 a.const_(p, R8, c);
@@ -858,7 +854,7 @@ pub mod tests {
     /** Test that we can assemble all the different kinds of "MOV". */
     #[test]
     fn move_() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.move_(p, R10, R9);
             a.store(p, (R8, DISP), R10);
@@ -886,7 +882,7 @@ pub mod tests {
     /** Test that all the BinaryOps are named correctly. */
     #[test]
     fn binary_op() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &op in &ALL_BINARY_OPS {
             a.op(op, P32, R10, R9);
         }
@@ -905,7 +901,7 @@ pub mod tests {
     /** Test that we can assemble BinaryOps in all the different ways. */
     #[test]
     fn binary_mode() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.op(Add, p, R10, R9);
             a.const_op(Add, p, R10, IMM);
@@ -927,7 +923,7 @@ pub mod tests {
     /** Test that all the ShiftOps are named correctly. */
     #[test]
     fn shift_op() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &op in &ALL_SHIFT_OPS {
             a.shift(op, P32, R8);
         }
@@ -945,7 +941,7 @@ pub mod tests {
     /** Test that we can assemble ShiftOps in all the different ways. */
     #[test]
     fn shift_mode() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.shift(Shl, p, R8);
             a.const_shift(Shl, p, R8, 7);
@@ -961,7 +957,7 @@ pub mod tests {
     /** Test that we can assemble multiplications in all the different ways. */
     #[test]
     fn mul() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.mul(p, R8, R9);
             a.const_mul(p, R10, R11, IMM);
@@ -983,7 +979,7 @@ pub mod tests {
     /** Test that we can assemble divisions in all the different ways. */
     #[test]
     fn div() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.udiv(p, R8);
             a.load_udiv(p, (R14, DISP));
@@ -1005,7 +1001,7 @@ pub mod tests {
      */
     #[test]
     fn condition() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         let target = Some(0x28); // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
             a.jump_if(cc, true, target);
@@ -1050,7 +1046,7 @@ pub mod tests {
     /** Test that we can assemble conditional moves and loads. */
     #[test]
     fn move_if() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             a.move_if(G, true, p, R8, R9);
             a.move_if(G, false, p, R10, R11);
@@ -1078,7 +1074,7 @@ pub mod tests {
     /** Test that we can assemble the different kinds of unconditional jump. */
     #[test]
     fn jump() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         a.jump(R8);
         a.const_jump(Some(LABEL));
         disassemble(&a, 0, vec![
@@ -1090,7 +1086,7 @@ pub mod tests {
     /** Test that we can assemble the different kinds of call and return. */
     #[test]
     fn call_ret() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         a.call(R8);
         a.const_call(Some(LABEL));
         a.ret();
@@ -1104,7 +1100,7 @@ pub mod tests {
     /** Test that we can assemble "PUSH" and "POP". */
     #[test]
     fn push_pop() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         a.push(R8);
         a.pop(R9);
         disassemble(&a, 0, vec![
@@ -1116,7 +1112,7 @@ pub mod tests {
     /** Test that we can assemble loads and stores for narrow data. */
     #[test]
     fn narrow() {
-        let mut a = new_assembler();
+        let mut a = Assembler::<VecU8>::new();
         for &p in &ALL_PRECISIONS {
             for &w in &ALL_WIDTHS {
                 a.load_narrow(p, w, R9, (R8, DISP));

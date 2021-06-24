@@ -1,9 +1,9 @@
-use super::buffer::{Mmap};
+use super::buffer::{Buffer, Mmap};
 
 /** Allocates a new empty Buffer. */
 #[no_mangle]
-pub extern fn mijit_new(capacity: usize) -> Option<Box<Mmap>> {
-    Mmap::new(capacity).ok().map(Box::new)
+pub extern fn mijit_new() -> Box<Mmap> {
+    Box::new(Mmap::new())
 }
 
 /** Frees a Buffer. */

@@ -162,5 +162,5 @@ pub trait Target {
      *  - `code_size` - The amount of memory to allocate for executable code.
      */
     // TODO: Remove `code_size` and make the lowerer auto-extend its buffer.
-    fn lowerer(&self, pool: Pool, code_size: usize) -> Self::Lowerer;
+    fn lowerer(&self, pool: Pool) -> Self::Lowerer;
 }

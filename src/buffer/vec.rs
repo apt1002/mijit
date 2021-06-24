@@ -28,6 +28,14 @@ impl DerefMut for VecU8 {
 }
 
 impl Buffer for VecU8 {
+    fn new() -> Self {
+        VecU8 {buffer: Vec::new(), pos: 0}
+    }
+
+    fn resize(&mut self, min_length: usize) {
+        self.buffer.resize(min_length, 0);
+    }
+
     fn get_pos(&self) -> usize { self.pos }
     fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 }

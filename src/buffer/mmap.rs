@@ -2,7 +2,10 @@ use std::ops::{Deref, DerefMut};
 use memmap::{MmapMut};
 use super::{Buffer};
 
-#[repr(C)]
+/**
+ * Represents a block of memory claimed from the operating system using
+ * `mmap()`. Memory allocated in this way can be made executable.
+ */
 pub struct Mmap {
     memory: MmapMut,
     /// The write pointer: an index into `memory`.
@@ -10,11 +13,6 @@ pub struct Mmap {
 }
 
 impl Mmap {
-    /** Allocates an [`Mmap`]. Returns `None` if not possible. */
-    pub fn new(capacity: usize) -> std::io::Result<Self> {
-        Ok(Mmap {memory: MmapMut::map_anon(capacity)?, pos: 0})
-    }
-
     /**
      * Make this [`Mmap`] executable, pass it to `callback`, then make it
      * writeable again.
@@ -47,6 +45,19 @@ impl DerefMut for Mmap {
 }
 
 impl Buffer for Mmap {
+    fn new() -> Self {
+        let memory = MmapMut::map_anon(0x1000).expect("Out of memory");
+        Mmap {memory, pos: 0}
+    }
+
+    fn resize(&mut self, min_length: usize) {
+        if min_length > self.len() {
+            let mut new_memory = MmapMut::map_anon(min_length).expect("Out of memory");
+            new_memory[..self.len()].copy_from_slice(&self.memory);
+            self.memory = new_memory
+        }
+    }
+
     fn get_pos(&self) -> usize { self.pos }
     fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 }
@@ -59,13 +70,13 @@ pub mod tests {
 
     #[test]
     fn api() {
-        let buffer = Mmap::new(0x1000).expect("Couldn't allocate");
+        let buffer = Mmap::new();
         super::super::tests::api(buffer)
     }
 
     #[test]
     fn execute() {
-        let buffer = Mmap::new(0x1000).expect("Couldn't allocate");
+        let buffer = Mmap::new();
         let (_buffer, result) = buffer.execute(|_bytes| 42)
             .expect("Couldn't change permissions");
         assert_eq!(result, 42);

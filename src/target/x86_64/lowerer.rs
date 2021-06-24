@@ -121,7 +121,8 @@ pub struct Lowerer<B: Buffer> {
 }
 
 impl<B: Buffer> Lowerer<B> {
-    pub fn new(mut a: Assembler<B>, pool: Pool) -> Self {
+    pub fn new(pool: Pool) -> Self {
+        let mut a = Assembler::new();
         // Fill the first cache line with useful constants.
         for &word in &CONSTANTS {
             a.write_imm64(unsafe {word.s});
@@ -650,7 +651,7 @@ pub mod tests {
     use std::mem::{size_of};
 
     use super::*;
-    use super::super::assembler::tests::{new_assembler, disassemble};
+    use super::super::assembler::tests::{disassemble};
     use super::super::Condition::Z;
     use super::super::super::{Lower as _};
 
@@ -668,7 +669,7 @@ pub mod tests {
     #[test]
     fn steal() {
         let pool = Pool::new(0);
-        let mut lo = Lowerer::new(new_assembler(), pool);
+        let mut lo = Lowerer::<buffer::VecU8>::new(pool);
         let start = lo.here().target().unwrap();
         let mut label = Label::new(None);
         lo.jump_if(Z, true, &mut label);

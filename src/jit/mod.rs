@@ -226,9 +226,9 @@ pub struct JitInner<T: Target> {
 }
 
 impl<T: Target> JitInner<T> {
-    pub fn new(target: T, code_size: usize, num_globals: usize) -> Self {
+    pub fn new(target: T, num_globals: usize) -> Self {
         let pool = Pool::new(num_globals);
-        let lowerer = target.lowerer(pool, code_size);
+        let lowerer = target.lowerer(pool);
         let internals = Internals {
             specializations: Vec::new(),
             fetch_label: Label::new(None),
@@ -426,9 +426,9 @@ pub struct Jit<M: Machine, T: Target> {
 }
 
 impl<M: Machine, T: Target> Jit<M, T> {
-    pub fn new(machine: M, target: T, code_size: usize) -> Self {
+    pub fn new(machine: M, target: T) -> Self {
         // Construct the `JitInner`.
-        let inner = JitInner::new(target, code_size, machine.num_globals());
+        let inner = JitInner::new(target, machine.num_globals());
 
         // Construct the Jit.
         let states = IndexSet::new();
@@ -543,15 +543,12 @@ pub mod tests {
 
     use super::super::target::{Word, native};
 
-    /** An amount of code space suitable for running tests. */
-    pub const CODE_SIZE: usize = 1 << 20;
-
     #[test]
     pub fn factorial() {
         use factorial::*;
         use State::*;
 
-        let mut jit = Jit::new(Machine, native(), CODE_SIZE);
+        let mut jit = Jit::new(Machine, native());
 
         // Check the `states` list.
         let expected: IndexSet<_> = vec![
