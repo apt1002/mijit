@@ -1,4 +1,4 @@
-use super::{buffer};
+use super::{buffer, Patch};
 
 mod assembler;
 pub use assembler::{Assembler, Register, Condition, RSP};
