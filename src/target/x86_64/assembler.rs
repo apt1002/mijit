@@ -678,11 +678,11 @@ pub mod tests {
     use ShiftOp::*;
     use Condition::*;
 
-    use std::cmp::{max};
+    use std::cmp::{min, max};
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
 
-    use super::super::super::super::buffer::{VecU8};
+    use buffer::{VecU8};
 
     const ALL_REGISTERS: [Register; 16] =
         [RA, RC, RD, RB, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
@@ -712,15 +712,11 @@ pub mod tests {
         decoder.set_ip(start_address as u64);
         let mut formatter = NasmFormatter::new();
         let mut ips = Vec::new();
-        let mut hex_dumps = Vec::new();
+        let mut lens = Vec::new();
         let mut observed = Vec::new();
         for instruction in decoder {
-            let start = instruction.ip() as usize - start_address;
-            let len = instruction.len() as usize;
-            ips.push(start);
-            hex_dumps.push(code_bytes[start..][..len].iter().rev().map(
-                |b| format!("{:02X}", b)
-            ).collect::<Vec<String>>().join(" "));
+            ips.push(instruction.ip() as usize);
+            lens.push(instruction.len() as usize);
             let mut assembly = String::with_capacity(80);
             formatter.format(&instruction, &mut assembly);
             observed.push(assembly);
@@ -732,8 +728,13 @@ pub mod tests {
             let e_line = if i < expected.len() { &expected[i] } else { "missing" };
             let o_line = if i < observed.len() { &observed[i] } else { "missing" };
             if e_line != o_line {
+                let instruction_bytes = &a.buffer[ips[i]..a.get_pos()];
+                let instruction_bytes = &instruction_bytes[..min(instruction_bytes.len(), lens[i])];
+                let hex_dump = instruction_bytes.iter().rev().map(
+                    |b| format!("{:02X}", b)
+                ).collect::<Vec<String>>().join(" ");
                 println!("Difference in line {}", i+1);
-                println!("{:016X}   {:>32}   {}", ips[i], hex_dumps[i], o_line);
+                println!("{:016X}   {:>32}   {}", ips[i], hex_dump, o_line);
                 println!("{:>16}   {:>32}   {}", "Expected", "", e_line);
                 error = true;
             }

@@ -1,3 +1,6 @@
+use super::{buffer};
+use buffer::{Buffer};
+
 /**
  * All AArch64 registers. For our purposes, `IP0` (=`R16`) and `IP1` (=`R17`)
  * are ordinary registers. We also include R18, despite [ARM's advice].
@@ -39,4 +42,111 @@ pub enum Condition {
     HI = 0x8, LS = 0x9,
     GE = 0xA, LT = 0xB,
     GT = 0xC, LE = 0xD,
+}
+
+//-----------------------------------------------------------------------------
+
+/**
+ * An assembler, implementing a regularish subset of aarch64.
+ */
+pub struct Assembler<B: Buffer> {
+    /// The area we're filling with code.
+    buffer: B,
+}
+
+impl<B: Buffer> Assembler<B> {
+    /** Construct an Assembler that writes to `buffer`. */
+    pub fn new() -> Self {
+        Assembler {buffer: B::new()}
+    }
+
+    /** Apply `callback` to the contained [`Buffer`]. */
+    pub fn use_buffer<T>(
+        mut self,
+        callback: impl FnOnce(B) -> std::io::Result<(B, T)>,
+    ) -> std::io::Result<(Self, T)> {
+        let (buffer, ret) = callback(self.buffer)?;
+        self.buffer = buffer;
+        Ok((self, ret))
+    }
+
+    /** Get the assembly pointer. */
+    pub fn get_pos(&self) -> usize {
+        self.buffer.get_pos()
+    }
+
+    /** Set the assembly pointer. */
+    pub fn set_pos(&mut self, pos: usize) {
+        self.buffer.set_pos(pos);
+    }
+}
+
+impl<B: Buffer> Default for Assembler<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    use std::cmp::{min, max};
+
+    use buffer::{VecU8};
+
+    /**
+     * Disassemble the code that has been assembled by `a` as if the [`Buffer`]
+     * were at offset 0.
+     *  - `a` - an assembler which has generated some code.
+     *  - `start_address` - the address (relative to the `Buffer`) at which to
+     *    start disassembling.
+     *  - `expected` - the expected disassembly of the code.
+     */
+    pub fn disassemble<B: Buffer>(a: &Assembler<B>, start_address: usize, expected: Vec<&str>)
+    -> Result<(), Vec<String>> {
+        // Disassemble the code.
+        let code_bytes = &a.buffer[start_address..a.get_pos()];
+        let mut pcs = Vec::new();
+        let mut observed = Vec::new();
+        for maybe_decoded in bad64::disasm(code_bytes, start_address as u64) {
+            let (pc, asm) = match maybe_decoded {
+                Ok(instruction) => (instruction.address(), format!("{}", instruction)),
+                Err(error) => (error.address(), format!("{:?}", error)),
+            };
+            pcs.push(pc);
+            observed.push(asm);
+        }
+        // Search for differences.
+        let mut error = false;
+        for i in 0..max(expected.len(), observed.len()) {
+            let e_line = if i < expected.len() { &expected[i] } else { "missing" };
+            let o_line = if i < observed.len() { &observed[i] } else { "missing" };
+            if e_line != o_line {
+                let instruction_bytes = &a.buffer[(pcs[i] as usize)..a.get_pos()];
+                let instruction_bytes = &instruction_bytes[..min(instruction_bytes.len(), 4)];
+                let hex_dump = instruction_bytes.iter().rev().map(
+                    |b| format!("{:02X}", b)
+                ).collect::<Vec<String>>().join(" ");
+                println!("Difference in line {}", i+1);
+                println!("{:016X}   {:>32}   {}", pcs[i], hex_dump, o_line);
+                println!("{:>16}   {:>32}   {}", "Expected", "", e_line);
+                error = true;
+            }
+        }
+        if error { Err(observed) } else { Ok(()) }
+    }
+
+    #[test]
+    fn test_disassemble() {
+        let mut a = Assembler::<VecU8>::new();
+        a.buffer.write(0x912AA3E0, 4);
+        a.buffer.write(0x9B007C00, 4);
+        disassemble(&a, 0, vec![
+            "add x0, sp, #0xaa8",
+            "mul x0, x0, x0",
+        ]).unwrap();
+    }
 }

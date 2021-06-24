@@ -1,5 +1,7 @@
+use super::{buffer};
+
 mod assembler;
-pub use assembler::{Register, Condition, RSP};
+pub use assembler::{Assembler, Register, Condition, RSP};
 use Register::*;
 
 /**
