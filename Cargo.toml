@@ -24,3 +24,6 @@ version = "1.2.0"
 default-features = false
 # See below for all features
 features = ["std", "decoder", "nasm"]
+
+[patch.crates-io]
+bad64 = {git='https://github.com/apt1002/bad64', branch='main'}
