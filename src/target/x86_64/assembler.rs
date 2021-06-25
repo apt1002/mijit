@@ -584,7 +584,7 @@ impl<B: Buffer> Assembler<B> {
         self.write_ro_1(0x5840, P64, rd);
     }
 
-    /** Load narrow data, zero-extending to the given precision. */
+    /** Load narrow data, sign- or zero-extending to the given precision. */
     pub fn load_narrow(&mut self, prec: Precision, type_: Width, dest: Register, src: (Register, i32)) {
         match type_ {
             U8 => {

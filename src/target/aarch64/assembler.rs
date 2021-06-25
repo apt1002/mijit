@@ -46,6 +46,35 @@ pub enum Condition {
 
 //-----------------------------------------------------------------------------
 
+/** All memory access operations. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum MemOp {
+    /** Truncate and store. */
+    STR = 0,
+    /** Load and zero-extend to 64 bits. */
+    LDR = 1,
+    /** Load and sign-extend to 64 bits. */
+    LDRS64 = 2,
+    /** Load, sign-extend to 32 bits and zero-extend to 64 bits. */
+    LDRS32 = 3,
+}
+
+//-----------------------------------------------------------------------------
+
+/** All transfer sizes (for memory access). */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Width {
+    One = 0,
+    Two = 1,
+    Four = 2,
+    Eight = 3,
+}
+
+//-----------------------------------------------------------------------------
+
 /** Computes the displacement from `from` to `to`. */
 pub fn disp(from: usize, to: usize) -> i64 {
     if from > i64::MAX as usize || to > i64::MAX as usize {
@@ -70,7 +99,7 @@ fn signed(x: i64, bits: usize) -> Option<u32> {
     if x >= limit || x < -limit {
         None
     } else {
-        Some((x & (limit - 1)) as u32)
+        Some((x & (2*limit - 1)) as u32)
     }
 }
 
@@ -158,10 +187,8 @@ impl<B: Buffer> Assembler<B> {
         }
     }
 
-    /**
-     * Assembles an unconditional jump to `target`. Then, if the remaining free
-     * space is smaller than `COMFORTABLE_SPACE`, call `alloc()`.
-     */
+    /** Assembles an unconditional jump to `target`. */
+    // `check_space()` assumes that this method calls `alloc()`.
     pub fn jump(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
         let offset = self.jump_offset(target, 28).expect("Cannot jump so far");
@@ -180,6 +207,7 @@ impl<B: Buffer> Assembler<B> {
      */
     fn check_space(&mut self) {
         if self.free_space() < 16 {
+            // `jump()` will call `alloc()`.
             let _patch = self.jump(Some(self.pool_end));
             assert_eq!(self.pool_pos - self.get_pos(), PC_RELATIVE_RANGE);
         }
@@ -193,7 +221,15 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Writes an instruction which uses `rd` or `rt`. */
-    fn write_d(&mut self, opcode: u32, rd: Register) {
+    fn write_d(&mut self, mut opcode: u32, rd: Register) {
+        opcode |= rd as u32;
+        self.write_instruction(opcode);
+    }
+
+    /** Writes an instruction which uses `rd` or `rt`. */
+    fn write_dn(&mut self, mut opcode: u32, rd: Register, rn: Register) {
+        opcode |= rd as u32;
+        opcode |= (rn as u32) << 5;
         self.write_instruction(opcode | (rd as u32));
     }
 
@@ -228,6 +264,44 @@ impl<B: Buffer> Assembler<B> {
             self.write_pc_relative(rd, imm);
         }
     }
+
+    /**
+     * Load or store.
+     *
+     * The offset (`src.1`) can be a signed 9-bit number or `width` times an
+     * unsigned 12-bit number. Other offsets are not encodable so this method
+     * will panic.
+     *
+     * Some combinations of `op` and `width` make no sense, and this method
+     * will panic in those cases.
+     */
+    pub fn mem(&mut self, op: MemOp, width: Width, dest: Register, src: (Register, i64)) {
+        if (op as usize) + (width as usize) > 5 {
+            panic!("Too wide for LDRS");
+        }
+        let shift = width as usize;
+        if let Some(imm) = unsigned((src.1 as u64) >> shift, 12) {
+            if src.1 == ((imm as i64) << shift) {
+                // Scaled unsigned.
+                let mut opcode = 0x39000000;
+                opcode |= imm << 10;
+                opcode |= (op as u32) << 22;
+                opcode |= (width as u32) << 30;
+                self.write_dn(opcode, dest, src.0);
+                return;
+            }
+        }
+        if let Some(imm) = signed(src.1, 9) {
+            // Unscaled signed.
+            let mut opcode = 0x38000000;
+            opcode |= imm << 12;
+            opcode |= (op as u32) << 22;
+            opcode |= (width as u32) << 30;
+            self.write_dn(opcode, dest, src.0);
+            return;
+        }
+        panic!("Cannot load so far");
+    }
 }
 
 impl<B: Buffer> Default for Assembler<B> {
@@ -240,11 +314,12 @@ impl<B: Buffer> Default for Assembler<B> {
 
 #[cfg(test)]
 pub mod tests {
-    use super::*;
-
     use std::cmp::{min, max};
 
+    use super::*;
     use buffer::{VecU8};
+    use MemOp::*;
+    use Width::*;
 
     /**
      * Disassemble the code that has been assembled by `a` as if the [`Buffer`]
@@ -296,6 +371,52 @@ pub mod tests {
         disassemble(&a, 0, vec![
             "add x0, sp, #0xaa8",
             "mul x0, x0, x0",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn mem() {
+        let mut a = Assembler::<VecU8>::new();
+        for (rd, rn) in [(R0, RSP), (RZR, R0)] {
+            for (op, width) in [
+                (STR, One), (LDR, One), (LDRS64, One), (LDRS32, One),
+                (STR, Two), (LDR, Two), (LDRS64, Two), (LDRS32, Two),
+                (STR, Four), (LDR, Four), (LDRS64, Four),
+                (STR, Eight), (LDR, Eight),
+            ] {
+                a.mem(op, width, rd, (rn, 4088));
+                a.mem(op, width, rd, (rn, 255));
+                a.mem(op, width, rd, (rn, -256));
+            }
+        }
+        disassemble(&a, 0, vec![
+            "strb w0, [sp, #0xff8]", "strb w0, [sp, #0xff]", "sturb w0, [sp, #0xffffffffffffff00]",
+            "ldrb w0, [sp, #0xff8]", "ldrb w0, [sp, #0xff]", "ldurb w0, [sp, #0xffffffffffffff00]",
+            "ldrsb x0, [sp, #0xff8]", "ldrsb x0, [sp, #0xff]", "ldursb x0, [sp, #0xffffffffffffff00]",
+            "ldrsb w0, [sp, #0xff8]", "ldrsb w0, [sp, #0xff]", "ldursb w0, [sp, #0xffffffffffffff00]",
+            "strh w0, [sp, #0xff8]", "sturh w0, [sp, #0xff]", "sturh w0, [sp, #0xffffffffffffff00]",
+            "ldrh w0, [sp, #0xff8]", "ldurh w0, [sp, #0xff]", "ldurh w0, [sp, #0xffffffffffffff00]",
+            "ldrsh x0, [sp, #0xff8]", "ldursh x0, [sp, #0xff]", "ldursh x0, [sp, #0xffffffffffffff00]",
+            "ldrsh w0, [sp, #0xff8]", "ldursh w0, [sp, #0xff]", "ldursh w0, [sp, #0xffffffffffffff00]",
+            "str w0, [sp, #0xff8]", "stur w0, [sp, #0xff]", "stur w0, [sp, #0xffffffffffffff00]",
+            "ldr w0, [sp, #0xff8]", "ldur w0, [sp, #0xff]", "ldur w0, [sp, #0xffffffffffffff00]",
+            "ldrsw x0, [sp, #0xff8]", "ldursw x0, [sp, #0xff]", "ldursw x0, [sp, #0xffffffffffffff00]",
+            "str x0, [sp, #0xff8]", "stur x0, [sp, #0xff]", "stur x0, [sp, #0xffffffffffffff00]",
+            "ldr x0, [sp, #0xff8]", "ldur x0, [sp, #0xff]", "ldur x0, [sp, #0xffffffffffffff00]",
+
+            "strb wzr, [x0, #0xff8]", "strb wzr, [x0, #0xff]", "sturb wzr, [x0, #0xffffffffffffff00]",
+            "ldrb wzr, [x0, #0xff8]", "ldrb wzr, [x0, #0xff]", "ldurb wzr, [x0, #0xffffffffffffff00]",
+            "ldrsb xzr, [x0, #0xff8]", "ldrsb xzr, [x0, #0xff]", "ldursb xzr, [x0, #0xffffffffffffff00]",
+            "ldrsb wzr, [x0, #0xff8]", "ldrsb wzr, [x0, #0xff]", "ldursb wzr, [x0, #0xffffffffffffff00]",
+            "strh wzr, [x0, #0xff8]", "sturh wzr, [x0, #0xff]", "sturh wzr, [x0, #0xffffffffffffff00]",
+            "ldrh wzr, [x0, #0xff8]", "ldurh wzr, [x0, #0xff]", "ldurh wzr, [x0, #0xffffffffffffff00]",
+            "ldrsh xzr, [x0, #0xff8]", "ldursh xzr, [x0, #0xff]", "ldursh xzr, [x0, #0xffffffffffffff00]",
+            "ldrsh wzr, [x0, #0xff8]", "ldursh wzr, [x0, #0xff]", "ldursh wzr, [x0, #0xffffffffffffff00]",
+            "str wzr, [x0, #0xff8]", "stur wzr, [x0, #0xff]", "stur wzr, [x0, #0xffffffffffffff00]",
+            "ldr wzr, [x0, #0xff8]", "ldur wzr, [x0, #0xff]", "ldur wzr, [x0, #0xffffffffffffff00]",
+            "ldrsw xzr, [x0, #0xff8]", "ldursw xzr, [x0, #0xff]", "ldursw xzr, [x0, #0xffffffffffffff00]",
+            "str xzr, [x0, #0xff8]", "stur xzr, [x0, #0xff]", "stur xzr, [x0, #0xffffffffffffff00]",
+            "ldr xzr, [x0, #0xff8]", "ldur xzr, [x0, #0xff]", "ldur xzr, [x0, #0xffffffffffffff00]",
         ]).unwrap();
     }
 }
