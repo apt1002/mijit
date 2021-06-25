@@ -2,11 +2,11 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Word, Pool, STATE_INDEX,
-    Assembler, Precision, Register, BinaryOp, ShiftOp, Condition, Width,
+    Assembler, Register, BinaryOp, ShiftOp, Condition, Width,
     CALLEE_SAVES, ARGUMENTS, RESULTS,
 };
 use buffer::{Buffer, Mmap};
-use code::{Action, TestOp, Global, Slot};
+use code::{Precision, Action, TestOp, Global, Slot};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;

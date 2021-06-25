@@ -11,8 +11,10 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 
-use super::{buffer, Patch, CALLER_SAVES};
+use super::{buffer, code, Patch, CALLER_SAVES};
 use buffer::{Buffer};
+use code::{Precision};
+use Precision::*;
 
 /**
  * All x86_64 registers that can be used interchangeably in our chosen subset
@@ -67,36 +69,6 @@ impl Register {
             0x3636363607,
             0x3F3F3F3F07,
         ][self as usize]
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-/**
- * Represents the precision of an arithmetic operation.
- * With P32, the arithmetic is performed with 32-bit precision, and written
- * into the bottom 32 bits of the destination. The top 32 bits are 0.
- */
-// TODO: Make portable and move to `mod target`.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Precision {
-    P32 = 0,
-    P64 = 1,
-}
-
-use Precision::*;
-
-impl Precision {
-    pub fn bits(self) -> usize {
-        match self {
-            P32 => 32,
-            P64 => 64,
-        }
-    }
-    
-    pub fn w_bit(self) -> u64 {
-        (self as u64) << 3
     }
 }
 
@@ -342,21 +314,21 @@ impl<B: Buffer> Assembler<B> {
 
     /** Writes an instruction with pattern "RO", and one register. */
     pub fn write_ro_1(&mut self, mut opcode: u64, prec: Precision, rd: Register) {
-        opcode |= prec.w_bit();
+        opcode |= (prec as u64) << 3;
         opcode |= 0x0701 & rd.mask();
         self.buffer.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "ROM" and one register. */
     pub fn write_rom_1(&mut self, mut opcode: u64, prec: Precision, rm: Register) {
-        opcode |= prec.w_bit();
+        opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
         self.buffer.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROM" and two registers. */
     pub fn write_rom_2(&mut self, mut opcode: u64, prec: Precision, rm: Register, reg: Register) {
-        opcode |= prec.w_bit();
+        opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
         opcode |= 0x380004 & reg.mask();
         self.buffer.write(opcode, 3);
@@ -364,7 +336,7 @@ impl<B: Buffer> Assembler<B> {
 
     /** Writes an instruction with pattern "ROOM" and two registers. */
     pub fn write_room_2(&mut self, mut opcode: u64, prec: Precision, rm: Register, reg: Register) {
-        opcode |= prec.w_bit();
+        opcode |= (prec as u64) << 3;
         opcode |= 0x07000001 & rm.mask();
         opcode |= 0x38000004 & reg.mask();
         self.buffer.write(opcode, 4);

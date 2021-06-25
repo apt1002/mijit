@@ -2,7 +2,7 @@ use super::{buffer, code, Patch, Label, Counter, Word, Pool, Lower, ExecuteFn, E
 use buffer::{Mmap};
 
 mod assembler;
-pub use assembler::{Assembler, Precision, Register, BinaryOp, ShiftOp, Condition, Width};
+pub use assembler::{Assembler, Register, BinaryOp, ShiftOp, Condition, Width};
 use Register::*;
 
 mod lowerer;

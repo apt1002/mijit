@@ -23,19 +23,41 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 
 pub use crate::util::{AsUsize};
-pub use super::target::x86_64::{Precision}; // TODO: Abstract.
 
 // Not currently used. Planned for #11.
 pub mod clock;
 
 //-----------------------------------------------------------------------------
 
+/**
+ * Represents the precision of an arithmetic operation.
+ * With `P32`, the arithmetic is performed with 32-bit precision, and written
+ * into the bottom 32 bits of the destination. The top 32 bits are 0.
+ */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+pub enum Precision {
+    P32 = 0,
+    P64 = 1,
+}
+
+impl Precision {
+    pub fn bits(self) -> usize { 32 << (self as usize) }
+}
+
+//-----------------------------------------------------------------------------
+
 array_index! {
     /**
-     * An index into [`ALLOCATABLE_REGISTERS`]. Mijit guarantees a minimum set
-     * [`REGISTERS`]. More are available non-portably.
+     * Names an allocatable register. The mapping of [`Register`]s onto CPU
+     * registers is an implementation detail of a [`Target`], which may also
+     * reserve a few CPU registers for special purposes.
      *
-     * [`ALLOCATABLE_REGISTERS`]: `super::target::x86_64::ALLOCATABLE_REGISTERS`
+     * Mijit guarantees a minimum set of [`REGISTERS`]. More are available
+     * non-portably: for example, by invoking the optimizer passing a
+     * particular [`Target`].
+     *
+     * [`Target`]: super::target::Target
      */
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct Register(std::num::NonZeroU8) {
@@ -60,6 +82,8 @@ const fn make_slot(s: usize) -> Value { Value::Slot(Slot(s)) }
 /**
  * [`Value`]s that are likely to be efficient to access on all [`Target`]s.
  * The first 12 are guaranteed to match `REGISTERS`.
+ *
+ * [`Target`]: super::target::Target
  */
 pub const FAST_VALUES: [Value; 64] = [
     make_reg(0), make_reg(1), make_reg(2), make_reg(3),
