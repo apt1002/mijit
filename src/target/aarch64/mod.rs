@@ -1,7 +1,7 @@
 use super::{buffer, code, Patch};
 
 mod assembler;
-pub use assembler::{Assembler, Register, Condition, RSP};
+pub use assembler::{Assembler, Register, Condition, RSP, logic_immediate};
 use Register::*;
 
 /**

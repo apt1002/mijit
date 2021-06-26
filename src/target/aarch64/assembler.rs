@@ -1,6 +1,7 @@
 use super::{buffer, code, Patch};
 use buffer::{Buffer};
 use code::{Precision};
+use crate::util::{rotate_left};
 
 /**
  * All AArch64 registers. For our purposes, `IP0` (=`R16`) and `IP1` (=`R17`)
@@ -101,6 +102,52 @@ fn signed(x: i64, bits: usize) -> Option<u32> {
     } else {
         Some((x & (2*limit - 1)) as u32)
     }
+}
+
+/**
+ * Returns a bitmask representing `x` as a "logic immediate". The [encoding]
+ * is quite esoteric. Here we use the ARM's terminology; see `DecodeBitMasks()`
+ * in the [ARMv8 Architecture Reference Manual] (on page 7954).
+ *
+ * [encoding]: https://dinfuehr.github.io/blog/encoding-of-immediate-values-on-aarch64/
+ * [ARMv8 Architecture Reference Manual]: https://documentation-service.arm.com/static/60119835773bb020e3de6fee
+ */
+#[allow(clippy::many_single_char_names)]
+pub fn logic_immediate(mut x: u64) -> Option<u32> {
+    // `0` and `-1` are not encodable.
+    if x == 0 || x == !0 {
+        return None;
+    }
+    // Count the first four runs of binary digits.
+    let num_zeros = x.leading_zeros();
+    x = rotate_left(x, num_zeros);
+    let num_ones = (!x).leading_zeros();
+    x = rotate_left(x, num_ones);
+    let mut y = x;
+    let num_zeros2 = y.leading_zeros();
+    y = rotate_left(y, num_zeros2);
+    let num_ones2 = (!y).leading_zeros();
+    y = rotate_left(y, num_ones2);
+    // `num_zeros2 + num_ones2` should be a whole repeating unit.
+    if x != y {
+        return None;
+    }
+    // The repeat length should be a power of two and not `1`.
+    let esize = num_zeros2 + num_ones2;
+    if !esize.is_power_of_two() || esize < 2 {
+        return None;
+    }
+    // `num_zeros + num_ones` undid `ROR(welem, r)`.
+    let r = num_zeros + num_ones;
+    assert!(r <= esize);
+    // `num_ones2` undid `Ones(s + 1)`.
+    let s = num_ones2 - 1;
+    assert!(s < esize);
+    // Encode.
+    let imms = (128 - 2 * esize + s) & 0x3F;
+    let immr = r & (esize - 1);
+    let n = (esize == 64) as u32;
+    Some((n << 12) | (immr << 6) | imms)
 }
 
 //-----------------------------------------------------------------------------
@@ -251,9 +298,10 @@ impl<B: Buffer> Assembler<B> {
         self.buffer.write(imm, 8);
         self.set_pos(pos);
         // Write the instruction.
-        let offset = signed(disp(self.get_pos(), self.pool_pos), 19).unwrap();
+        let offset = disp(self.get_pos(), self.pool_pos);
         assert_eq!(offset & 3, 0);
-        self.write_d(0x58000000 | ((offset >> 2) << 5), rd);
+        let offset = signed(offset >> 2, 19).unwrap();
+        self.write_d(0x58000000 | (offset << 5), rd);
     }
 
     /** Writes an instruction to put an immediate constant in `rd`. */
@@ -511,5 +559,37 @@ pub mod tests {
             "cmn x0, x1, lsl #0x15", "cmp x0, x1, lsl #0xb",
             "cmn x0, xzr, lsl #0x15", "cmp x0, xzr, lsl #0xb",
         ]).unwrap();
+    }
+
+    #[test]
+    fn logic_immediate() {
+        // Exhaustively enumerate all encodable immediates.
+        for (size, imms_size_bits, imms_length_mask) in [
+            ( 2, 0b111100, 0b000001),
+            ( 4, 0b111000, 0b000011),
+            ( 8, 0b110000, 0b000111),
+            (16, 0b100000, 0b001111),
+            (32, 0b000000, 0b011111),
+            (64, 0b000000, 0b111111),
+        ] {
+            for length in 0..imms_length_mask {
+                let pattern = (0..64).step_by(size as usize).fold(
+                    (1 << (length + 1)) - 1,
+                    |acc, shift| acc | (acc << shift));
+                for rotation in 0..size {
+                    let val = crate::util::rotate_right(pattern, rotation);
+                    let n = (size == 64) as u32;
+                    let immr = rotation;
+                    let imms = imms_size_bits | length;
+                    let encoding = (n << 12) | (immr << 6) | imms;
+                    assert_eq!(super::logic_immediate(val), Some(encoding));
+                }
+            }
+        }
+        // Check some notable non-encodable immediates.
+        assert_eq!(super::logic_immediate(0x0000000000000000), None);
+        assert_eq!(super::logic_immediate(0xFFFFFFFFFFFFFFFF), None);
+        assert_eq!(super::logic_immediate(0x5A5A5A5A5A5A5A5A), None);
+        assert_eq!(super::logic_immediate(0x0000000000000005), None);
     }
 }
