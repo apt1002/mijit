@@ -76,6 +76,23 @@ pub enum Width {
 
 //-----------------------------------------------------------------------------
 
+/** All logic operations. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum LogicOp {
+    /** Bitwise AND. */
+    AND = 0,
+    /** Bitwise OR. */
+    ORR = 1,
+    /** Bitwise exclusive OR. */
+    EOR = 2,
+    /** Bitwise AND setting the condition flags. */
+    ANDS = 3,
+}
+
+//-----------------------------------------------------------------------------
+
 /** Computes the displacement from `from` to `to`. */
 pub fn disp(from: usize, to: usize) -> i64 {
     if from > i64::MAX as usize || to > i64::MAX as usize {
@@ -159,7 +176,8 @@ const PC_RELATIVE_RANGE: usize = 1 << 20;
 const COMFORTABLE_SPACE: usize = 1 << 12;
 
 /**
- * An assembler, implementing a regularish subset of aarch64.
+ * An assembler, implementing a regularish subset of A64: the 64-bit subset of
+ * AArch64.
  */
 pub struct Assembler<B: Buffer> {
     /**
@@ -369,14 +387,14 @@ impl<B: Buffer> Assembler<B> {
      */
     pub fn const_add(&mut self, prec: Precision, flags: bool, dest: Register, src: Register, mut constant: i64) {
         let mut opcode = 0x11000000;
-        opcode |= (flags as u32) << 29;
         if constant < 0 {
             constant = -constant;
             opcode |= 1 << 30;
         }
-        opcode |= (prec as u32) << 31;
         let imm = unsigned(constant as u64, 12).expect("Cannot add so much");
         opcode |= imm << 10;
+        opcode |= (flags as u32) << 29;
+        opcode |= (prec as u32) << 31;
         self.write_dn(opcode, dest, src);
     }
 
@@ -391,11 +409,52 @@ impl<B: Buffer> Assembler<B> {
      */
     pub fn shift_add(&mut self, prec: Precision, minus: bool, flags: bool, dest: Register, src1: Register, src2: Register, shift: u64) {
         let mut opcode = 0x0B000000;
+        let shift = unsigned(shift, 5 + (prec as usize)).expect("Cannot shift so far");
+        opcode |= shift << 10;
         opcode |= (flags as u32) << 29;
         opcode |= (minus as u32) << 30;
         opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, src1, src2);
+    }
+
+    /**
+     * Assembles an instruction that does `dest <- src <op> constant`. `dest`
+     * can be `RSP` but not `RZR`, except if `op` is `ANDS`, in which case it
+     * can be `RZR` but not `RSP`. `src` can be `RZR` but not `RSP`.
+     *  - prec - `P32` to zero-extend the result from 32 bits.
+     *  - constant - A 12-bit unsigned integer, or the negative of one. This
+     *    method will panic if the constant is not encodable.
+     */
+    pub fn const_logic(&mut self, op: LogicOp, prec: Precision, dest: Register, src: Register, mut constant: u64) {
+        let mut opcode = 0x12000000;
+        if prec == Precision::P32 {
+            constant &= 0xFFFFFFFF;
+            constant |= constant << 32;
+        } else {
+            opcode |= 1 << 31;
+        }
+        let imm = logic_immediate(constant).expect("Invalid logic immediate");
+        opcode |= imm << 10;
+        opcode |= (op as u32) << 29;
+        self.write_dn(opcode, dest, src);
+    }
+
+    /**
+     * Assembles an instruction that does `dest <- src1 <op> (src2 << shift)`
+     * or `dest <- src1 <op> not(src2 << shift)`. `dest`, `src1` or `src2` can
+     * be `RZR` but not `RSP`.
+     *  - prec - `P32` to zero-extend the result from 32 bits.
+     *  - not - `true` to invert the second operand (after shifting it).
+     *  - shift - a 5- or 6-bit unsigned integer. This method will panic if the
+     *    constant is not encodeable.
+     */
+    pub fn shift_logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: Register, src1: Register, src2: Register, shift: u64) {
+        let mut opcode = 0x0A000000;
         let shift = unsigned(shift, 5 + (prec as usize)).expect("Cannot shift so far");
         opcode |= shift << 10;
+        opcode |= (not as u32) << 21;
+        opcode |= (op as u32) << 29;
+        opcode |= (prec as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
     }
 }
@@ -591,5 +650,74 @@ pub mod tests {
         assert_eq!(super::logic_immediate(0xFFFFFFFFFFFFFFFF), None);
         assert_eq!(super::logic_immediate(0x5A5A5A5A5A5A5A5A), None);
         assert_eq!(super::logic_immediate(0x0000000000000005), None);
+    }
+
+    #[test]
+    fn logic() {
+        use Precision::*;
+        use LogicOp::*;
+        let mut a = Assembler::<VecU8>::new();
+        for prec in [P32, P64] {
+            for op in [AND, ORR, EOR, ANDS] {
+                for (rd, rn) in [(R0, RSP), (RZR, R0)] {
+                    a.const_logic(op, prec, rd, rn, 0x3333333333333333);
+                    for rm in [R1, RSP] {
+                        a.shift_logic(op, prec, false, rd, rn, rm, 21);
+                        a.shift_logic(op, prec, true, rd, rn, rm, 11);
+                    }
+                }
+            }
+        }
+        disassemble(&a, 0, vec![
+            "and w0, wzr, #0x33333333",
+            "and w0, wzr, w1, lsl #0x15", "bic w0, wzr, w1, lsl #0xb",
+            "and w0, wzr, wzr, lsl #0x15", "bic w0, wzr, wzr, lsl #0xb",
+            "and wsp, w0, #0x33333333",
+            "and wzr, w0, w1, lsl #0x15", "bic wzr, w0, w1, lsl #0xb",
+            "and wzr, w0, wzr, lsl #0x15", "bic wzr, w0, wzr, lsl #0xb",
+            "mov w0, #0x33333333",
+            "orr w0, wzr, w1, lsl #0x15", "mvn w0, w1, lsl #0xb",
+            "orr w0, wzr, wzr, lsl #0x15", "mvn w0, wzr, lsl #0xb",
+            "orr wsp, w0, #0x33333333",
+            "orr wzr, w0, w1, lsl #0x15", "orn wzr, w0, w1, lsl #0xb",
+            "orr wzr, w0, wzr, lsl #0x15", "orn wzr, w0, wzr, lsl #0xb",
+            "eor w0, wzr, #0x33333333",
+            "eor w0, wzr, w1, lsl #0x15", "eon w0, wzr, w1, lsl #0xb",
+            "eor w0, wzr, wzr, lsl #0x15", "eon w0, wzr, wzr, lsl #0xb",
+            "eor wsp, w0, #0x33333333",
+            "eor wzr, w0, w1, lsl #0x15", "eon wzr, w0, w1, lsl #0xb",
+            "eor wzr, w0, wzr, lsl #0x15", "eon wzr, w0, wzr, lsl #0xb",
+            "ands w0, wzr, #0x33333333",
+            "ands w0, wzr, w1, lsl #0x15", "bics w0, wzr, w1, lsl #0xb",
+            "ands w0, wzr, wzr, lsl #0x15", "bics w0, wzr, wzr, lsl #0xb",
+            "tst w0, #0x33333333",
+            "tst w0, w1, lsl #0x15", "bics wzr, w0, w1, lsl #0xb",
+            "tst w0, wzr, lsl #0x15", "bics wzr, w0, wzr, lsl #0xb",
+
+            "and x0, xzr, #0x3333333333333333",
+            "and x0, xzr, x1, lsl #0x15", "bic x0, xzr, x1, lsl #0xb",
+            "and x0, xzr, xzr, lsl #0x15", "bic x0, xzr, xzr, lsl #0xb",
+            "and sp, x0, #0x3333333333333333",
+            "and xzr, x0, x1, lsl #0x15", "bic xzr, x0, x1, lsl #0xb",
+            "and xzr, x0, xzr, lsl #0x15", "bic xzr, x0, xzr, lsl #0xb",
+            "orr x0, xzr, #0x3333333333333333", // Why not `mov`?
+            "orr x0, xzr, x1, lsl #0x15", "mvn x0, x1, lsl #0xb",
+            "orr x0, xzr, xzr, lsl #0x15", "mvn x0, xzr, lsl #0xb",
+            "orr sp, x0, #0x3333333333333333",
+            "orr xzr, x0, x1, lsl #0x15", "orn xzr, x0, x1, lsl #0xb",
+            "orr xzr, x0, xzr, lsl #0x15", "orn xzr, x0, xzr, lsl #0xb",
+            "eor x0, xzr, #0x3333333333333333",
+            "eor x0, xzr, x1, lsl #0x15", "eon x0, xzr, x1, lsl #0xb",
+            "eor x0, xzr, xzr, lsl #0x15", "eon x0, xzr, xzr, lsl #0xb",
+            "eor sp, x0, #0x3333333333333333",
+            "eor xzr, x0, x1, lsl #0x15", "eon xzr, x0, x1, lsl #0xb",
+            "eor xzr, x0, xzr, lsl #0x15", "eon xzr, x0, xzr, lsl #0xb",
+            "ands x0, xzr, #0x3333333333333333",
+            "ands x0, xzr, x1, lsl #0x15", "bics x0, xzr, x1, lsl #0xb",
+            "ands x0, xzr, xzr, lsl #0x15", "bics x0, xzr, xzr, lsl #0xb",
+            "tst x0, #0x3333333333333333",
+            "tst x0, x1, lsl #0x15", "bics xzr, x0, x1, lsl #0xb",
+            "tst x0, xzr, lsl #0x15", "bics xzr, x0, xzr, lsl #0xb",
+        ]).unwrap();
     }
 }
