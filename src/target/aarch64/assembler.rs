@@ -1,5 +1,6 @@
-use super::{buffer, Patch};
+use super::{buffer, code, Patch};
 use buffer::{Buffer};
+use code::{Precision};
 
 /**
  * All AArch64 registers. For our purposes, `IP0` (=`R16`) and `IP1` (=`R17`)
@@ -19,7 +20,6 @@ pub enum Register {
     R16 = 0x10, R17 = 0x11, R18 = 0x12, R19 = 0x13, R20 = 0x14, R21 = 0x15, R22 = 0x16, R23 = 0x17,
     R24 = 0x18, R25 = 0x19, R26 = 0x1A, R27 = 0x1B, R28 = 0x1C, RFP = 0x1D, RLR = 0x1E, RZR = 0x1F,
 }
-
 use Register::*;
 
 /**
@@ -230,7 +230,15 @@ impl<B: Buffer> Assembler<B> {
     fn write_dn(&mut self, mut opcode: u32, rd: Register, rn: Register) {
         opcode |= rd as u32;
         opcode |= (rn as u32) << 5;
-        self.write_instruction(opcode | (rd as u32));
+        self.write_instruction(opcode);
+    }
+
+    /** Writes an instruction which uses `rd` or `rt`. */
+    fn write_dnm(&mut self, mut opcode: u32, rd: Register, rn: Register, rm: Register) {
+        opcode |= rd as u32;
+        opcode |= (rn as u32) << 5;
+        opcode |= (rm as u32) << 16;
+        self.write_instruction(opcode);
     }
 
     /** Writes a PC-relative load of a constant, then calls `check_space()`. */
@@ -266,7 +274,7 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /**
-     * Load or store.
+     * Assembles a load or store instruction.
      *
      * The offset (`src.1`) can be a signed 9-bit number or `width` times an
      * unsigned 12-bit number. Other offsets are not encodable so this method
@@ -301,6 +309,46 @@ impl<B: Buffer> Assembler<B> {
             return;
         }
         panic!("Cannot load so far");
+    }
+
+    /**
+     * Assembles an instruction that does `dest <- src + constant`. `dest` or `src`
+     * can be `RSP` but not `RZR`.
+     *  - prec - `P32` to zero-extend the result from 32 bits.
+     *  - flags - `true` if the instruction should affect the condition flags.
+     *  - constant - A 12-bit unsigned integer, or the negative of one. This
+     *    method will panic if the constant is not encodable.
+     */
+    pub fn const_add(&mut self, prec: Precision, flags: bool, dest: Register, src: Register, mut constant: i64) {
+        let mut opcode = 0x11000000;
+        opcode |= (flags as u32) << 29;
+        if constant < 0 {
+            constant = -constant;
+            opcode |= 1 << 30;
+        }
+        opcode |= (prec as u32) << 31;
+        let imm = unsigned(constant as u64, 12).expect("Cannot add so much");
+        opcode |= imm << 10;
+        self.write_dn(opcode, dest, src);
+    }
+
+    /**
+     * Assembles an instruction that does `dest <- src1 ± (src2 << shift)`.
+     * `dest`, `src1` or `src2` can be `RZR` but not `RSP`.
+     *  - prec - `P32` to zero-extend the result from 32 bits.
+     *  - minus - `true` to subtract or `false` to add.
+     *  - flags - `true` if the instruction should affect the condition flags.
+     *  - shift - a 5- or 6-bit unsigned integer. This method will panic if the
+     *    constant is not encodeable.
+     */
+    pub fn shift_add(&mut self, prec: Precision, minus: bool, flags: bool, dest: Register, src1: Register, src2: Register, shift: u64) {
+        let mut opcode = 0x0B000000;
+        opcode |= (flags as u32) << 29;
+        opcode |= (minus as u32) << 30;
+        opcode |= (prec as u32) << 31;
+        let shift = unsigned(shift, 5 + (prec as usize)).expect("Cannot shift so far");
+        opcode |= shift << 10;
+        self.write_dnm(opcode, dest, src1, src2);
     }
 }
 
@@ -417,6 +465,51 @@ pub mod tests {
             "ldrsw xzr, [x0, #0xff8]", "ldursw xzr, [x0, #0xff]", "ldursw xzr, [x0, #0xffffffffffffff00]",
             "str xzr, [x0, #0xff8]", "stur xzr, [x0, #0xff]", "stur xzr, [x0, #0xffffffffffffff00]",
             "ldr xzr, [x0, #0xff8]", "ldur xzr, [x0, #0xff]", "ldur xzr, [x0, #0xffffffffffffff00]",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn add() {
+        use Precision::*;
+        let mut a = Assembler::<VecU8>::new();
+        for prec in [P32, P64] {
+            for flags in [false, true] {
+                for (rd, rn) in [(R0, RSP), (RZR, R0)] {
+                    a.const_add(prec, flags, rd, rn, 4095);
+                    a.const_add(prec, flags, rd, rn, -4095);
+                    for rm in [R1, RSP] {
+                        a.shift_add(prec, false, flags, rd, rn, rm, 21);
+                        a.shift_add(prec, true, flags, rd, rn, rm, 11);
+                    }
+                }
+            }
+        }
+        disassemble(&a, 0, vec![
+            "add w0, wsp, #0xfff", "sub w0, wsp, #0xfff",
+            "add w0, wzr, w1, lsl #0x15", "neg w0, w1, lsl #0xb",
+            "add w0, wzr, wzr, lsl #0x15", "neg w0, wzr, lsl #0xb",
+            "add wsp, w0, #0xfff", "sub wsp, w0, #0xfff",
+            "add wzr, w0, w1, lsl #0x15", "sub wzr, w0, w1, lsl #0xb",
+            "add wzr, w0, wzr, lsl #0x15", "sub wzr, w0, wzr, lsl #0xb",
+            "adds w0, wsp, #0xfff", "subs w0, wsp, #0xfff",
+            "adds w0, wzr, w1, lsl #0x15", "negs w0, w1, lsl #0xb",
+            "adds w0, wzr, wzr, lsl #0x15", "negs w0, wzr, lsl #0xb",
+            "cmn w0, #0xfff", "cmp w0, #0xfff",
+            "cmn w0, w1, lsl #0x15", "cmp w0, w1, lsl #0xb",
+            "cmn w0, wzr, lsl #0x15", "cmp w0, wzr, lsl #0xb",
+
+            "add x0, sp, #0xfff", "sub x0, sp, #0xfff",
+            "add x0, xzr, x1, lsl #0x15", "neg x0, x1, lsl #0xb",
+            "add x0, xzr, xzr, lsl #0x15", "neg x0, xzr, lsl #0xb",
+            "add sp, x0, #0xfff", "sub sp, x0, #0xfff",
+            "add xzr, x0, x1, lsl #0x15", "sub xzr, x0, x1, lsl #0xb",
+            "add xzr, x0, xzr, lsl #0x15", "sub xzr, x0, xzr, lsl #0xb",
+            "adds x0, sp, #0xfff", "subs x0, sp, #0xfff",
+            "adds x0, xzr, x1, lsl #0x15", "negs x0, x1, lsl #0xb",
+            "adds x0, xzr, xzr, lsl #0x15", "negs x0, xzr, lsl #0xb",
+            "cmn x0, #0xfff", "cmp x0, #0xfff",
+            "cmn x0, x1, lsl #0x15", "cmp x0, x1, lsl #0xb",
+            "cmn x0, xzr, lsl #0x15", "cmp x0, xzr, lsl #0xb",
         ]).unwrap();
     }
 }
