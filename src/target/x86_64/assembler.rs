@@ -664,6 +664,12 @@ impl<B: Buffer> Assembler<B> {
     }
 }
 
+impl<B: Buffer> Default for Assembler<B> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
