@@ -76,6 +76,23 @@ pub enum Width {
 
 //-----------------------------------------------------------------------------
 
+/** All shift operations. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum ShiftOp {
+    /** Left shift. */
+    LSL = 0,
+    /** Right shift and zero-extend. */
+    LSR = 1,
+    /** Right shift and sign-extend. */
+    ASR = 2,
+    /** Rotate right. */
+    ROR = 3,
+}
+
+//-----------------------------------------------------------------------------
+
 /** All logic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -349,32 +366,42 @@ impl<B: Buffer> Assembler<B> {
      * Some combinations of `op` and `width` make no sense, and this method
      * will panic in those cases.
      */
-    pub fn mem(&mut self, op: MemOp, width: Width, dest: Register, src: (Register, i64)) {
+    pub fn mem(&mut self, op: MemOp, width: Width, data: Register, address: (Register, i64)) {
         if (op as usize) + (width as usize) > 5 {
             panic!("Too wide for LDRS");
         }
         let shift = width as usize;
-        if let Some(imm) = unsigned((src.1 as u64) >> shift, 12) {
-            if src.1 == ((imm as i64) << shift) {
+        if let Some(imm) = unsigned((address.1 as u64) >> shift, 12) {
+            if address.1 == ((imm as i64) << shift) {
                 // Scaled unsigned.
                 let mut opcode = 0x39000000;
                 opcode |= imm << 10;
                 opcode |= (op as u32) << 22;
                 opcode |= (width as u32) << 30;
-                self.write_dn(opcode, dest, src.0);
+                self.write_dn(opcode, data, address.0);
                 return;
             }
         }
-        if let Some(imm) = signed(src.1, 9) {
+        if let Some(imm) = signed(address.1, 9) {
             // Unscaled signed.
             let mut opcode = 0x38000000;
             opcode |= imm << 12;
             opcode |= (op as u32) << 22;
             opcode |= (width as u32) << 30;
-            self.write_dn(opcode, dest, src.0);
+            self.write_dn(opcode, data, address.0);
             return;
         }
         panic!("Cannot load so far");
+    }
+
+    /**
+     * Assembles an instruction that does `dest <- src1 <op> src2`.
+     */
+    pub fn shift(&mut self, op: ShiftOp, prec: Precision, dest: Register, src1: Register, src2: Register) {
+        let mut opcode = 0x1AC02000;
+        opcode |= (op as u32) << 10;
+        opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, src1, src2);
     }
 
     /**
@@ -576,15 +603,39 @@ pub mod tests {
     }
 
     #[test]
+    fn shift() {
+        use Precision::*;
+        use ShiftOp::*;
+        let mut a = Assembler::<VecU8>::new();
+        for prec in [P32, P64] {
+            for op in [LSL, LSR, ASR, ROR] {
+                for (rd, rn, rm) in [(R0, R1, RZR), (RZR, R0, R1), (R1, RZR, R0)] {
+                    a.shift(op, prec, rd, rn, rm);
+                }
+            }
+        }
+        disassemble(&a, 0, vec![
+            "lsl w0, w1, wzr", "lsl wzr, w0, w1", "lsl w1, wzr, w0",
+            "lsr w0, w1, wzr", "lsr wzr, w0, w1", "lsr w1, wzr, w0",
+            "asr w0, w1, wzr", "asr wzr, w0, w1", "asr w1, wzr, w0",
+            "ror w0, w1, wzr", "ror wzr, w0, w1", "ror w1, wzr, w0",
+            "lsl x0, x1, xzr", "lsl xzr, x0, x1", "lsl x1, xzr, x0",
+            "lsr x0, x1, xzr", "lsr xzr, x0, x1", "lsr x1, xzr, x0",
+            "asr x0, x1, xzr", "asr xzr, x0, x1", "asr x1, xzr, x0",
+            "ror x0, x1, xzr", "ror xzr, x0, x1", "ror x1, xzr, x0",
+        ]).unwrap();
+    }
+
+    #[test]
     fn add() {
         use Precision::*;
         let mut a = Assembler::<VecU8>::new();
         for prec in [P32, P64] {
             for flags in [false, true] {
-                for (rd, rn) in [(R0, RSP), (RZR, R0)] {
+                for (rd, rn) in [(R0, RZR), (RZR, R0)] {
                     a.const_add(prec, flags, rd, rn, 4095);
                     a.const_add(prec, flags, rd, rn, -4095);
-                    for rm in [R1, RSP] {
+                    for rm in [R1, RZR] {
                         a.shift_add(prec, false, flags, rd, rn, rm, 21);
                         a.shift_add(prec, true, flags, rd, rn, rm, 11);
                     }
@@ -659,9 +710,9 @@ pub mod tests {
         let mut a = Assembler::<VecU8>::new();
         for prec in [P32, P64] {
             for op in [AND, ORR, EOR, ANDS] {
-                for (rd, rn) in [(R0, RSP), (RZR, R0)] {
+                for (rd, rn) in [(R0, RZR), (RZR, R0)] {
                     a.const_logic(op, prec, rd, rn, 0x3333333333333333);
-                    for rm in [R1, RSP] {
+                    for rm in [R1, RZR] {
                         a.shift_logic(op, prec, false, rd, rn, rm, 21);
                         a.shift_logic(op, prec, true, rd, rn, rm, 11);
                     }

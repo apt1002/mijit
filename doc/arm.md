@@ -403,10 +403,10 @@ Mask        Asm     Rd      Rn      Rm      Siz Meaning
 0x1AC02400  LSRV    0:4     5:9     16:20   32  Rd <- Rn >>> Rm
 0x1AC02800  ASRV    0:4     5:9     16:20   32  Rd <- Rn >> Rm
 0x1AC02C00  RORV    0:4     5:9     16:20   32  Rd <- Rn ROR Rm
-0x9AC02000  LSLV    0:4     5:9     16:20   32  Rd <- Rn << Rm
-0x9AC02400  LSRV    0:4     5:9     16:20   32  Rd <- Rn >>> Rm
-0x9AC02800  ASRV    0:4     5:9     16:20   32  Rd <- Rn >> Rm
-0x9AC02C00  RORV    0:4     5:9     16:20   32  Rd <- Rn ROR Rm
+0x9AC02000  LSLV    0:4     5:9     16:20   64  Rd <- Rn << Rm
+0x9AC02400  LSRV    0:4     5:9     16:20   64  Rd <- Rn >>> Rm
+0x9AC02800  ASRV    0:4     5:9     16:20   64  Rd <- Rn >> Rm
+0x9AC02C00  RORV    0:4     5:9     16:20   64  Rd <- Rn ROR Rm
 ```
 
 LSLV, LSRV, ASRV, RORV.
