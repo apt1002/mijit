@@ -520,6 +520,18 @@ impl<B: Buffer> Assembler<B> {
         self.write_dnm(opcode, dest, src1, src2);
     }
 
+    /** Assembles a conditional jump to `target`. */
+    pub fn jump_if(&mut self, cond: Condition, target: Option<usize>) -> Patch {
+        let ret = Patch::new(self.get_pos());
+        let offset = self.jump_offset(target, 21).expect("Cannot jump so far");
+        assert_eq!(offset & 3, 0);
+        let mut opcode = 0x54000000;
+        opcode |= cond as u32;
+        opcode |= (offset >> 2) << 5;
+        self.write_instruction(opcode);
+        ret
+    }
+
     /** Push `(src1, src2)`. */
     pub fn push(&mut self, src1: Register, src2: Register) {
         let opcode = 0xA9BF0000 | (RSP as u32) << 5;
@@ -902,6 +914,32 @@ pub mod tests {
             "csel xzr, x0, x1, lt", "csel x0, x1, xzr, lt", "csel x1, xzr, x0, lt",
             "csel xzr, x0, x1, gt", "csel x0, x1, xzr, gt", "csel x1, xzr, x0, gt",
             "csel xzr, x0, x1, le", "csel x0, x1, xzr, le", "csel x1, xzr, x0, le",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn jump_if() {
+        use Condition::*;
+        let mut a = Assembler::<VecU8>::new();
+        let target = a.get_pos() + 28; // Somewhere in the middle of the code.
+        for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
+            a.jump_if(cond, Some(target));
+        }
+        disassemble(&a, 0, vec![
+            "b.eq 0x1c",
+            "b.ne 0x1c",
+            "b.hs 0x1c",
+            "b.lo 0x1c",
+            "b.mi 0x1c",
+            "b.pl 0x1c",
+            "b.vs 0x1c",
+            "b.vc 0x1c",
+            "b.hi 0x1c",
+            "b.ls 0x1c",
+            "b.ge 0x1c",
+            "b.lt 0x1c",
+            "b.gt 0x1c",
+            "b.le 0x1c",
         ]).unwrap();
     }
 
