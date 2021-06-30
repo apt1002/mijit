@@ -931,14 +931,18 @@ pub mod tests {
     }
 
     #[test]
-    fn jump_if() {
+    fn const_jump() {
         use Condition::*;
         let mut a = Assembler::<VecU8>::new();
         let target = a.get_pos() + 28; // Somewhere in the middle of the code.
+        a.const_jump(Some(target));
         for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
             a.jump_if(cond, Some(target));
         }
+        a.const_jump(Some(target));
+        a.const_jump(None);
         disassemble(&a, 0, vec![
+            "b 0x1c",
             "b.eq 0x1c",
             "b.ne 0x1c",
             "b.hs 0x1c",
@@ -953,6 +957,8 @@ pub mod tests {
             "b.lt 0x1c",
             "b.gt 0x1c",
             "b.le 0x1c",
+            "b 0x1c",
+            "b 0xfffffffff8000040",
         ]).unwrap();
     }
 
