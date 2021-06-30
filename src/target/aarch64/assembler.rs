@@ -1,6 +1,7 @@
 use super::{buffer, code, Patch};
 use buffer::{Buffer};
 use code::{Precision};
+use Precision::*;
 use crate::util::{rotate_left};
 
 /**
@@ -147,7 +148,13 @@ fn signed(x: i64, bits: usize) -> Option<u32> {
  * [ARMv8 Architecture Reference Manual]: https://documentation-service.arm.com/static/60119835773bb020e3de6fee
  */
 #[allow(clippy::many_single_char_names)]
-pub fn logic_immediate(mut x: u64) -> Option<u32> {
+pub fn logic_immediate(prec: Precision, mut x: u64) -> Option<u32> {
+    if prec == P32 {
+        if (x >> 32) != 0 {
+            panic!("High bits set in 32-bit immediate");
+        }
+        x |= x << 32;
+    }
     // `0` and `-1` are not encodable.
     if x == 0 || x == !0 {
         return None;
@@ -470,17 +477,12 @@ impl<B: Buffer> Assembler<B> {
      *  - constant - A 12-bit unsigned integer, or the negative of one. This
      *    method will panic if the constant is not encodable.
      */
-    pub fn const_logic(&mut self, op: LogicOp, prec: Precision, dest: Register, src: Register, mut constant: u64) {
+    pub fn const_logic(&mut self, op: LogicOp, prec: Precision, dest: Register, src: Register, constant: u64) {
         let mut opcode = 0x12000000;
-        if prec == Precision::P32 {
-            constant &= 0xFFFFFFFF;
-            constant |= constant << 32;
-        } else {
-            opcode |= 1 << 31;
-        }
-        let imm = logic_immediate(constant).expect("Invalid logic immediate");
+        let imm = logic_immediate(prec, constant).expect("Invalid logic immediate");
         opcode |= imm << 10;
         opcode |= (op as u32) << 29;
+        opcode |= (prec as u32) << 31;
         self.write_dn(opcode, dest, src);
     }
 
@@ -634,7 +636,6 @@ pub mod tests {
 
     #[test]
     fn shift() {
-        use Precision::*;
         use ShiftOp::*;
         let mut a = Assembler::<VecU8>::new();
         for prec in [P32, P64] {
@@ -670,7 +671,6 @@ pub mod tests {
 
     #[test]
     fn add() {
-        use Precision::*;
         let mut a = Assembler::<VecU8>::new();
         for prec in [P32, P64] {
             for flags in [false, true] {
@@ -716,44 +716,57 @@ pub mod tests {
     #[test]
     fn logic_immediate() {
         // Exhaustively enumerate all encodable immediates.
-        for (size, imms_size_bits, imms_length_mask) in [
-            ( 2, 0b111100, 0b000001),
-            ( 4, 0b111000, 0b000011),
-            ( 8, 0b110000, 0b000111),
-            (16, 0b100000, 0b001111),
-            (32, 0b000000, 0b011111),
-            (64, 0b000000, 0b111111),
-        ] {
-            for length in 0..imms_length_mask {
-                let pattern = (0..64).step_by(size as usize).fold(
-                    (1 << (length + 1)) - 1,
-                    |acc, shift| acc | (acc << shift));
-                for rotation in 0..size {
-                    let val = crate::util::rotate_right(pattern, rotation);
-                    let n = (size == 64) as u32;
-                    let immr = rotation;
-                    let imms = imms_size_bits | length;
-                    let encoding = (n << 12) | (immr << 6) | imms;
-                    assert_eq!(super::logic_immediate(val), Some(encoding));
+        for prec in [P32, P64] {
+            for (size, imms_size_bits, imms_length_mask) in [
+                ( 2, 0b111100, 0b000001),
+                ( 4, 0b111000, 0b000011),
+                ( 8, 0b110000, 0b000111),
+                (16, 0b100000, 0b001111),
+                (32, 0b000000, 0b011111),
+                (64, 0b000000, 0b111111),
+            ] {
+                if size == 64 && prec == P32 {
+                    // There are no 32-bit constants with a size of 64.
+                    continue;
+                }
+                for length in 0..imms_length_mask {
+                    let pattern = (0..64).step_by(size as usize).fold(
+                        (1 << (length + 1)) - 1,
+                        |acc, shift| acc | (acc << shift));
+                    for rotation in 0..size {
+                        let mut val = crate::util::rotate_right(pattern, rotation);
+                        if prec == P32 { val >>= 32 };
+                        let n = (size == 64) as u32;
+                        let immr = rotation;
+                        let imms = imms_size_bits | length;
+                        let encoding = (n << 12) | (immr << 6) | imms;
+                        assert_eq!(
+                            super::logic_immediate(prec, val),
+                            Some(encoding),
+                        );
+                    }
                 }
             }
         }
         // Check some notable non-encodable immediates.
-        assert_eq!(super::logic_immediate(0x0000000000000000), None);
-        assert_eq!(super::logic_immediate(0xFFFFFFFFFFFFFFFF), None);
-        assert_eq!(super::logic_immediate(0x5A5A5A5A5A5A5A5A), None);
-        assert_eq!(super::logic_immediate(0x0000000000000005), None);
+        assert_eq!(super::logic_immediate(P32, 0x00000000), None);
+        assert_eq!(super::logic_immediate(P32, 0xFFFFFFFF), None);
+        assert_eq!(super::logic_immediate(P32, 0x5A5A5A5A), None);
+        assert_eq!(super::logic_immediate(P32, 0x00000005), None);
+        assert_eq!(super::logic_immediate(P64, 0x0000000000000000), None);
+        assert_eq!(super::logic_immediate(P64, 0xFFFFFFFFFFFFFFFF), None);
+        assert_eq!(super::logic_immediate(P64, 0x5A5A5A5A5A5A5A5A), None);
+        assert_eq!(super::logic_immediate(P64, 0x0000000000000005), None);
     }
 
     #[test]
     fn logic() {
-        use Precision::*;
         use LogicOp::*;
         let mut a = Assembler::<VecU8>::new();
-        for prec in [P32, P64] {
+        for (prec, value) in [(P32, 0x33333333), (P64, 0x3333333333333333)] {
             for op in [AND, ORR, EOR, ANDS] {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
-                    a.const_logic(op, prec, rd, rn, 0x3333333333333333);
+                    a.const_logic(op, prec, rd, rn, value);
                     for rm in [R1, RZR] {
                         a.shift_logic(op, prec, false, rd, rn, rm, 21);
                         a.shift_logic(op, prec, true, rd, rn, rm, 11);
