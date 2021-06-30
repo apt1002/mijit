@@ -352,6 +352,8 @@ Mask        Asm     Rd      Rn      imm     Rm      Siz Meaning
 0xEA200000  BICS    0:4     5:9     10:15   16:20   64  Rd <- Rn & ~(Rm << imm)
 ```
 
+Other shift types are possible by varying bits 22:23.
+
 The following table indicates which registers can be `SP`; the rest can be `ZR`.
 
 ```

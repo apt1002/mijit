@@ -394,14 +394,25 @@ impl<B: Buffer> Assembler<B> {
         panic!("Cannot load so far");
     }
 
-    /**
-     * Assembles an instruction that does `dest <- src1 <op> src2`.
-     */
+    /** Assembles an instruction that does `dest <- src1 <op> src2`. */
     pub fn shift(&mut self, op: ShiftOp, prec: Precision, dest: Register, src1: Register, src2: Register) {
         let mut opcode = 0x1AC02000;
         opcode |= (op as u32) << 10;
         opcode |= (prec as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
+    }
+
+    /** Assembles an instruction that does `dest <- src <op> constant`. */
+    pub fn const_shift(&mut self, op: ShiftOp, prec: Precision, dest: Register, src: Register, constant: u64) {
+        // Use an `ORR` instruction, with `RZR` as the unshifted source.
+        // This is easier than ARM's choice of `BFM`, I think.
+        let mut opcode = 0x0A000000 | (LogicOp::ORR as u32) << 29;
+        let shift = unsigned(constant, 5 + (prec as usize)).expect("Cannot shift so far");
+        opcode |= shift << 10;
+        opcode |= (op as u32) << 22;
+        opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, RZR, src);
+        
     }
 
     /**
@@ -612,17 +623,29 @@ pub mod tests {
                 for (rd, rn, rm) in [(R0, R1, RZR), (RZR, R0, R1), (R1, RZR, R0)] {
                     a.shift(op, prec, rd, rn, rm);
                 }
+                for (rd, rn) in [(R0, RZR), (RZR, R1)] {
+                    a.const_shift(op, prec, rd, rn, 11);
+                }
             }
         }
         disassemble(&a, 0, vec![
             "lsl w0, w1, wzr", "lsl wzr, w0, w1", "lsl w1, wzr, w0",
+            "orr w0, wzr, wzr, lsl #0xb", "orr wzr, wzr, w1, lsl #0xb",
             "lsr w0, w1, wzr", "lsr wzr, w0, w1", "lsr w1, wzr, w0",
+            "orr w0, wzr, wzr, lsr #0xb", "orr wzr, wzr, w1, lsr #0xb",
             "asr w0, w1, wzr", "asr wzr, w0, w1", "asr w1, wzr, w0",
+            "orr w0, wzr, wzr, asr #0xb", "orr wzr, wzr, w1, asr #0xb",
             "ror w0, w1, wzr", "ror wzr, w0, w1", "ror w1, wzr, w0",
+            "orr w0, wzr, wzr, ror #0xb", "orr wzr, wzr, w1, ror #0xb",
+
             "lsl x0, x1, xzr", "lsl xzr, x0, x1", "lsl x1, xzr, x0",
+            "orr x0, xzr, xzr, lsl #0xb", "orr xzr, xzr, x1, lsl #0xb",
             "lsr x0, x1, xzr", "lsr xzr, x0, x1", "lsr x1, xzr, x0",
+            "orr x0, xzr, xzr, lsr #0xb", "orr xzr, xzr, x1, lsr #0xb",
             "asr x0, x1, xzr", "asr xzr, x0, x1", "asr x1, xzr, x0",
+            "orr x0, xzr, xzr, asr #0xb", "orr xzr, xzr, x1, asr #0xb",
             "ror x0, x1, xzr", "ror xzr, x0, x1", "ror x1, xzr, x0",
+            "orr x0, xzr, xzr, ror #0xb", "orr xzr, xzr, x1, ror #0xb",
         ]).unwrap();
     }
 
