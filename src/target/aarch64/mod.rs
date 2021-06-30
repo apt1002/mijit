@@ -1,7 +1,10 @@
 use super::{buffer, code, Patch};
 
+mod enums;
+pub use enums::{Register, RSP, Condition, MemOp, Width, ShiftOp, LogicOp};
+
 mod assembler;
-pub use assembler::{Assembler, Register, Condition, RSP, logic_immediate};
+pub use assembler::{Assembler, logic_immediate};
 use Register::*;
 
 /**
