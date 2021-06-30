@@ -505,6 +505,13 @@ impl<B: Buffer> Assembler<B> {
         self.write_dnm(opcode, dest, src1, src2);
     }
 
+    /** Assembles an instruction that does `dest <- src1 * src2`. */
+    pub fn mul(&mut self, prec: Precision, dest: Register, src1: Register, src2: Register) {
+        let mut opcode = 0x1B000000 | (RZR as u32) << 10;
+        opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, src1, src2);
+    }
+
     /** Push `(src1, src2)`. */
     pub fn push(&mut self, src1: Register, src2: Register) {
         let opcode = 0xA9BF0000 | (RSP as u32) << 5;
@@ -824,6 +831,25 @@ pub mod tests {
             "tst x0, #0x3333333333333333",
             "tst x0, x1, lsl #0x15", "bics xzr, x0, x1, lsl #0xb",
             "tst x0, xzr, lsl #0x15", "bics xzr, x0, xzr, lsl #0xb",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn mul() {
+        let mut a = Assembler::<VecU8>::new();
+        for prec in [P32, P64] {
+            a.mul(prec, RZR, R0, R1);
+            a.mul(prec, R0, R1, RZR);
+            a.mul(prec, R1, RZR, R0);
+        }
+        disassemble(&a, 0, vec![
+            "mul wzr, w0, w1",
+            "mul w0, w1, wzr",
+            "mul w1, wzr, w0",
+
+            "mul xzr, x0, x1",
+            "mul x0, x1, xzr",
+            "mul x1, xzr, x0",
         ]).unwrap();
     }
 
