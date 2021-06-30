@@ -512,6 +512,14 @@ impl<B: Buffer> Assembler<B> {
         self.write_dnm(opcode, dest, src1, src2);
     }
 
+    /** Assembles an instruction that does `dest <- cond ? src1 : src2`. */
+    pub fn csel(&mut self, prec: Precision, cond: Condition, dest: Register, src1: Register, src2: Register) {
+        let mut opcode = 0x1A800000;
+        opcode |= (cond as u32) << 12;
+        opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, src1, src2);
+    }
+
     /** Push `(src1, src2)`. */
     pub fn push(&mut self, src1: Register, src2: Register) {
         let opcode = 0xA9BF0000 | (RSP as u32) << 5;
@@ -850,6 +858,50 @@ pub mod tests {
             "mul xzr, x0, x1",
             "mul x0, x1, xzr",
             "mul x1, xzr, x0",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn csel() {
+        use Condition::*;
+        let mut a = Assembler::<VecU8>::new();
+        for prec in [P32, P64] {
+            for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
+                a.csel(prec, cond, RZR, R0, R1);
+                a.csel(prec, cond, R0, R1, RZR);
+                a.csel(prec, cond, R1, RZR, R0);
+            }
+        }
+        disassemble(&a, 0, vec![
+            "csel wzr, w0, w1, eq", "csel w0, w1, wzr, eq", "csel w1, wzr, w0, eq",
+            "csel wzr, w0, w1, ne", "csel w0, w1, wzr, ne", "csel w1, wzr, w0, ne",
+            "csel wzr, w0, w1, cs", "csel w0, w1, wzr, cs", "csel w1, wzr, w0, cs",
+            "csel wzr, w0, w1, cc", "csel w0, w1, wzr, cc", "csel w1, wzr, w0, cc",
+            "csel wzr, w0, w1, mi", "csel w0, w1, wzr, mi", "csel w1, wzr, w0, mi",
+            "csel wzr, w0, w1, pl", "csel w0, w1, wzr, pl", "csel w1, wzr, w0, pl",
+            "csel wzr, w0, w1, vs", "csel w0, w1, wzr, vs", "csel w1, wzr, w0, vs",
+            "csel wzr, w0, w1, vc", "csel w0, w1, wzr, vc", "csel w1, wzr, w0, vc",
+            "csel wzr, w0, w1, hi", "csel w0, w1, wzr, hi", "csel w1, wzr, w0, hi",
+            "csel wzr, w0, w1, ls", "csel w0, w1, wzr, ls", "csel w1, wzr, w0, ls",
+            "csel wzr, w0, w1, ge", "csel w0, w1, wzr, ge", "csel w1, wzr, w0, ge",
+            "csel wzr, w0, w1, lt", "csel w0, w1, wzr, lt", "csel w1, wzr, w0, lt",
+            "csel wzr, w0, w1, gt", "csel w0, w1, wzr, gt", "csel w1, wzr, w0, gt",
+            "csel wzr, w0, w1, le", "csel w0, w1, wzr, le", "csel w1, wzr, w0, le",
+
+            "csel xzr, x0, x1, eq", "csel x0, x1, xzr, eq", "csel x1, xzr, x0, eq",
+            "csel xzr, x0, x1, ne", "csel x0, x1, xzr, ne", "csel x1, xzr, x0, ne",
+            "csel xzr, x0, x1, cs", "csel x0, x1, xzr, cs", "csel x1, xzr, x0, cs",
+            "csel xzr, x0, x1, cc", "csel x0, x1, xzr, cc", "csel x1, xzr, x0, cc",
+            "csel xzr, x0, x1, mi", "csel x0, x1, xzr, mi", "csel x1, xzr, x0, mi",
+            "csel xzr, x0, x1, pl", "csel x0, x1, xzr, pl", "csel x1, xzr, x0, pl",
+            "csel xzr, x0, x1, vs", "csel x0, x1, xzr, vs", "csel x1, xzr, x0, vs", 
+            "csel xzr, x0, x1, vc", "csel x0, x1, xzr, vc", "csel x1, xzr, x0, vc",
+            "csel xzr, x0, x1, hi", "csel x0, x1, xzr, hi", "csel x1, xzr, x0, hi",
+            "csel xzr, x0, x1, ls", "csel x0, x1, xzr, ls", "csel x1, xzr, x0, ls",
+            "csel xzr, x0, x1, ge", "csel x0, x1, xzr, ge", "csel x1, xzr, x0, ge",
+            "csel xzr, x0, x1, lt", "csel x0, x1, xzr, lt", "csel x1, xzr, x0, lt",
+            "csel xzr, x0, x1, gt", "csel x0, x1, xzr, gt", "csel x1, xzr, x0, gt",
+            "csel xzr, x0, x1, le", "csel x0, x1, xzr, le", "csel x1, xzr, x0, le",
         ]).unwrap();
     }
 
