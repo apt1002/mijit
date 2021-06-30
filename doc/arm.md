@@ -231,8 +231,21 @@ S   size    Meaning
 1   3       3
 ```
 
-TODO:
- - Push and pop pair.
+### Push and pop
+
+Load/store pair, pre- and post-indexed.
+
+```
+Mask        Asm     Rt      Rn      Rt2     imm     siz Meaning
+0x28C00000  LDP     0:4     5:9     10:14   15:21   32  Rt <- [Rn]; Rt2 <- [Rn+4]; Rn <- Rn + 4 * imm
+0x28800000  STP     0:4     5:9     10:14   15:21   32  [Rn] <- Rt; [Rn+4] <- Rt2; Rn <- Rn + 4 * imm
+0x29C00000  LDP     0:4     5:9     10:14   15:21   32  Rn <- Rn + 4 * imm; Rt <- [Rn]; Rt2 <- [Rn+4]
+0x29800000  STP     0:4     5:9     10:14   15:21   32  Rn <- Rn + 4 * imm; [Rn] <- Rt; [Rn+4] <- Rt2
+0xA8C00000  LDP     0:4     5:9     10:14   15:21   64  Rt <- [Rn]; Rt2 <- [Rn+8]; Rn <- Rn + 8 * imm
+0xA8800000  STP     0:4     5:9     10:14   15:21   64  [Rn] <- Rt; [Rn+8] <- Rt2; Rn <- Rn + 8 * imm
+0xA9C00000  LDP     0:4     5:9     10:14   15:21   64  Rn <- Rn + 8 * imm; Rt <- [Rn]; Rt2 <- [Rn+8]
+0xA9800000  STP     0:4     5:9     10:14   15:21   64  Rn <- Rn + 8 * imm; [Rn] <- Rt; [Rn+8] <- Rt2
+```
 
 
 ## Move

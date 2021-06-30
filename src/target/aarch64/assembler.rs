@@ -323,6 +323,13 @@ impl<B: Buffer> Assembler<B> {
         self.write_instruction(opcode);
     }
 
+    /** Writes an instruction which uses `Rt` and `Rt2`. */
+    fn write_tt(&mut self, mut opcode: u32, rt: Register, rt2: Register) {
+        opcode |= rt as u32;
+        opcode |= (rt2 as u32) << 10;
+        self.write_instruction(opcode);
+    }    
+
     /** Writes a PC-relative load of a constant, then calls `check_space()`. */
     fn write_pc_relative(&mut self, rd: Register, imm: u64) {
         assert!(self.free_space() >= 16);
@@ -494,6 +501,18 @@ impl<B: Buffer> Assembler<B> {
         opcode |= (op as u32) << 29;
         opcode |= (prec as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
+    }
+
+    /** Push `(src1, src2)`. */
+    pub fn push(&mut self, src1: Register, src2: Register) {
+        let opcode = 0xA9BF0000 | (RSP as u32) << 5;
+        self.write_tt(opcode, src1, src2);
+    }
+
+    /** Pop `(src1, src2)`. */
+    pub fn pop(&mut self, src1: Register, src2: Register) {
+        let opcode = 0xA8C10000 | (RSP as u32) << 5;
+        self.write_tt(opcode, src1, src2);
     }
 }
 
@@ -792,6 +811,21 @@ pub mod tests {
             "tst x0, #0x3333333333333333",
             "tst x0, x1, lsl #0x15", "bics xzr, x0, x1, lsl #0xb",
             "tst x0, xzr, lsl #0x15", "bics xzr, x0, xzr, lsl #0xb",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn push_pop() {
+        let mut a = Assembler::<VecU8>::new();
+        a.push(RZR, R0);
+        a.pop(RZR, R0);
+        a.push(R1, RZR);
+        a.pop(R1, RZR);
+        disassemble(&a, 0, vec![
+            "stp xzr, x0, [sp, #0xfffffffffffffff0]!",
+            "ldp xzr, x0, [sp], #0x10",
+            "stp x1, xzr, [sp, #0xfffffffffffffff0]!",
+            "ldp x1, xzr, [sp], #0x10",
         ]).unwrap();
     }
 }
