@@ -365,36 +365,6 @@ Rm=RSP?     - n     - n     - n     - n
 ```
 
 
-## Bit fields
-
-`BFM` can be used to implement:
- - Bit field clear.
- - Bit field insert.
- - Bit field extract and insert low.
-
-`SBFM` can be used to implement:
- - `ASR` by a constant.
- - Signed bit field insert into zero.
- - Signed bit field extract.
- - Sign-extend.
-
-`UBFM` can be used to implement:
- - `LSL` and `LSR` by a constant.
- - Bit field insert into zero.
- - Bit field extract.
- - Zero-extend.
-
-```
-Mask        Asm     Rd      Rn      imms    immr    Siz Meaning
-0x13000000  SBFM    0:4     5:9     10:14   16:20   32  See section C6.2.234
-0x33000000  BFM     0:4     5:9     10:14   16:20   32  See section C6.2.29
-0x53000000  UBFM    0:4     5:9     10:14   16:20   32  See section C6.2.337
-0x93400000  SBFM    0:4     5:9     10:15   16:21   64  See section C6.2.234
-0xB3400000  BFM     0:4     5:9     10:15   16:21   64  See section C6.2.29
-0xD3400000  UBFM    0:4     5:9     10:15   16:21   64  See section C6.2.337
-```
-
-
 ## Shifts
 
 None of the registers can be SP; any can be ZR.
