@@ -265,28 +265,42 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /**
+     * Write the last instruction of a basic block, and call `alloc()` if
+     * `free_space()` is low.
+     */
+    fn write_terminal(&mut self, opcode: u32) {
+        self.buffer.write(opcode as u64, 4);
+        if self.free_space() < COMFORTABLE_SPACE {
+            self.alloc();
+        }
+    }
+
+    /**
      * Computes a bitmask representing the offset from [`get_pos()`] to
      * `target`. Returns a dummy value if the target is `None`. Returns `None`
      * if the target is not representable as a `bits`-bit signed integer.
      */
     fn jump_offset(&self, target: Option<usize>, bits: usize) -> Option<u32> {
         match target {
-            Some(target) => signed(disp(self.get_pos(), target), bits),
-            None => Some(1 << (bits - 1)),
+            Some(target) => {
+                let offset = disp(self.get_pos(), target);
+                assert_eq!(offset & 3, 0);
+                signed(offset >> 2, bits)
+            },
+            None => {
+                Some(1 << (bits - 1))
+            },
         }
     }
 
     /** Assembles an unconditional jump to `target`. */
     // `check_space()` assumes that this method calls `alloc()`.
-    pub fn jump(&mut self, target: Option<usize>) -> Patch {
+    pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = self.jump_offset(target, 28).expect("Cannot jump so far");
-        assert_eq!(offset & 3, 0);
-        let opcode = 0x14000000 | (offset >> 2);
-        self.buffer.write(opcode as u64, 4);
-        if self.free_space() < COMFORTABLE_SPACE {
-            self.alloc();
-        }
+        let offset = self.jump_offset(target, 26).expect("Cannot jump so far");
+        let mut opcode = 0x14000000;
+        opcode |= offset;
+        self.write_terminal(opcode);
         ret
     }
 
@@ -296,8 +310,8 @@ impl<B: Buffer> Assembler<B> {
      */
     fn check_space(&mut self) {
         if self.free_space() < 16 {
-            // `jump()` will call `alloc()`.
-            let _patch = self.jump(Some(self.pool_end));
+            // `const_jump()` will call `alloc()`.
+            let _patch = self.const_jump(Some(self.pool_end));
             assert_eq!(self.pool_pos - self.get_pos(), PC_RELATIVE_RANGE);
         }
     }
@@ -523,11 +537,10 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles a conditional jump to `target`. */
     pub fn jump_if(&mut self, cond: Condition, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = self.jump_offset(target, 21).expect("Cannot jump so far");
-        assert_eq!(offset & 3, 0);
+        let offset = self.jump_offset(target, 19).expect("Cannot jump so far");
         let mut opcode = 0x54000000;
         opcode |= cond as u32;
-        opcode |= (offset >> 2) << 5;
+        opcode |= offset << 5;
         self.write_instruction(opcode);
         ret
     }
