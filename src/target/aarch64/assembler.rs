@@ -116,7 +116,7 @@ pub struct Assembler<B: Buffer> {
 }
 
 impl<B: Buffer> Assembler<B> {
-    /** Construct an Assembler. */
+    /** Constructs an Assembler. */
     pub fn new() -> Self {
         let mut this = Assembler {buffer: B::new(), pool_pos: 0, pool_end: 0};
         this.alloc();
@@ -133,7 +133,7 @@ impl<B: Buffer> Assembler<B> {
         self.pool_pos = self.pool_end;
     }
 
-    /** Apply `callback` to the contained [`Buffer`]. */
+    /** Applies `callback` to the contained [`Buffer`]. */
     pub fn use_buffer<T>(
         mut self,
         callback: impl FnOnce(B) -> std::io::Result<(B, T)>,
@@ -154,30 +154,11 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /**
-     * Returns the amount of free space between `buffer.get_pos()` and
-     * `pool_pos`.
-     */
-    fn free_space(&self) -> usize {
-        self.pool_pos - self.buffer.get_pos()
-    }
-
-    /**
-     * Write the last instruction of a basic block, and call `alloc()` if
-     * `free_space()` is low.
-     */
-    fn write_terminal(&mut self, opcode: u32) {
-        self.buffer.write(opcode as u64, 4);
-        if self.free_space() < COMFORTABLE_SPACE {
-            self.alloc();
-        }
-    }
-
-    /**
      * Computes a bitmask representing the offset from [`get_pos()`] to
      * `target`. Returns a dummy value if the target is `None`. Returns `None`
-     * if the target is not representable as a `bits`-bit signed integer.
+     * if the target is not encodable.
      */
-    fn jump_offset(&self, target: Option<usize>, bits: usize) -> Option<u32> {
+    pub fn jump_offset(&self, target: Option<usize>, bits: usize) -> Option<u32> {
         match target {
             Some(target) => {
                 let offset = disp(self.get_pos(), target);
@@ -190,39 +171,56 @@ impl<B: Buffer> Assembler<B> {
         }
     }
 
-    /** Assembles an unconditional jump to `target`. */
-    // `check_space()` assumes that this method calls `alloc()`.
-    pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
-        let ret = Patch::new(self.get_pos());
-        let offset = self.jump_offset(target, 26).expect("Cannot jump so far");
-        let mut opcode = 0x14000000;
-        opcode |= offset;
-        self.write_terminal(opcode);
-        ret
+    /**
+     * Returns the amount of free space between `buffer.get_pos()` and
+     * `pool_pos`.
+     */
+    fn free_space(&self) -> usize {
+        self.pool_pos - self.buffer.get_pos()
     }
 
     /**
-     * If the remaining free space is smaller than 16 bytes, allocate a new
-     * free space and assemble a jump to it.
+     * Writes the last instruction of a basic block, and calls `alloc()` if
+     * `free_space()` is low.
      */
-    fn check_space(&mut self) {
-        if self.free_space() < 16 {
-            // `const_jump()` will call `alloc()`.
-            let _patch = self.const_jump(Some(self.pool_end));
-            assert_eq!(self.pool_pos - self.get_pos(), PC_RELATIVE_RANGE);
+    fn write_jump(&mut self, opcode: u32) {
+        self.buffer.write(opcode as u64, 4);
+        if self.free_space() < COMFORTABLE_SPACE {
+            self.alloc();
         }
     }
 
-    /** Writes a 32-bit instruction, then calls `check_space()`. */
+    /** Writes a jump instruction which uses `rn`. */
+    fn write_jump_n(&mut self, mut opcode: u32, rn: Register) {
+        opcode |= (rn as u32) << 5;
+        self.write_jump(opcode);
+    }
+
+    /**
+     * Writes a 32-bit instruction. Then, if the remaining free space is
+     * smaller than 16 bytes, allocate a new free space and assemble a jump to
+     * it.
+     */
     fn write_instruction(&mut self, opcode: u32) {
         assert!(self.free_space() >= 8);
         self.buffer.write(opcode as u64, 4);
-        self.check_space();
+        if self.free_space() < 16 {
+            // Simplified `const_jump(self.pool_end)`.
+            let offset = self.jump_offset(Some(self.pool_end), 26).unwrap();
+            self.write_jump(0x14000000 | offset);
+            assert_eq!(self.pool_pos - self.get_pos(), PC_RELATIVE_RANGE);
+        }
     }
 
     /** Writes an instruction which uses `rd` or `rt`. */
     fn write_d(&mut self, mut opcode: u32, rd: Register) {
         opcode |= rd as u32;
+        self.write_instruction(opcode);
+    }
+
+    /** Writes an instruction which uses `rn`. */
+    fn write_n(&mut self, mut opcode: u32, rn: Register) {
+        opcode |= (rn as u32) << 5;
         self.write_instruction(opcode);
     }
 
@@ -440,6 +438,37 @@ impl<B: Buffer> Assembler<B> {
         opcode |= offset << 5;
         self.write_instruction(opcode);
         ret
+    }
+
+    /** Assembles an indirect jump to `src`. */
+    pub fn jump(&mut self, src: Register) {
+        self.write_jump_n(0xD61F0000, src);
+    }
+
+    /** Assembles an unconditional jump to `target`. */
+    pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
+        let ret = Patch::new(self.get_pos());
+        let offset = self.jump_offset(target, 26).expect("Cannot jump so far");
+        self.write_jump(0x14000000 | offset);
+        ret
+    }
+
+    /** Assembles an indirect call to `src`. */
+    pub fn call(&mut self, src: Register) {
+        self.write_n(0xD63F0000, src);
+    }
+
+    /** Assembles an unconditional jump to `target`. */
+    pub fn const_call(&mut self, target: Option<usize>) -> Patch {
+        let ret = Patch::new(self.get_pos());
+        let offset = self.jump_offset(target, 26).expect("Cannot jump so far");
+        self.write_instruction(0x94000000 | offset);
+        ret
+    }
+
+    /** Assembles a return to `src`. */
+    pub fn ret(&mut self, src: Register) {
+        self.write_jump_n(0xD65F0000, src);
     }
 
     /** Push `(src1, src2)`. */
@@ -828,18 +857,23 @@ pub mod tests {
     }
 
     #[test]
-    fn const_jump() {
+    fn jump() {
         use Condition::*;
         let mut a = Assembler::<VecU8>::new();
         let target = a.get_pos() + 28; // Somewhere in the middle of the code.
         a.const_jump(Some(target));
+        a.const_call(Some(target));
         for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
             a.jump_if(cond, Some(target));
         }
         a.const_jump(Some(target));
+        a.const_call(Some(target));
         a.const_jump(None);
+        a.const_call(None);
+        a.ret(RLR);
         disassemble(&a, 0, vec![
             "b 0x1c",
+            "bl 0x1c",
             "b.eq 0x1c",
             "b.ne 0x1c",
             "b.hs 0x1c",
@@ -855,7 +889,10 @@ pub mod tests {
             "b.gt 0x1c",
             "b.le 0x1c",
             "b 0x1c",
-            "b 0xfffffffff8000040",
+            "bl 0x1c",
+            "b 0xfffffffff8000048",
+            "bl 0xfffffffff800004c",
+            "ret",
         ]).unwrap();
     }
 
