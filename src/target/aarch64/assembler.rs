@@ -37,6 +37,24 @@ fn signed(x: i64, bits: usize) -> Option<u32> {
 }
 
 /**
+ * Computes a bitmask representing the offset from [`get_pos()`] to
+ * `target`. Returns a dummy value if the target is `None`. Returns `None`
+ * if the offset is not encodable.
+ */
+pub fn jump_offset(from: usize, to: Option<usize>, bits: usize) -> Option<u32> {
+    match to {
+        Some(to) => {
+            let offset = disp(from, to);
+            assert_eq!(offset & 3, 0);
+            signed(offset >> 2, bits)
+        },
+        None => {
+            Some(1 << (bits - 1))
+        },
+    }
+}
+
+/**
  * Returns a bitmask representing `x` as a "logic immediate". The [encoding]
  * is quite esoteric. Here we use the ARM's terminology; see `DecodeBitMasks()`
  * in the [ARMv8 Architecture Reference Manual] (on page 7954).
@@ -151,24 +169,6 @@ impl<B: Buffer> Assembler<B> {
     /** Set the assembly pointer. */
     pub fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 
-    /**
-     * Computes a bitmask representing the offset from [`get_pos()`] to
-     * `target`. Returns a dummy value if the target is `None`. Returns `None`
-     * if the target is not encodable.
-     */
-    pub fn jump_offset(&self, target: Option<usize>, bits: usize) -> Option<u32> {
-        match target {
-            Some(target) => {
-                let offset = disp(self.get_pos(), target);
-                assert_eq!(offset & 3, 0);
-                signed(offset >> 2, bits)
-            },
-            None => {
-                Some(1 << (bits - 1))
-            },
-        }
-    }
-
     /** Returns the amount of free space between `pos` and `pool_pos`. */
     fn free_space(&self) -> usize { self.pool_pos - self.pos }
 
@@ -201,7 +201,7 @@ impl<B: Buffer> Assembler<B> {
         self.pos += 4;
         if self.free_space() < 16 {
             // Simplified `const_jump(self.pool_end)`.
-            let offset = self.jump_offset(Some(self.pool_end), 26).unwrap();
+            let offset = jump_offset(self.pos, Some(self.pool_end), 26).unwrap();
             self.write_jump(0x14000000 | offset);
             assert_eq!(self.free_space(), PC_RELATIVE_RANGE);
         }
@@ -424,7 +424,7 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles a conditional jump to `target`. */
     pub fn jump_if(&mut self, cond: Condition, is_true: bool, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = self.jump_offset(target, 19).expect("Cannot jump so far");
+        let offset = jump_offset(self.pos, target, 19).expect("Cannot jump so far");
         let mut opcode = 0x54000000;
         opcode |= (cond as u32) ^ (!is_true as u32);
         opcode |= offset << 5;
@@ -440,7 +440,7 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles an unconditional jump to `target`. */
     pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = self.jump_offset(target, 26).expect("Cannot jump so far");
+        let offset = jump_offset(self.pos, target, 26).expect("Cannot jump so far");
         self.write_jump(0x14000000 | offset);
         ret
     }
@@ -453,7 +453,7 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles an unconditional jump to `target`. */
     pub fn const_call(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = self.jump_offset(target, 26).expect("Cannot jump so far");
+        let offset = jump_offset(self.pos, target, 26).expect("Cannot jump so far");
         self.write_instruction(0x94000000 | offset);
         ret
     }
@@ -473,6 +473,36 @@ impl<B: Buffer> Assembler<B> {
     pub fn pop(&mut self, src1: Register, src2: Register) {
         let opcode = 0xA8C10000 | (RSP as u32) << 5;
         self.write_tt(opcode, src1, src2);
+    }
+
+    /**
+     * Change the target of the instruction at `patch` from `old_target` to
+     * `new_target`.
+     * - patch - the instruction to modify.
+     * - new_target - an offset from the beginning of the buffer, or `None`.
+     * - old_target - an offset from the beginning of the buffer, or `None`.
+     */
+    pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
+        let at = patch.address();
+        let old = self.buffer.read(at, 4) as u32;
+        let new = old ^ (
+            if (old & 0xFF000010) == 0x54000000 {
+                // Conditional branch.
+                let old_offset = jump_offset(at, old_target, 19).unwrap();
+                let new_offset = jump_offset(at, new_target, 19).expect("Cannot jump so far");
+                assert_eq!(old & 0x00FFFFE0, old_offset << 5);
+                (old_offset ^ new_offset) << 5
+            } else if (old & 0x7C000000) == 0x14000000 {
+                // Jump or call.
+                let old_offset = jump_offset(at, old_target, 26).unwrap();
+                let new_offset = jump_offset(at, new_target, 26).expect("Cannot jump so far");
+                assert_eq!(old & 0x03FFFFFF, old_offset);
+                old_offset ^ new_offset
+            } else {
+                panic!("not a jump or call instruction");
+            }
+        );
+        self.buffer.write(at, new as u64, 4);
     }
 }
 
@@ -900,6 +930,29 @@ pub mod tests {
             "ldp xzr, x0, [sp], #0x10",
             "stp x1, xzr, [sp, #0xfffffffffffffff0]!",
             "ldp x1, xzr, [sp], #0x10",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn patch() {
+        let mut a = Assembler::<Vec<u8>>::new();
+        let target = Some(4); // Somewhere in the middle of the code.
+        let p1 = a.const_jump(None);
+        let p2 = a.const_call(target);
+        let p3 = a.jump_if(Condition::LS, true, target);
+        disassemble(&a, 0, vec![
+            "b 0xfffffffff8000000",
+            "bl 0x4",
+            "b.ls 0x4",
+        ]).unwrap();
+        let target2 = Some(0);
+        a.patch(p1, None, target2);
+        a.patch(p2, target, target2);
+        a.patch(p3, target, None);
+        disassemble(&a, 0, vec![
+            "b 0x0",
+            "bl 0x0",
+            "b.ls 0xfffffffffff00008",
         ]).unwrap();
     }
 }
