@@ -424,11 +424,10 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles a conditional jump to `target`. */
     pub fn jump_if(&mut self, cond: Condition, is_true: bool, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = jump_offset(self.pos, target, 19).expect("Cannot jump so far");
-        let mut opcode = 0x54000000;
+        let mut opcode = 0x54800000;
         opcode |= (cond as u32) ^ (!is_true as u32);
-        opcode |= offset << 5;
         self.write_instruction(opcode);
+        self.patch(ret, None, target);
         ret
     }
 
@@ -440,8 +439,8 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles an unconditional jump to `target`. */
     pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = jump_offset(self.pos, target, 26).expect("Cannot jump so far");
-        self.write_jump(0x14000000 | offset);
+        self.write_jump(0x16000000);
+        self.patch(ret, None, target);
         ret
     }
 
@@ -453,8 +452,8 @@ impl<B: Buffer> Assembler<B> {
     /** Assembles an unconditional jump to `target`. */
     pub fn const_call(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
-        let offset = jump_offset(self.pos, target, 26).expect("Cannot jump so far");
-        self.write_instruction(0x94000000 | offset);
+        self.write_instruction(0x96000000);
+        self.patch(ret, None, target);
         ret
     }
 
