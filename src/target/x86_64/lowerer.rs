@@ -705,7 +705,7 @@ pub mod tests {
     #[test]
     fn steal() {
         let pool = Pool::new(0);
-        let mut lo = Lowerer::<buffer::VecU8>::new(pool);
+        let mut lo = Lowerer::<Vec<u8>>::new(pool);
         let start = lo.here().target().unwrap();
         let mut label = Label::new(None);
         lo.jump_if(Z, true, &mut label);

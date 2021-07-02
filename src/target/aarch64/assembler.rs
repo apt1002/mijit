@@ -104,11 +104,13 @@ pub struct Assembler<B: Buffer> {
     /**
      * The memory we're filling with code and immediate constants.
      *
-     * We generate code forwards at `buffer.get_pos()`, and we collect
-     * constants backwards at `self.pool_pos`. The interval between the two is
+     * We generate code forwards at `self.pos`, and we collect constants
+     * backwards at `self.pool_pos`. The interval between the two is
      * free space, as is everything beyond `pool_end`.
      */
     buffer: B,
+    /** The write pointer for code. Moves upwards. */
+    pos: usize,
     /** The write pointer for constants. Moves downwards. */
     pool_pos: usize,
     /** The end of the allocated memory. */
@@ -118,17 +120,17 @@ pub struct Assembler<B: Buffer> {
 impl<B: Buffer> Assembler<B> {
     /** Constructs an Assembler. */
     pub fn new() -> Self {
-        let mut this = Assembler {buffer: B::new(), pool_pos: 0, pool_end: 0};
+        let mut this = Assembler {buffer: B::new(), pos: 0, pool_pos: 0, pool_end: 0};
         this.alloc();
         this
     }
 
     /**
-     * Abandons the free space between `buffer.get_pos()` and `self.pool_pos`,
+     * Abandons the free space between `self.pos` and `self.pool_pos`,
      * and allocates a new interval of free space of size `PC_RELATIVE_RANGE`.
      */
     fn alloc(&mut self) {
-        self.buffer.set_pos(self.pool_end);
+        self.pos = self.pool_end;
         self.pool_end += PC_RELATIVE_RANGE;
         self.pool_pos = self.pool_end;
     }
@@ -144,14 +146,10 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Get the assembly pointer. */
-    pub fn get_pos(&self) -> usize {
-        self.buffer.get_pos()
-    }
+    pub fn get_pos(&self) -> usize { self.pos }
 
     /** Set the assembly pointer. */
-    pub fn set_pos(&mut self, pos: usize) {
-        self.buffer.set_pos(pos);
-    }
+    pub fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 
     /**
      * Computes a bitmask representing the offset from [`get_pos()`] to
@@ -171,20 +169,16 @@ impl<B: Buffer> Assembler<B> {
         }
     }
 
-    /**
-     * Returns the amount of free space between `buffer.get_pos()` and
-     * `pool_pos`.
-     */
-    fn free_space(&self) -> usize {
-        self.pool_pos - self.buffer.get_pos()
-    }
+    /** Returns the amount of free space between `pos` and `pool_pos`. */
+    fn free_space(&self) -> usize { self.pool_pos - self.pos }
 
     /**
      * Writes the last instruction of a basic block, and calls `alloc()` if
      * `free_space()` is low.
      */
     fn write_jump(&mut self, opcode: u32) {
-        self.buffer.write(opcode as u64, 4);
+        self.buffer.write(self.pos, opcode as u64, 4);
+        self.pos += 4;
         if self.free_space() < COMFORTABLE_SPACE {
             self.alloc();
         }
@@ -203,12 +197,13 @@ impl<B: Buffer> Assembler<B> {
      */
     fn write_instruction(&mut self, opcode: u32) {
         assert!(self.free_space() >= 8);
-        self.buffer.write(opcode as u64, 4);
+        self.buffer.write(self.pos, opcode as u64, 4);
+        self.pos += 4;
         if self.free_space() < 16 {
             // Simplified `const_jump(self.pool_end)`.
             let offset = self.jump_offset(Some(self.pool_end), 26).unwrap();
             self.write_jump(0x14000000 | offset);
-            assert_eq!(self.pool_pos - self.get_pos(), PC_RELATIVE_RANGE);
+            assert_eq!(self.free_space(), PC_RELATIVE_RANGE);
         }
     }
 
@@ -251,12 +246,9 @@ impl<B: Buffer> Assembler<B> {
         assert!(self.free_space() >= 16);
         // Write the constant.
         self.pool_pos -= 8;
-        let pos = self.get_pos();
-        self.set_pos(self.pool_pos);
-        self.buffer.write(imm, 8);
-        self.set_pos(pos);
+        self.buffer.write(self.pool_pos, imm, 8);
         // Write the instruction.
-        let offset = disp(self.get_pos(), self.pool_pos);
+        let offset = disp(self.pos, self.pool_pos);
         assert_eq!(offset & 3, 0);
         let offset = signed(offset >> 2, 19).unwrap();
         self.write_d(0x58000000 | (offset << 5), rd);
@@ -497,7 +489,6 @@ pub mod tests {
     use std::cmp::{min, max};
 
     use super::*;
-    use buffer::{VecU8};
     use MemOp::*;
     use Width::*;
 
@@ -545,9 +536,9 @@ pub mod tests {
 
     #[test]
     fn test_disassemble() {
-        let mut a = Assembler::<VecU8>::new();
-        a.buffer.write(0x912AA3E0, 4);
-        a.buffer.write(0x9B007C00, 4);
+        let mut a = Assembler::<Vec<u8>>::new();
+        a.write_instruction(0x912AA3E0);
+        a.write_instruction(0x9B007C00);
         disassemble(&a, 0, vec![
             "add x0, sp, #0xaa8",
             "mul x0, x0, x0",
@@ -556,7 +547,7 @@ pub mod tests {
 
     #[test]
     fn mem() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for (rd, rn) in [(R0, RSP), (RZR, R0)] {
             for (op, width) in [
                 (STR, One), (LDR, One), (LDRS64, One), (LDRS32, One),
@@ -603,7 +594,7 @@ pub mod tests {
     #[test]
     fn shift() {
         use ShiftOp::*;
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for prec in [P32, P64] {
             for op in [LSL, LSR, ASR, ROR] {
                 for (rd, rn, rm) in [(R0, R1, RZR), (RZR, R0, R1), (R1, RZR, R0)] {
@@ -637,7 +628,7 @@ pub mod tests {
 
     #[test]
     fn add() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for prec in [P32, P64] {
             for flags in [false, true] {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
@@ -728,7 +719,7 @@ pub mod tests {
     #[test]
     fn logic() {
         use LogicOp::*;
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for (prec, value) in [(P32, 0x33333333), (P64, 0x3333333333333333)] {
             for op in [AND, ORR, EOR, ANDS] {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
@@ -795,7 +786,7 @@ pub mod tests {
 
     #[test]
     fn mul() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for prec in [P32, P64] {
             a.mul(prec, RZR, R0, R1);
             a.mul(prec, R0, R1, RZR);
@@ -815,7 +806,7 @@ pub mod tests {
     #[test]
     fn csel() {
         use Condition::*;
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for prec in [P32, P64] {
             for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
                 a.csel(prec, cond, true, RZR, R0, R1);
@@ -859,7 +850,7 @@ pub mod tests {
     #[test]
     fn jump() {
         use Condition::*;
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         let target = a.get_pos() + 28; // Somewhere in the middle of the code.
         a.const_jump(None);
         a.const_call(None);
@@ -899,7 +890,7 @@ pub mod tests {
 
     #[test]
     fn push_pop() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.push(RZR, R0);
         a.pop(RZR, R0);
         a.push(R1, RZR);

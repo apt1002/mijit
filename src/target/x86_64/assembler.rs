@@ -251,12 +251,13 @@ pub extern fn debug_word(x: u64) {
 pub struct Assembler<B: Buffer> {
     /// The area we're filling with code.
     buffer: B,
+    pos: usize,
 }
 
 impl<B: Buffer> Assembler<B> {
     /** Construct an Assembler. */
     pub fn new() -> Self {
-        Assembler {buffer: B::new()}
+        Assembler {buffer: B::new(), pos: 0}
     }
 
     /** Apply `callback` to the contained [`Buffer`]. */
@@ -270,60 +271,56 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Get the assembly pointer. */
-    pub fn get_pos(&self) -> usize {
-        self.buffer.get_pos()
-    }
+    pub fn get_pos(&self) -> usize { self.pos }
 
     /** Set the assembly pointer. */
-    pub fn set_pos(&mut self, pos: usize) {
-        self.buffer.set_pos(pos);
-    }
+    pub fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 
     // Patterns and constants.
 
+    /** Writes at `pos`, incrmenting it. */
+    fn write(&mut self, bytes: u64, len: usize) {
+        self.buffer.write(self.pos, bytes, len);
+        self.pos += len;
+    }
+
     /** Writes an 8-bit signed immediate constant. */
     pub fn write_imm8(&mut self, immediate: i8) {
-        self.buffer.write(u64::from(immediate as u8), 1);
+        self.write(u64::from(immediate as u8), 1);
     }
 
     /** Writes a 32-bit signed immediate constant. */
     pub fn write_imm32(&mut self, immediate: i32) {
-        self.buffer.write(u64::from(immediate as u32), 4);
+        self.write(u64::from(immediate as u32), 4);
     }
 
     /** Writes a 64-bit signed immediate constant. */
     pub fn write_imm64(&mut self, immediate: i64) {
-        self.buffer.write(immediate as u64, 8);
-    }
-
-    /** Writes a 32-bit displacement from `self.get_pos()+4` to `target`. */
-    pub fn write_rel32(&mut self, target: Option<usize>) {
-        let pos = self.get_pos();
-        self.write_imm32(optional_disp32(pos + 4, target));
+        self.write(immediate as u64, 8);
     }
 
     /** Writes an instruction with pattern "OO", and no registers. */
     pub fn write_oo_0(&mut self, opcode: u64) {
-        self.buffer.write(opcode, 2);
+        self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "RO", and no registers. */
     pub fn write_ro_0(&mut self, opcode: u64) {
-        self.buffer.write(opcode, 2);
+        self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "RO", and one register. */
     pub fn write_ro_1(&mut self, mut opcode: u64, prec: Precision, rd: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x0701 & rd.mask();
-        self.buffer.write(opcode, 2);
+        self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "ROM" and one register. */
     pub fn write_rom_1(&mut self, mut opcode: u64, prec: Precision, rm: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
-        self.buffer.write(opcode, 3);
+        self.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROM" and two registers. */
@@ -331,7 +328,7 @@ impl<B: Buffer> Assembler<B> {
         opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
         opcode |= 0x380004 & reg.mask();
-        self.buffer.write(opcode, 3);
+        self.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROOM" and two registers. */
@@ -339,7 +336,7 @@ impl<B: Buffer> Assembler<B> {
         opcode |= (prec as u64) << 3;
         opcode |= 0x07000001 & rm.mask();
         opcode |= 0x38000004 & reg.mask();
-        self.buffer.write(opcode, 4);
+        self.write(opcode, 4);
     }
 
     /**
@@ -353,7 +350,7 @@ impl<B: Buffer> Assembler<B> {
      */
     pub fn write_sib_fix(&mut self, rm: Register) {
         if (rm as usize) & 7 == 4 {
-            self.buffer.write_byte(0x24);
+            self.write(0x24, 1);
         }
     }
 
@@ -561,13 +558,8 @@ impl<B: Buffer> Assembler<B> {
         } else {
             panic!("not a jump or call instruction");
         };
-        let old_disp = self.buffer.read(at, 4) as i32;
-        let old_pos = self.buffer.get_pos();
-        self.buffer.set_pos(at);
-        self.write_rel32(new_target);
-        let at_plus_4 = self.buffer.get_pos();
-        self.buffer.set_pos(old_pos);
-        assert_eq!(old_disp, optional_disp32(at_plus_4, old_target));
+        assert_eq!(self.buffer.read(at, 4) as i32, optional_disp32(at + 4, old_target));
+        self.buffer.write(at, optional_disp32(at + 4, new_target) as u32 as u64, 4);
     }
 
     pub fn ret(&mut self) {
@@ -627,7 +619,7 @@ impl<B: Buffer> Assembler<B> {
                 self.write_sib_fix(dest.0);
             }
             U16 | S16 => {
-                self.buffer.write_byte(0x66);
+                self.write(0x66, 1);
                 self.write_rom_2(0x808940, P32, dest.0, src);
                 self.write_sib_fix(dest.0);
             }
@@ -681,8 +673,6 @@ pub mod tests {
     use std::cmp::{min, max};
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
-
-    use buffer::{VecU8};
 
     const ALL_REGISTERS: [Register; 16] =
         [RA, RC, RD, RB, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
@@ -744,8 +734,8 @@ pub mod tests {
 
     #[test]
     fn test_disassemble() {
-        let mut a = Assembler::<VecU8>::new();
-        a.buffer.write(0x00005510245C8948, 6);
+        let mut a = Assembler::<Vec<u8>>::new();
+        a.write(0x00005510245C8948, 6);
         disassemble(&a, 0, vec![
             "mov [rsp+10h],rbx",
             "push rbp",
@@ -759,7 +749,7 @@ pub mod tests {
     /** Test that the Registers are named correctly. */
     #[test]
     fn regs() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &r in &ALL_REGISTERS {
             a.move_(P32, r, r);
         }
@@ -786,7 +776,7 @@ pub mod tests {
     /** Test that the Precisions are named correctly. */
     #[test]
     fn precs() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.move_(p, RA, RA);
         }
@@ -799,7 +789,7 @@ pub mod tests {
     /** Test that we can assemble all the different sizes of constant. */
     #[test]
     fn const_() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             for &c in &[0, 1, 1000, 0x76543210, 0x76543210FEDCBA98] {
                 a.const_(p, R8, c);
@@ -833,7 +823,7 @@ pub mod tests {
     /** Test that we can assemble all the different kinds of "MOV". */
     #[test]
     fn move_() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.move_(p, R10, R9);
             a.store(p, (R8, DISP), R10);
@@ -861,7 +851,7 @@ pub mod tests {
     /** Test that all the BinaryOps are named correctly. */
     #[test]
     fn binary_op() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &op in &ALL_BINARY_OPS {
             a.op(op, P32, R10, R9);
         }
@@ -880,7 +870,7 @@ pub mod tests {
     /** Test that we can assemble BinaryOps in all the different ways. */
     #[test]
     fn binary_mode() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.op(Add, p, R10, R9);
             a.const_op(Add, p, R10, IMM);
@@ -902,7 +892,7 @@ pub mod tests {
     /** Test that all the ShiftOps are named correctly. */
     #[test]
     fn shift_op() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &op in &ALL_SHIFT_OPS {
             a.shift(op, P32, R8);
         }
@@ -920,7 +910,7 @@ pub mod tests {
     /** Test that we can assemble ShiftOps in all the different ways. */
     #[test]
     fn shift_mode() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.shift(Shl, p, R8);
             a.const_shift(Shl, p, R8, 7);
@@ -936,7 +926,7 @@ pub mod tests {
     /** Test that we can assemble multiplications in all the different ways. */
     #[test]
     fn mul() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.mul(p, R8, R9);
             a.const_mul(p, R10, R11, IMM);
@@ -958,7 +948,7 @@ pub mod tests {
     /** Test that we can assemble divisions in all the different ways. */
     #[test]
     fn div() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.udiv(p, R8);
             a.load_udiv(p, (R14, DISP));
@@ -980,7 +970,7 @@ pub mod tests {
      */
     #[test]
     fn condition() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         let target = Some(0x28); // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
             a.jump_if(cc, true, target);
@@ -1025,7 +1015,7 @@ pub mod tests {
     /** Test that we can assemble conditional moves and loads. */
     #[test]
     fn move_if() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             a.move_if(G, true, p, R8, R9);
             a.move_if(G, false, p, R10, R11);
@@ -1053,7 +1043,7 @@ pub mod tests {
     /** Test that we can assemble the different kinds of unconditional jump. */
     #[test]
     fn jump() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.jump(R8);
         a.const_jump(Some(LABEL));
         disassemble(&a, 0, vec![
@@ -1065,7 +1055,7 @@ pub mod tests {
     /** Test that we can assemble the different kinds of call and return. */
     #[test]
     fn call_ret() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.call(R8);
         a.const_call(Some(LABEL));
         a.ret();
@@ -1079,7 +1069,7 @@ pub mod tests {
     /** Test that we can assemble "PUSH" and "POP". */
     #[test]
     fn push_pop() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.push(R8);
         a.pop(R9);
         disassemble(&a, 0, vec![
@@ -1091,7 +1081,7 @@ pub mod tests {
     /** Test that we can assemble loads and stores for narrow data. */
     #[test]
     fn narrow() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
             for &w in &ALL_WIDTHS {
                 a.load_narrow(p, w, R9, (R8, DISP));
