@@ -325,7 +325,7 @@ impl<T: Target> JitInner<T> {
         *lo.slots_used() = self.internals.slots_used(fetch_parent);
         // Compile `guard`.
         let if_fail = self.internals.retire_label_mut(fetch_parent);
-        lo.steal(&mut lo.here(), if_fail);
+        lo.steal(if_fail, &mut lo.here());
         lo.test_op(guard, if_fail);
         { // Lifetime of `compiled` (can't touch `self.internals`).
             let compiled = &mut self.internals[this].compiled;

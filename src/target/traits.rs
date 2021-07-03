@@ -48,10 +48,10 @@ pub trait Lower {
      * Modifies all instructions that jump to `loser` so that they instead
      * jump to `winner`.
      */
-    fn steal(&mut self, winner: &mut Label, loser: &mut Label) {
+    fn steal(&mut self, loser: &mut Label, winner: &mut Label) {
         let loser_target = loser.target();
         for patch in loser.drain() {
-            self.patch(patch, winner.target(), loser_target);
+            self.patch(patch, loser_target, winner.target());
             winner.push(patch);
         }
     }
@@ -61,7 +61,7 @@ pub trait Lower {
         assert!(!label.is_defined());
         // Use `steal()` to modify all instructions that jump to `label`.
         let mut new = self.here();
-        self.steal(&mut new, label);
+        self.steal(label, &mut new);
         *label = new;
     }
 

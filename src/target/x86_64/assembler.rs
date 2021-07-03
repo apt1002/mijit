@@ -13,7 +13,7 @@
 
 use super::{buffer, code, Patch, CALLER_SAVES};
 use buffer::{Buffer};
-use code::{Precision};
+use code::{Precision, debug_word};
 use Precision::*;
 
 /**
@@ -205,11 +205,6 @@ const UNKNOWN_DISP: i32 = -0x80000000;
 /** Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`. */
 pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
     to.map_or(UNKNOWN_DISP, |to| disp32(from, to))
-}
-
-#[no_mangle]
-pub extern fn debug_word(x: u64) {
-    println!("Debug: {:#018x}", x);
 }
 
 /**
@@ -504,7 +499,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = Patch::new(self.get_pos());
         self.write_oo_0(cc.jump_if(is_true));
         self.write_imm32(UNKNOWN_DISP);
-        self.patch(patch, target, None);
+        self.patch(patch, None, target);
         patch
     }
 
@@ -518,7 +513,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE940);
         self.write_imm32(UNKNOWN_DISP);
-        self.patch(patch, target, None);
+        self.patch(patch, None, target);
         patch
     }
 
@@ -532,7 +527,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE840);
         self.write_imm32(UNKNOWN_DISP);
-        self.patch(patch, target, None);
+        self.patch(patch, None, target);
         patch
     }
 
@@ -540,10 +535,10 @@ impl<B: Buffer> Assembler<B> {
      * Change the target of the instruction at `patch` from `old_target` to
      * `new_target`.
      * - patch - the instruction to modify.
-     * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
+     * - new_target - an offset from the beginning of the buffer, or `None`.
      */
-    pub fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
+    pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
         let pos = patch.address();
         #[allow(clippy::if_same_then_else)]
         let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
@@ -1157,11 +1152,5 @@ pub mod tests {
             "mov [r8+12345678h],r9",
             "mov [r12+12345678h],r9",
         ]).unwrap();
-    }
-
-    /** Ensure the linker symbol `debug_word` is included in the binary. */
-    #[test]
-    fn not_really_a_test() {
-        debug_word(0);
     }
 }

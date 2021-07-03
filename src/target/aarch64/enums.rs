@@ -25,7 +25,10 @@ pub const RSP: Register = Register::RZR;
 
 //-----------------------------------------------------------------------------
 
-/** All AArch64 conditions except `AL` (and `NV`). */
+/**
+ * All AArch64 conditions except `AL` (and `NV`).
+ * For `HS`, use `CS`. For `LO`, use `CC`.
+ */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
@@ -54,18 +57,6 @@ pub enum MemOp {
     LDRS64 = 2,
     /** Load, sign-extend to 32 bits and zero-extend to 64 bits. */
     LDRS32 = 3,
-}
-
-//-----------------------------------------------------------------------------
-
-/** All transfer sizes (for memory access). */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Width {
-    One = 0,
-    Two = 1,
-    Four = 2,
-    Eight = 3,
 }
 
 //-----------------------------------------------------------------------------

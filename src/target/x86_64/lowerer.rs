@@ -555,7 +555,6 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
     ) {
         match action {
             Action::Move(dest, src) => {
-                // `dest_to_register()` would generate less efficient code.
                 match dest {
                     code::Value::Register(dest) => {
                         let src = self.src_to_register(src, dest);
@@ -717,7 +716,7 @@ pub mod tests {
             "call 0FFFFFFFF80000052h",
         ]).unwrap();
         let mut new_label = Label::new(Some(LABEL));
-        lo.steal(&mut new_label, &mut label);
+        lo.steal(&mut label, &mut new_label);
         label = new_label;
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
@@ -725,7 +724,7 @@ pub mod tests {
             "call 0000000002461357h",
         ]).unwrap();
         let mut new_label = Label::new(Some(LABEL));
-        lo.steal(&mut new_label, &mut label);
+        lo.steal(&mut label, &mut new_label);
         disassemble(&lo.a, start, vec![
             "je near 0000000002461357h",
             "jmp 0000000002461357h",

@@ -1,11 +1,14 @@
-use super::{buffer, code, Patch};
+use super::{buffer, code, Patch, Label, Counter, Pool, STATE_INDEX, Lower, ExecuteFn, Execute};
 
 mod enums;
-pub use enums::{Register, RSP, Condition, MemOp, Width, ShiftOp, LogicOp};
+pub use enums::{Register, RSP, Condition, MemOp, ShiftOp, LogicOp};
 
 mod assembler;
 pub use assembler::{Assembler, logic_immediate};
 use Register::*;
+
+mod lowerer;
+pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};
 
 /**
  * In the AArch64 calling convention, these registers must be preserved by

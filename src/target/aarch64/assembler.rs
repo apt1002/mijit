@@ -1,6 +1,6 @@
-use super::{buffer, code, Patch, Register, RSP, Condition, MemOp, Width, ShiftOp, LogicOp};
+use super::{buffer, code, Patch, Register, RSP, Condition, MemOp, ShiftOp, LogicOp};
 use buffer::{Buffer};
-use code::{Precision};
+use code::{Precision, Width};
 use crate::util::{rotate_left};
 
 use Precision::*;
@@ -334,11 +334,12 @@ impl<B: Buffer> Assembler<B> {
      * Assembles an instruction that does `dest <- src + constant`. `dest` or `src`
      * can be `RSP` but not `RZR`.
      *  - prec - `P32` to zero-extend the result from 32 bits.
-     *  - flags - `true` if the instruction should affect the condition flags.
+     *  - set_flags - `true` if the instruction should affect the condition
+     *    flags.
      *  - constant - A 12-bit unsigned integer, or the negative of one. This
      *    method will panic if the constant is not encodable.
      */
-    pub fn const_add(&mut self, prec: Precision, flags: bool, dest: Register, src: Register, mut constant: i64) {
+    pub fn const_add(&mut self, prec: Precision, set_flags: bool, dest: Register, src: Register, mut constant: i64) {
         let mut opcode = 0x11000000;
         if constant < 0 {
             constant = -constant;
@@ -346,7 +347,7 @@ impl<B: Buffer> Assembler<B> {
         }
         let imm = unsigned(constant as u64, 12).expect("Cannot add so much");
         opcode |= imm << 10;
-        opcode |= (flags as u32) << 29;
+        opcode |= (set_flags as u32) << 29;
         opcode |= (prec as u32) << 31;
         self.write_dn(opcode, dest, src);
     }
@@ -356,15 +357,16 @@ impl<B: Buffer> Assembler<B> {
      * `dest`, `src1` or `src2` can be `RZR` but not `RSP`.
      *  - prec - `P32` to zero-extend the result from 32 bits.
      *  - minus - `true` to subtract or `false` to add.
-     *  - flags - `true` if the instruction should affect the condition flags.
+     *  - set_flags - `true` if the instruction should affect the condition
+     *    flags.
      *  - shift - a 5- or 6-bit unsigned integer. This method will panic if the
      *    constant is not encodeable.
      */
-    pub fn shift_add(&mut self, prec: Precision, minus: bool, flags: bool, dest: Register, src1: Register, src2: Register, shift: u64) {
+    pub fn shift_add(&mut self, prec: Precision, minus: bool, set_flags: bool, dest: Register, src1: Register, src2: Register, shift: usize) {
         let mut opcode = 0x0B000000;
-        let shift = unsigned(shift, 5 + (prec as usize)).expect("Cannot shift so far");
+        let shift = unsigned(shift as u64, 5 + (prec as usize)).expect("Cannot shift so far");
         opcode |= shift << 10;
-        opcode |= (flags as u32) << 29;
+        opcode |= (set_flags as u32) << 29;
         opcode |= (minus as u32) << 30;
         opcode |= (prec as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
@@ -396,9 +398,9 @@ impl<B: Buffer> Assembler<B> {
      *  - shift - a 5- or 6-bit unsigned integer. This method will panic if the
      *    constant is not encodeable.
      */
-    pub fn shift_logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: Register, src1: Register, src2: Register, shift: u64) {
+    pub fn shift_logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: Register, src1: Register, src2: Register, shift: usize) {
         let mut opcode = 0x0A000000;
-        let shift = unsigned(shift, 5 + (prec as usize)).expect("Cannot shift so far");
+        let shift = unsigned(shift as u64, 5 + (prec as usize)).expect("Cannot shift so far");
         opcode |= shift << 10;
         opcode |= (not as u32) << 21;
         opcode |= (op as u32) << 29;
@@ -478,12 +480,13 @@ impl<B: Buffer> Assembler<B> {
      * Change the target of the instruction at `patch` from `old_target` to
      * `new_target`.
      * - patch - the instruction to modify.
-     * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
+     * - new_target - an offset from the beginning of the buffer, or `None`.
      */
     pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
         let at = patch.address();
         let old = self.buffer.read(at, 4) as u32;
+        println!("at={:x}, old={:x}, old_target={:?}, new_target={:?}", at, old, old_target, new_target);
         let new = old ^ (
             if (old & 0xFF000010) == 0x54000000 {
                 // Conditional branch.
