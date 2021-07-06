@@ -153,8 +153,8 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /** Conditional branch. */
-    fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
-        let patch = self.a.jump_if(cc, is_true, target.target());
+    fn jump_if(&mut self, cc: Condition, target: &mut Label) {
+        let patch = self.a.jump_if(cc, target.target());
         target.push(patch);
     }
 
@@ -248,18 +248,18 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    fn value_move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: impl Into<Register>, src: impl Into<Value>) {
+    fn value_move_if(&mut self, cc: Condition, prec: Precision, dest: impl Into<Register>, src: impl Into<Value>) {
         let dest = dest.into();
         let src = src.into();
         match src {
             Value::Register(src) => {
-                self.a.move_if(cc, is_true, prec, dest, src);
+                self.a.move_if(cc, prec, dest, src);
             },
             Value::Global(global) => {
-                self.a.load_if(cc, is_true, prec, dest, self.global_address(global));
+                self.a.load_if(cc, prec, dest, self.global_address(global));
             },
             Value::Slot(slot) => {
-                self.a.load_if(cc, is_true, prec, dest, self.slot_address(slot));
+                self.a.load_if(cc, prec, dest, self.slot_address(slot));
             },
         }
     }
@@ -350,7 +350,7 @@ impl<B: Buffer> Lowerer<B> {
                 let src = self.move_away_from(src, dest);
                 self.const_(prec, dest, 0);
                 self.value_op(Sub, prec, dest, src);
-                self.value_move_if(Condition::L, true, prec, dest, src);
+                self.value_move_if(Condition::L, prec, dest, src);
             },
             code::UnaryOp::Negate => {
                 let src = self.move_away_from(src, dest);
@@ -428,31 +428,31 @@ impl<B: Buffer> Lowerer<B> {
             code::BinaryOp::Lt => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_pc_relative_if(Condition::L, false, prec, dest, ZERO_ADDRESS);
+                    l.a.load_pc_relative_if(Condition::GE, prec, dest, ZERO_ADDRESS);
                 });
             },
             code::BinaryOp::Ult => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_pc_relative_if(Condition::B, false, prec, dest, ZERO_ADDRESS);
+                    l.a.load_pc_relative_if(Condition::AE, prec, dest, ZERO_ADDRESS);
                 });
             },
             code::BinaryOp::Eq => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, _| {
                     l.a.const_preserving_flags(prec, dest, -1);
-                    l.a.load_pc_relative_if(Condition::Z, false, prec, dest, ZERO_ADDRESS);
+                    l.a.load_pc_relative_if(Condition::NZ, prec, dest, ZERO_ADDRESS);
                 });
             },
             code::BinaryOp::Max => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, src1| {
                     l.move_(dest, src1);
-                    l.value_move_if(Condition::L, true, prec, dest, src2);
+                    l.value_move_if(Condition::L, prec, dest, src2);
                 });
             },
             code::BinaryOp::Min => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, src1| {
                     l.move_(dest, src1);
-                    l.value_move_if(Condition::G, true, prec, dest, src2);
+                    l.value_move_if(Condition::G, prec, dest, src2);
                 });
             },
         };
@@ -513,37 +513,37 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 self.const_(prec, TEMP, i64::from(mask));
                 self.value_op(And, prec, TEMP, discriminant);
                 self.const_op(Cmp, prec, TEMP, value);
-                self.jump_if(Condition::NZ, true, false_label);
+                self.jump_if(Condition::NZ, false_label);
             },
             TestOp::Lt(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::GE, true, false_label);
+                self.jump_if(Condition::GE, false_label);
             },
             TestOp::Ge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::L, true, false_label);
+                self.jump_if(Condition::L, false_label);
             },
             TestOp::Ult(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::AE, true, false_label);
+                self.jump_if(Condition::AE, false_label);
             },
             TestOp::Uge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::B, true, false_label);
+                self.jump_if(Condition::B, false_label);
             },
             TestOp::Eq(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::NZ, true, false_label);
+                self.jump_if(Condition::NZ, false_label);
             },
             TestOp::Ne(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP);
                 self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::Z, true, false_label);
+                self.jump_if(Condition::Z, false_label);
             },
             TestOp::Always => {},
         };
@@ -707,7 +707,7 @@ pub mod tests {
         let mut lo = Lowerer::<Vec<u8>>::new(pool);
         let start = lo.here().target().unwrap();
         let mut label = Label::new(None);
-        lo.jump_if(Z, true, &mut label);
+        lo.jump_if(Z, &mut label);
         lo.const_jump(&mut label);
         lo.const_call(&mut label);
         disassemble(&lo.a, start, vec![

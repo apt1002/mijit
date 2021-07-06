@@ -125,8 +125,8 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /** Conditional branch. */
-    fn jump_if(&mut self, cc: Condition, is_true: bool, target: &mut Label) {
-        let patch = self.a.jump_if(cc, is_true, target.target());
+    fn jump_if(&mut self, cc: Condition, target: &mut Label) {
+        let patch = self.a.jump_if(cc, target.target());
         target.push(patch);
     }
 
@@ -243,7 +243,7 @@ impl<B: Buffer> Lowerer<B> {
         match unary_op {
             code::UnaryOp::Abs => {
                 self.a.shift_add(prec, true, true, TEMP0, RZR, src, 0);
-                self.a.csel(prec, Condition::LE, true, dest, src, TEMP0);
+                self.a.csel(prec, Condition::LE, dest, src, TEMP0);
             },
             code::UnaryOp::Negate => {
                 let src = self.src_to_register(src, dest);
@@ -300,25 +300,25 @@ impl<B: Buffer> Lowerer<B> {
             code::BinaryOp::Lt => {
                 self.cmp(prec, src1, src2);
                 self.a.const_(dest, !0);
-                self.a.csel(prec, Condition::LT, true, dest, dest, RZR);
+                self.a.csel(prec, Condition::LT, dest, dest, RZR);
             },
             code::BinaryOp::Ult => {
                 self.cmp(prec, src1, src2);
                 self.a.const_(dest, !0);
-                self.a.csel(prec, Condition::CC, true, dest, dest, RZR);
+                self.a.csel(prec, Condition::CC, dest, dest, RZR);
             },
             code::BinaryOp::Eq => {
                 self.cmp(prec, src1, src2);
                 self.a.const_(dest, !0);
-                self.a.csel(prec, Condition::EQ, true, dest, dest, RZR);
+                self.a.csel(prec, Condition::EQ, dest, dest, RZR);
             },
             code::BinaryOp::Max => {
                 self.cmp(prec, src1, src2);
-                self.a.csel(prec, Condition::GT, true, dest, src1, src2);
+                self.a.csel(prec, Condition::GT, dest, src1, src2);
             },
             code::BinaryOp::Min => {
                 self.cmp(prec, src1, src2);
-                self.a.csel(prec, Condition::LE, true, dest, src1, src2);
+                self.a.csel(prec, Condition::LE, dest, src1, src2);
             },
         };
     }
@@ -377,43 +377,43 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 self.const_(TEMP1, i64::from(mask) as u64);
                 self.a.shift_logic(AND, prec, false, TEMP0, discriminant, TEMP1, 0);
                 self.const_cmp(prec, TEMP0, i64::from(value), TEMP1);
-                self.jump_if(Condition::EQ, true, skip);
+                self.jump_if(Condition::EQ, skip);
                 self.const_jump(false_label);
             },
             TestOp::Lt(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::LT, true, skip);
+                self.jump_if(Condition::LT, skip);
                 self.const_jump(false_label);
             },
             TestOp::Ge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::GE, true, skip);
+                self.jump_if(Condition::GE, skip);
                 self.const_jump(false_label);
             },
             TestOp::Ult(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::CC, true, skip);
+                self.jump_if(Condition::CC, skip);
                 self.const_jump(false_label);
             },
             TestOp::Uge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::CS, true, skip);
+                self.jump_if(Condition::CS, skip);
                 self.const_jump(false_label);
             },
             TestOp::Eq(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::EQ, true, skip);
+                self.jump_if(Condition::EQ, skip);
                 self.const_jump(false_label);
             },
             TestOp::Ne(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::NE, true, skip);
+                self.jump_if(Condition::NE, skip);
                 self.const_jump(false_label);
             },
             TestOp::Always => {},
@@ -556,7 +556,7 @@ pub mod tests {
         let mut lo = Lowerer::<Vec<u8>>::new(pool);
         let start = lo.here().target().unwrap();
         let mut label = Label::new(None);
-        lo.jump_if(EQ, true, &mut label);
+        lo.jump_if(EQ, &mut label);
         lo.const_jump(&mut label);
         lo.const_call(&mut label);
         disassemble(&lo.a, start, vec![

@@ -152,21 +152,29 @@ pub enum Condition {
     G  = 0xF,
 }
 
+use Condition::*;
+
+pub const ALL_CONDITIONS: [Condition; 16] = [O, NO, B, AE, Z, NZ, BE, A, S, NS, P, NP, L, GE, LE, G];
+
 impl Condition {
-    pub fn move_if(self, is_true: bool) -> u64 {
-        0xC0400F40 | ((!is_true as u64) ^ (self as u64)) << 16
+    pub fn invert(self) -> Self {
+        ALL_CONDITIONS[(self as usize) ^ 1]
     }
 
-    pub fn load_if(self, is_true: bool) -> u64 {
-        0x80400F40 | ((!is_true as u64) ^ (self as u64)) << 16
+    pub fn move_if(self) -> u64 {
+        0xC0400F40 | ((self as u64) << 16)
     }
 
-    pub fn load_pc_relative_if(self, is_true: bool) -> u64 {
-        0x00400F40 | ((!is_true as u64) ^ (self as u64)) << 16
+    pub fn load_if(self) -> u64 {
+        0x80400F40 | ((self as u64) << 16)
     }
 
-    pub fn jump_if(self, is_true: bool) -> u64 {
-        0x800F | ((!is_true as u64) ^ (self as u64)) << 8
+    pub fn load_pc_relative_if(self) -> u64 {
+        0x00400F40 | ((self as u64) << 16)
+    }
+
+    pub fn jump_if(self) -> u64 {
+        0x800F | ((self as u64) << 8)
     }
 }
 
@@ -475,29 +483,29 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Conditional move. */
-    pub fn move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: Register) {
-        self.write_room_2(cc.move_if(is_true), prec, src, dest);
+    pub fn move_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: Register) {
+        self.write_room_2(cc.move_if(), prec, src, dest);
     }
 
     /** Conditional load. */
-    pub fn load_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: (Register, i32)) {
-        self.write_room_2(cc.load_if(is_true), prec, src.0, dest);
+    pub fn load_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: (Register, i32)) {
+        self.write_room_2(cc.load_if(), prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
     /** Conditional load from nearby. */
-    pub fn load_pc_relative_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, address: usize) {
-        self.write_room_2(cc.load_pc_relative_if(is_true), prec, RBP, dest);
+    pub fn load_pc_relative_if(&mut self, cc: Condition, prec: Precision, dest: Register, address: usize) {
+        self.write_room_2(cc.load_pc_relative_if(), prec, RBP, dest);
         // No SIB fix needed when `rm` is `RBP`.
         self.write_imm32(disp32(self.get_pos() + 4, address));
     }
 
     /** Conditional branch. */
-    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: Option<usize>)
+    pub fn jump_if(&mut self, cc: Condition, target: Option<usize>)
     -> Patch {
         let patch = Patch::new(self.get_pos());
-        self.write_oo_0(cc.jump_if(is_true));
+        self.write_oo_0(cc.jump_if());
         self.write_imm32(UNKNOWN_DISP);
         self.patch(patch, None, target);
         patch
@@ -663,7 +671,6 @@ impl<B: Buffer> Default for Assembler<B> {
 pub mod tests {
     use super::*;
     use ShiftOp::*;
-    use Condition::*;
 
     use std::cmp::{min, max};
 
@@ -676,8 +683,6 @@ pub mod tests {
         [Add, Or, Adc, Sbb, And, Sub, Xor, Cmp];
     const ALL_SHIFT_OPS: [ShiftOp; 7] =
         [Rol, Ror, Rcl, Rcr, Shl, Shr, Sar];
-    const ALL_CONDITIONS: [Condition; 16] =
-        [O, NO, B, AE, Z, NZ, BE, A, S, NS, P, NP, L, GE, LE, G];
     const ALL_WIDTHS: [Width; 8] =
         [U8, S8, U16, S16, U32, S32, U64, S64];
 
@@ -968,42 +973,25 @@ pub mod tests {
         let mut a = Assembler::<Vec<u8>>::new();
         let target = Some(0x28); // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
-            a.jump_if(cc, true, target);
-            a.jump_if(cc, false, target);
+            a.jump_if(cc, target);
         }
         disassemble(&a, 0, vec![
             "jo near 0000000000000028h",
             "jno near 0000000000000028h",
-            "jno near 0000000000000028h",
-            "jo near 0000000000000028h",
             "jb near 0000000000000028h",
             "jae near 0000000000000028h",
-            "jae near 0000000000000028h",
-            "jb near 0000000000000028h",
             "je near 0000000000000028h",
             "jne near 0000000000000028h",
-            "jne near 0000000000000028h",
-            "je near 0000000000000028h",
             "jbe near 0000000000000028h",
             "ja near 0000000000000028h",
-            "ja near 0000000000000028h",
-            "jbe near 0000000000000028h",
             "js near 0000000000000028h",
             "jns near 0000000000000028h",
-            "jns near 0000000000000028h",
-            "js near 0000000000000028h",
             "jp near 0000000000000028h",
             "jnp near 0000000000000028h",
-            "jnp near 0000000000000028h",
-            "jp near 0000000000000028h",
             "jl near 0000000000000028h",
             "jge near 0000000000000028h",
-            "jge near 0000000000000028h",
-            "jl near 0000000000000028h",
             "jle near 0000000000000028h",
             "jg near 0000000000000028h",
-            "jg near 0000000000000028h",
-            "jle near 0000000000000028h",
         ]).unwrap();
     }
 
@@ -1012,12 +1000,12 @@ pub mod tests {
     fn move_if() {
         let mut a = Assembler::<Vec<u8>>::new();
         for &p in &ALL_PRECISIONS {
-            a.move_if(G, true, p, R8, R9);
-            a.move_if(G, false, p, R10, R11);
-            a.load_if(G, true, p, RBP, (R13, DISP));
-            a.load_if(G, false, p, R14, (R15, DISP));
-            a.load_if(G, false, p, R14, (R12, DISP));
-            a.load_pc_relative_if(G, false, p, R12, DISP as usize);
+            a.move_if(G,  p, R8, R9);
+            a.move_if(LE, p, R10, R11);
+            a.load_if(G, p, RBP, (R13, DISP));
+            a.load_if(LE, p, R14, (R15, DISP));
+            a.load_if(LE, p, R14, (R12, DISP));
+            a.load_pc_relative_if(LE, p, R12, DISP as usize);
         }
         disassemble(&a, 0, vec![
             "cmovg r8d,r9d",

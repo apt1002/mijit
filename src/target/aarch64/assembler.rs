@@ -416,18 +416,18 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Assembles an instruction that does `dest <- cond ? src1 : src2`. */
-    pub fn csel(&mut self, prec: Precision, cond: Condition, is_true: bool, dest: Register, src1: Register, src2: Register) {
+    pub fn csel(&mut self, prec: Precision, cond: Condition, dest: Register, src1: Register, src2: Register) {
         let mut opcode = 0x1A800000;
-        opcode |= ((cond as u32) ^ (!is_true as u32)) << 12;
+        opcode |= (cond as u32) << 12;
         opcode |= (prec as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
     }
 
     /** Assembles a conditional jump to `target`. */
-    pub fn jump_if(&mut self, cond: Condition, is_true: bool, target: Option<usize>) -> Patch {
+    pub fn jump_if(&mut self, cond: Condition, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
         let mut opcode = 0x54800000;
-        opcode |= (cond as u32) ^ (!is_true as u32);
+        opcode |= cond as u32;
         self.write_instruction(opcode);
         self.patch(ret, None, target);
         ret
@@ -519,6 +519,7 @@ impl<B: Buffer> Default for Assembler<B> {
 pub mod tests {
     use std::cmp::{min, max};
 
+    use super::super::{ALL_CONDITIONS};
     use super::*;
     use MemOp::*;
     use Width::*;
@@ -836,13 +837,12 @@ pub mod tests {
 
     #[test]
     fn csel() {
-        use Condition::*;
         let mut a = Assembler::<Vec<u8>>::new();
         for prec in [P32, P64] {
-            for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
-                a.csel(prec, cond, true, RZR, R0, R1);
-                a.csel(prec, cond, true, R0, R1, RZR);
-                a.csel(prec, cond, true, R1, RZR, R0);
+            for cond in ALL_CONDITIONS {
+                a.csel(prec, cond, RZR, R0, R1);
+                a.csel(prec, cond, R0, R1, RZR);
+                a.csel(prec, cond, R1, RZR, R0);
             }
         }
         disassemble(&a, 0, vec![
@@ -880,16 +880,14 @@ pub mod tests {
 
     #[test]
     fn jump() {
-        use Condition::*;
         let mut a = Assembler::<Vec<u8>>::new();
         let target = a.get_pos() + 28; // Somewhere in the middle of the code.
         a.const_jump(None);
         a.const_call(None);
         a.const_jump(Some(target));
         a.const_call(Some(target));
-        for cond in [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE] {
-            a.jump_if(cond, true, Some(target));
-            a.jump_if(cond, false, Some(target));
+        for cond in ALL_CONDITIONS {
+            a.jump_if(cond, Some(target));
         }
         a.const_jump(Some(target));
         a.const_call(Some(target));
@@ -899,20 +897,20 @@ pub mod tests {
             "bl 0xfffffffff8000004",
             "b 0x1c",
             "bl 0x1c",
-            "b.eq 0x1c", "b.ne 0x1c",
-            "b.ne 0x1c", "b.eq 0x1c",
-            "b.hs 0x1c", "b.lo 0x1c",
-            "b.lo 0x1c", "b.hs 0x1c",
-            "b.mi 0x1c", "b.pl 0x1c",
-            "b.pl 0x1c", "b.mi 0x1c",
-            "b.vs 0x1c", "b.vc 0x1c",
-            "b.vc 0x1c", "b.vs 0x1c",
-            "b.hi 0x1c", "b.ls 0x1c",
-            "b.ls 0x1c", "b.hi 0x1c",
-            "b.ge 0x1c", "b.lt 0x1c",
-            "b.lt 0x1c", "b.ge 0x1c",
-            "b.gt 0x1c", "b.le 0x1c",
-            "b.le 0x1c", "b.gt 0x1c",
+            "b.eq 0x1c",
+            "b.ne 0x1c",
+            "b.hs 0x1c",
+            "b.lo 0x1c",
+            "b.mi 0x1c",
+            "b.pl 0x1c",
+            "b.vs 0x1c",
+            "b.vc 0x1c",
+            "b.hi 0x1c",
+            "b.ls 0x1c",
+            "b.ge 0x1c",
+            "b.lt 0x1c",
+            "b.gt 0x1c",
+            "b.le 0x1c",
             "b 0x1c",
             "bl 0x1c",
             "ret",
@@ -940,7 +938,7 @@ pub mod tests {
         let target = Some(4); // Somewhere in the middle of the code.
         let p1 = a.const_jump(None);
         let p2 = a.const_call(target);
-        let p3 = a.jump_if(Condition::LS, true, target);
+        let p3 = a.jump_if(Condition::LS, target);
         disassemble(&a, 0, vec![
             "b 0xfffffffff8000000",
             "bl 0x4",

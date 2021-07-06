@@ -42,6 +42,17 @@ pub enum Condition {
     GT = 0xC, LE = 0xD,
 }
 
+impl Condition {
+    pub fn invert(self) -> Self {
+        ALL_CONDITIONS[(self as usize) ^ 1]
+    }
+}
+
+use Condition::*;
+
+/** All `Condition`s. */
+pub const ALL_CONDITIONS: [Condition; 14] = [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE];
+
 //-----------------------------------------------------------------------------
 
 /** All memory access operations. */
@@ -91,4 +102,37 @@ pub enum LogicOp {
     EOR = 2,
     /** Bitwise AND setting the condition flags. */
     ANDS = 3,
+}
+
+// ----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn condition() {
+        for (i, &cc) in ALL_CONDITIONS.iter().enumerate() {
+            assert_eq!(i, cc as usize);
+        }
+    }
+
+    #[test]
+    fn invert() {
+        use Condition::*;
+        assert_eq!(EQ.invert(), NE);
+        assert_eq!(NE.invert(), EQ);
+        assert_eq!(CS.invert(), CC);
+        assert_eq!(CC.invert(), CS);
+        assert_eq!(MI.invert(), PL);
+        assert_eq!(PL.invert(), MI);
+        assert_eq!(VS.invert(), VC);
+        assert_eq!(VC.invert(), VS);
+        assert_eq!(HI.invert(), LS);
+        assert_eq!(LS.invert(), HI);
+        assert_eq!(GE.invert(), LT);
+        assert_eq!(LT.invert(), GE);
+        assert_eq!(GT.invert(), LE);
+        assert_eq!(LE.invert(), GT);
+    }
 }
