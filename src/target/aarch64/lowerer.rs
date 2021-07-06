@@ -137,7 +137,7 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /** Unconditional call to a constant. */
-    #[allow(dead_code)]
+        #[allow(dead_code)]
     fn const_call(&mut self, target: &mut Label) {
         let patch = self.a.const_call(target.target());
         target.push(patch);
@@ -161,11 +161,11 @@ impl<B: Buffer> Lowerer<B> {
      * Compare `src` to `constant` and set condition flags.
      * `temp` is corrupted.
      */
-    fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: u64, temp: Register) {
-        if constant == 0 {
-            self.cmp(prec, src, RZR);
+    fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: i64, temp: Register) {
+        if constant.abs() < 0x1000 {
+            self.a.const_add(prec, true, RZR, src.into(), -constant);
         } else {
-            self.const_(temp, constant);
+            self.const_(temp, constant as u64);
             self.cmp(prec, src, temp);
         }
     }
@@ -376,49 +376,43 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_(TEMP1, i64::from(mask) as u64);
                 self.a.shift_logic(AND, prec, false, TEMP0, discriminant, TEMP1, 0);
-                self.const_cmp(prec, TEMP0, i64::from(value) as u64, TEMP1);
+                self.const_cmp(prec, TEMP0, i64::from(value), TEMP1);
                 self.jump_if(Condition::EQ, true, skip);
                 self.const_jump(false_label);
             },
             TestOp::Lt(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(value) as u64);
-                self.cmp(prec, discriminant, TEMP1);
+                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
                 self.jump_if(Condition::LT, true, skip);
                 self.const_jump(false_label);
             },
             TestOp::Ge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(value) as u64);
-                self.cmp(prec, discriminant, TEMP1);
+                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
                 self.jump_if(Condition::GE, true, skip);
                 self.const_jump(false_label);
             },
             TestOp::Ult(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(value) as u64);
-                self.cmp(prec, discriminant, TEMP1);
+                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
                 self.jump_if(Condition::CC, true, skip);
                 self.const_jump(false_label);
             },
             TestOp::Uge(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(value) as u64);
-                self.cmp(prec, discriminant, TEMP1);
+                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
                 self.jump_if(Condition::CS, true, skip);
                 self.const_jump(false_label);
             },
             TestOp::Eq(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(value) as u64);
-                self.cmp(prec, discriminant, TEMP1);
+                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
                 self.jump_if(Condition::EQ, true, skip);
                 self.const_jump(false_label);
             },
             TestOp::Ne(discriminant, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(value) as u64);
-                self.cmp(prec, discriminant, TEMP1);
+                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
                 self.jump_if(Condition::NE, true, skip);
                 self.const_jump(false_label);
             },
