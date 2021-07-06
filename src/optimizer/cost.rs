@@ -17,7 +17,7 @@ pub use Op::*;
 pub const BUDGET: Resources = Resources::new(0x1412316);
 
 /** The resources needed to spill an Out. */
-pub const SPILL_COST: Resources = Resources::new(0x0010101);
+pub const SPILL_COST: Resources = Resources::new(0x0010202);
 
 /** The additional resources needed per operand that is a Slot. */
 pub const SLOT_COST: Resources = Resources::new(0x0001100);

@@ -320,13 +320,13 @@ pub enum Action {
     /// dest <- addr; \[addr] <- \[src]
     /// `dest` exists to make the optimizer allocate a temporary register.
     Store(Register, Value, (Value, Width), AliasMask),
-    /// sp <- sp - 8; \[sp] <- src
-    /// If `src` is `None`, push a dead value.
-    Push(Option<Value>),
-    /// dest <- \[sp]; sp <- sp + 8
-    /// If `dest` is `None`, pop a dead value.
-    Pop(Option<Register>),
-    /// sp <- sp + 8*n
+    /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
+    /// If either `src` is `None`, push a dead value.
+    Push(Option<Value>, Option<Value>),
+    /// dest1 <- \[sp]; dest2 <- \[sp + 8]; sp <- sp + 16
+    /// If either `dest` is `None`, pop a dead value.
+    Pop(Option<Register>, Option<Register>),
+    /// sp <- sp + 16*n
     DropMany(usize),
     /// No-op, but print out `src`.
     Debug(Value),

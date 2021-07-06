@@ -592,29 +592,55 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 let width = width.into();
                 self.a.store_narrow(width, (addr, 0), src);
             },
-            Action::Push(src) => {
-                if let Some(src) = src {
-                    let src = self.src_to_register(src, TEMP);
-                    self.a.push(src);
-                } else {
-                    self.a.const_op(BinaryOp::Sub, P64, RSP, 8);
+            Action::Push(src1, src2) => {
+                match (src1, src2) {
+                    (Some(src1), Some(src2)) => {
+                        let src1 = self.src_to_register(src1, TEMP);
+                        let src2 = self.src_to_register(src2, TEMP);
+                        self.a.push(src2);
+                        self.a.push(src1);
+                    },
+                    (Some(src1), None) => {
+                        let src1 = self.src_to_register(src1, TEMP);
+                        self.a.const_op(BinaryOp::Sub, P64, RSP, 16);
+                        self.a.store(P64, (RSP, 0), src1);
+                    },
+                    (None, Some(src2)) => {
+                        let src2 = self.src_to_register(src2, TEMP);
+                        self.a.const_op(BinaryOp::Sub, P64, RSP, 16);
+                        self.a.store(P64, (RSP, 8), src2);
+                    },
+                    (None, None) => {
+                        self.a.const_op(BinaryOp::Sub, P64, RSP, 16);
+                    },
                 }
-                *self.slots_used() += 1;
+                *self.slots_used() += 2;
             },
-            Action::Pop(dest) => {
-                assert!(*self.slots_used() >= 1);
-                if let Some(dest) = dest {
-                    let dest = dest.into();
-                    self.a.pop(dest);
-                } else {
-                    self.a.const_op(BinaryOp::Add, P64, RSP, 8);
+            Action::Pop(dest1, dest2) => {
+                assert!(*self.slots_used() >= 2);
+                match (dest1, dest2) {
+                    (Some(dest1), Some(dest2)) => {
+                        self.a.pop(dest1.into());
+                        self.a.pop(dest2.into());
+                    },
+                    (Some(dest1), None) => {
+                        self.a.load(P64, dest1.into(), (RSP, 0));
+                        self.a.const_op(BinaryOp::Add, P64, RSP, 16);
+                    },
+                    (None, Some(dest2)) => {
+                        self.a.load(P64, dest2.into(), (RSP, 8));
+                        self.a.const_op(BinaryOp::Add, P64, RSP, 16);
+                    },
+                    (None, None) => {
+                        self.a.const_op(BinaryOp::Add, P64, RSP, 16);
+                    },
                 }
-                *self.slots_used() -= 1;
+                *self.slots_used() -= 2;
             },
             Action::DropMany(n) => {
                 assert!(*self.slots_used() >= n);
-                self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 8);
-                *self.slots_used() -= n;
+                self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 16);
+                *self.slots_used() -= 2 * n;
             },
             Action::Debug(x) => {
                 let x = self.src_to_register(x, TEMP);

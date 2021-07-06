@@ -474,12 +474,13 @@ impl<M: Machine, T: Target> Jit<M, T> {
                 .chain((0..self.machine.num_globals()).map(|i| Global(i).into()))
                 .collect();
             let slots_used = self.machine.num_slots();
-            let mut fetch_code: Vec<Action> = (0..slots_used).map(
-                |_| Action::Push(None) // TODO: Make one instruction.
+            assert_eq!(slots_used & 1, 0);
+            let mut fetch_code: Vec<Action> = (0..(slots_used >> 1)).map(
+                |_| Action::Push(None, None)
             ).collect();
             fetch_code.extend(self.machine.prologue());
             let mut retire_code = self.machine.epilogue();
-            retire_code.push(Action::DropMany(slots_used));
+            retire_code.push(Action::DropMany(slots_used >> 1));
             retire_code.push(Action::Constant(P32, STATE_INDEX, index as i64));
             self.roots.push(self.inner.compile_inner(
                 None,

@@ -13,7 +13,7 @@ use crate::util::{ArrayMap, map_filter_max};
 #[derive(Copy, Clone)]
 enum Instruction {
     Absent,
-    Spill(Out),
+    Spill(Out, Out),
     Node(Node),
 }
 
@@ -23,7 +23,7 @@ impl Debug for Instruction {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
             Absent => write!(f, "Absent"),
-            Spill(out) => out.fmt(f),
+            Spill(out_x, out_y) => write!(f, "({:?}, {:?})", out_x, out_y),
             Node(node) => node.fmt(f),
         }
     }
@@ -144,24 +144,31 @@ impl<'a> CodeGen<'a> {
         self.regs[reg].time = max(self.regs[reg].time, time);
     }
 
+    /** Select a `Register` to spill and free it. */
+    fn free_a_register(&mut self) -> Register {
+        let i = map_filter_max(all_registers(), |reg| {
+            self.regs[reg].out
+                .filter(|_| !self.pool.is_clean(reg))
+                .map(|out| self.schedule.first_use(out))
+                .map(std::cmp::Reverse)
+        });
+        let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
+        self.pool.free(reg);
+        reg
+    }
+
     /** Spills values until at least `num_required` registers are free. */
     fn spill_until(&mut self, num_required: usize) {
         while self.pool.num_clean() < num_required {
-            // Select a `Register` to spill.
-            let i = map_filter_max(all_registers(), |reg| {
-                self.regs[reg].out
-                    .filter(|_| !self.pool.is_clean(reg))
-                    .map(|out| self.schedule.first_use(out))
-                    .map(std::cmp::Reverse)
-            });
-            let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
+            let reg_x = self.free_a_register();
+            let reg_y = self.free_a_register();
             // Spill the `Register`.
-            let out = self.regs[reg].out.unwrap();
-            let mut time = self.outs[out].time;
-            self.placer.add_item(Spill(out), SPILL_COST, &mut time);
-            self.use_reg(reg, time);
-            // Free the `Register`.
-            self.pool.free(reg);
+            let out_x = self.regs[reg_x].out.unwrap();
+            let out_y = self.regs[reg_y].out.unwrap();
+            let mut time = max(self.outs[out_x].time, self.outs[out_y].time);
+            self.placer.add_item(Spill(out_x, out_y), SPILL_COST, &mut time);
+            self.use_reg(reg_x, time);
+            self.use_reg(reg_y, time);
         }
     }
 
@@ -242,13 +249,20 @@ impl<'a> CodeGen<'a> {
             outs.clear();
             ret.push(match *instruction {
                 Absent => panic!("Absent instruction"),
-                Spill(out) => {
-                    assert!(spills[out].is_none()); // Not yet spilled.
-                    let r = self.outs[out].reg.expect("Spilled a non-register");
-                    assert!(regs[r] == Some(out)); // Not yet overwritten.
-                    spills[out] = Some(Slot(slots_used).into());
+                Spill(out_x, out_y) => {
+                    assert!(spills[out_x].is_none()); // Not yet spilled.
+                    let r_x = self.outs[out_x].reg.expect("Spilled a non-register");
+                    assert!(regs[r_x] == Some(out_x)); // Not yet overwritten.
+                    spills[out_x] = Some(Slot(slots_used).into());
                     slots_used += 1;
-                    Action::Push(Some(r.into()))
+
+                    assert!(spills[out_y].is_none()); // Not yet spilled.
+                    let r_y = self.outs[out_y].reg.expect("Spilled a non-register");
+                    assert!(regs[r_y] == Some(out_y)); // Not yet overwritten.
+                    spills[out_y] = Some(Slot(slots_used).into());
+                    slots_used += 1;
+
+                    Action::Push(Some(r_x.into()), Some(r_y.into()))
                 },
                 Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
@@ -282,10 +296,13 @@ impl<'a> CodeGen<'a> {
             }).collect();
         // Create spill slots if necessary to match `after`.
         while slots_used < self.after.slots_used {
-            let dest = Value::from(Slot(slots_used));
-            let src = dest_to_src.remove(&dest);
-            ret.push(Action::Push(src));
+            let dest2 = Value::from(Slot(slots_used));
+            let src2 = dest_to_src.remove(&dest2);
             slots_used += 1;
+            let dest1 = Value::from(Slot(slots_used));
+            let src1 = dest_to_src.remove(&dest1);
+            slots_used += 1;
+            ret.push(Action::Push(src1, src2));
         }
         // Move all live values into the expected `Value`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
@@ -300,9 +317,9 @@ impl<'a> CodeGen<'a> {
                 (r.into(), r.into())
             } else {
                 // Spill `spill_reg` and use it.
-                let spill_slot = Slot(slots_used + self.num_globals);
-                ret.push(Action::Push(Some(spill_reg.into())));
-                slots_used += 1;
+                let spill_slot = Slot(slots_used);
+                ret.push(Action::Push(None, Some(spill_reg.into())));
+                slots_used += 2;
                 (spill_reg.into(), spill_slot.into())
             };
         let is_temp_a_dest = dest_to_src.contains_key(&temp_value);
@@ -312,14 +329,15 @@ impl<'a> CodeGen<'a> {
             Action::Move(dest, src)
         }));
         if is_temp_a_dest {
-            ret.push(Action::Pop(Some(spill_reg)));
-            slots_used -= 1;
+            ret.push(Action::Pop(None, Some(spill_reg)));
+            slots_used -= 2;
         }
         // Drop now-unused slots.
         assert!(self.after.slots_used <= slots_used);
         let num_drops = slots_used - self.after.slots_used;
         if num_drops > 0 {
-            ret.push(Action::DropMany(num_drops));
+            assert_eq!(num_drops & 1, 0);
+            ret.push(Action::DropMany(num_drops >> 1));
         }
         // Return.
         ret.into()
