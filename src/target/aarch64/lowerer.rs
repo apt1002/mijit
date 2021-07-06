@@ -376,7 +376,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_(TEMP1, i64::from(mask) as u64);
                 self.a.shift_logic(AND, prec, false, TEMP0, discriminant, TEMP1, 0);
-                self.const_cmp(prec, discriminant, i64::from(value) as u64, TEMP1);
+                self.const_cmp(prec, TEMP0, i64::from(value) as u64, TEMP1);
                 self.jump_if(Condition::EQ, true, skip);
                 self.const_jump(false_label);
             },

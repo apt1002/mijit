@@ -486,7 +486,6 @@ impl<B: Buffer> Assembler<B> {
     pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
         let at = patch.address();
         let old = self.buffer.read(at, 4) as u32;
-        println!("at={:x}, old={:x}, old_target={:?}, new_target={:?}", at, old, old_target, new_target);
         let new = old ^ (
             if (old & 0xFF000010) == 0x54000000 {
                 // Conditional branch.

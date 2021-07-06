@@ -1,4 +1,5 @@
 use super::{buffer, code, Patch, Label, Counter, Pool, STATE_INDEX, Lower, ExecuteFn, Execute};
+use buffer::{Mmap};
 
 mod enums;
 pub use enums::{Register, RSP, Condition, MemOp, ShiftOp, LogicOp};
@@ -33,3 +34,16 @@ pub const ARGUMENTS: [Register; 8] = [R0, R1, R2, R3, R4, R5, R6, R7];
  * or pointer-type function results.
  */
 pub const RESULTS: [Register; 8] = [R0, R1, R2, R3, R4, R5, R6, R7];
+
+/** The aarch64/libc compilation target. */
+pub struct Target;
+
+impl super::Target for Target {
+    type Lowerer = Lowerer<Mmap>;
+
+    const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
+
+    fn lowerer(&self, pool: super::Pool) -> Self::Lowerer {
+        Lowerer::new(pool)
+    }
+}

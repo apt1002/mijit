@@ -21,12 +21,12 @@ pub const STATE_INDEX: code::Register = code::REGISTERS[0];
 
 /** A [`Target`] that generates code which can be executed. */
 pub fn native() -> impl Target {
-    if cfg!(target_arch="x86_64") {
-        x86_64::Target
-    } else if cfg!(target_arch="aarch64") {
-        panic!("Arm target not yet implemented");
-    } else {
-        panic!("FIXME: Unknown target");
+    #[cfg(target_arch="x86_64")]
+    return x86_64::Target;
+    #[cfg(target_arch="aarch64")]
+    return aarch64::Target;
+    #[allow(unreachable_code)] {
+        panic!("Unknown target");
     }
 }
 
