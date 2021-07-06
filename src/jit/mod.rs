@@ -242,13 +242,13 @@ impl<T: Target> JitInner<T> {
         let lo = &mut self.lowerer;
         // Assemble the function prologue and epilogue.
         lo.define(&mut self.entry_point);
-        lo.lower_prologue();
+        lo.prologue();
         lo.jump(&mut self.internals.retire_label);
         // Root specializations are inserted here.
         lo.define(&mut self.internals.retire_label);
-        lo.lower_action(Action::Constant(P32, STATE_INDEX, -1));
+        lo.action(Action::Constant(P32, STATE_INDEX, -1));
         lo.define(&mut self.internals.fetch_label);
-        lo.lower_epilogue();
+        lo.epilogue();
         self
     }
 
@@ -326,12 +326,12 @@ impl<T: Target> JitInner<T> {
         // Compile `guard`.
         let if_fail = self.internals.retire_label_mut(fetch_parent);
         lo.steal(&mut lo.here(), if_fail);
-        lo.lower_test_op(guard, if_fail);
+        lo.test_op(guard, if_fail);
         { // Lifetime of `compiled` (can't touch `self.internals`).
             let compiled = &mut self.internals[this].compiled;
             // Compile `fetch_code`.
             for &action in compiled.fetch_code.iter() {
-                lo.lower_action(action);
+                lo.action(action);
             }
             lo.define(&mut compiled.fetch_label);
             lo.jump(&mut compiled.retire_label);
@@ -341,9 +341,9 @@ impl<T: Target> JitInner<T> {
             // TODO: Optimize the case where `retire_code` is empty.
             // The preceding jump should jump straight to `retire_parent`.
             for &action in compiled.retire_code.iter() {
-                lo.lower_action(action);
+                lo.action(action);
             }
-            lo.lower_count(compiled.retire_counter);
+            lo.count(compiled.retire_counter);
         }
         lo.jump(self.internals.fetch_label_mut(retire_parent));
         assert_eq!(*lo.slots_used(), self.internals.slots_used(retire_parent));

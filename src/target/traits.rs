@@ -1,5 +1,5 @@
 use super::{code, Counter, Word, Pool, Patch, Label};
-use code::{Precision, Register, Value, TestOp, UnaryOp, BinaryOp, Action};
+use code::{Precision, TestOp, Action};
 
 /**
  * Wraps a contiguous block of executable memory, and provides methods for
@@ -73,53 +73,30 @@ pub trait Lower: Sized {
      *  - The pool pointer.
      *  - The state index, which is moved to `STATE_INDEX`.
      */
-    fn lower_prologue(&mut self);
+    fn prologue(&mut self);
 
     /**
      * Assemble Mijit's function epilogue. The function returns one result:
      *  - The state index, which is moved from `STATE_INDEX`.
      */
-    fn lower_epilogue(&mut self);
+    fn epilogue(&mut self);
 
     /**
      * Assemble code that branches to `false_label` if `test_op` is false.
      */
-    fn lower_test_op(
+    fn test_op(
         &mut self,
         guard: (TestOp, Precision),
         false_label: &mut Label,
     );
 
     /**
-     * Assemble code to perform the given `unary_op`.
-     */
-    fn lower_unary_op(
-        &mut self,
-        unary_op: UnaryOp,
-        prec: Precision,
-        dest: Register,
-        src: Value,
-    );
-
-    /**
-     * Assemble code to perform the given `binary_op`.
-     */
-    fn lower_binary_op(
-        &mut self,
-        binary_op: BinaryOp,
-        prec: Precision,
-        dest: Register,
-        src1: Value,
-        src2: Value,
-    );
-
-    /**
      * Assemble code to perform the given `action`.
      */
-    fn lower_action(&mut self, action: Action);
+    fn action(&mut self, action: Action);
 
     /** Assemble code to increment the given `counter`. */
-    fn lower_count(&mut self, counter: Counter);
+    fn count(&mut self, counter: Counter);
 }
 
 //-----------------------------------------------------------------------------

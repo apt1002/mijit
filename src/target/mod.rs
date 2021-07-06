@@ -45,10 +45,10 @@ mod tests {
         let pool = Pool::new(0);
         let mut lo = target.lowerer(pool);
         let start = lo.here();
-        lo.lower_prologue();
-        lo.lower_action(Action::Constant(P64, R1, 5));
-        lo.lower_action(Action::Binary(BinaryOp::Add, P64, R0, R0.into(), R1.into()));
-        lo.lower_epilogue();
+        lo.prologue();
+        lo.action(Action::Constant(P64, R1, 5));
+        lo.action(Action::Binary(BinaryOp::Add, P64, R0, R0.into(), R1.into()));
+        lo.epilogue();
         let (_lo, result) = lo.execute(&start, |f, pool| {
             f(pool.as_mut().as_mut_ptr(), Word {u: 42})
         }).expect("Couldn't change permissions");
