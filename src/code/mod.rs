@@ -321,9 +321,11 @@ pub enum Action {
     /// `dest` exists to make the optimizer allocate a temporary register.
     Store(Register, Value, (Value, Width), AliasMask),
     /// sp <- sp - 8; \[sp] <- src
-    Push(Value),
+    /// If `src` is `None`, push a dead value.
+    Push(Option<Value>),
     /// dest <- \[sp]; sp <- sp + 8
-    Pop(Register),
+    /// If `dest` is `None`, pop a dead value.
+    Pop(Option<Register>),
     /// sp <- sp + 8*n
     DropMany(usize),
     /// No-op, but print out `src`.

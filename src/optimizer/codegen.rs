@@ -248,7 +248,7 @@ impl<'a> CodeGen<'a> {
                     assert!(regs[r] == Some(out)); // Not yet overwritten.
                     spills[out] = Some(Slot(slots_used).into());
                     slots_used += 1;
-                    Action::Push(r.into())
+                    Action::Push(Some(r.into()))
                 },
                 Node(n) => {
                     ins.extend(df.ins(n).iter().map(|&in_| {
@@ -283,7 +283,7 @@ impl<'a> CodeGen<'a> {
         // Create spill slots if necessary to match `after`.
         while slots_used < self.after.slots_used {
             let dest = Value::from(Slot(slots_used));
-            let src = dest_to_src.remove(&dest).unwrap_or_else(|| REGISTERS[0].into() /* Arbitrary */);
+            let src = dest_to_src.remove(&dest);
             ret.push(Action::Push(src));
             slots_used += 1;
         }
@@ -301,7 +301,7 @@ impl<'a> CodeGen<'a> {
             } else {
                 // Spill `spill_reg` and use it.
                 let spill_slot = Slot(slots_used + self.num_globals);
-                ret.push(Action::Push(spill_reg.into()));
+                ret.push(Action::Push(Some(spill_reg.into())));
                 slots_used += 1;
                 (spill_reg.into(), spill_slot.into())
             };
@@ -312,7 +312,7 @@ impl<'a> CodeGen<'a> {
             Action::Move(dest, src)
         }));
         if is_temp_a_dest {
-            ret.push(Action::Pop(spill_reg));
+            ret.push(Action::Pop(Some(spill_reg)));
             slots_used -= 1;
         }
         // Drop now-unused slots.

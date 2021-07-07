@@ -475,7 +475,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
                 .collect();
             let slots_used = self.machine.num_slots();
             let mut fetch_code: Vec<Action> = (0..slots_used).map(
-                |_| Action::Push(FAST_VALUES[0]) // TODO: Make one instruction.
+                |_| Action::Push(None) // TODO: Make one instruction.
             ).collect();
             fetch_code.extend(self.machine.prologue());
             let mut retire_code = self.machine.epilogue();

@@ -1,5 +1,6 @@
 use std::collections::{HashMap};
-use super::code::{Precision, Register, Value, Action};
+use super::code::{Precision, Register, Slot, Value, Action};
+use super::{Convention};
 use super::{Dataflow, Node, Op, Out};
 
 /**
@@ -9,14 +10,16 @@ use super::{Dataflow, Node, Op, Out};
 pub struct Simulation {
     /** The [`Dataflow`] which is being built. */
     dataflow: Dataflow,
+    /** The number of `Slot`s on the stack. */
+    slots_used: usize,
     /** Maps each [`Value`] to the corresponding [`Out`]. */
     bindings: HashMap<Value, Out>,
     /** The most recent [`Op::Store`] instruction, or the entry node. */
     store: Node,
     /** All memory accesses instructions since `store`, including `store`. */
     loads: Vec<Node>,
-    /** The most recent stack operation, or the entry node. */
-    stack: Node,
+    /** The most recent debug operation, or the entry node. */
+    debug: Node,
 }
 
 impl Simulation {
@@ -24,23 +27,30 @@ impl Simulation {
      * Constructs a `Simulation` of a basic block. On entry, only `inputs` are
      * live.
      */
-    pub fn new(inputs: &[Value]) -> Self {
-        let dataflow = Dataflow::new(inputs.len());
+    pub fn new(before: &Convention) -> Self {
+        let dataflow = Dataflow::new(before.live_values.len());
         let entry_node = dataflow.entry_node();
-        let bindings = inputs.iter()
+        let bindings = before.live_values.iter()
             .cloned()
             .zip(dataflow.outs(entry_node))
             .collect();
         Simulation {
             dataflow: dataflow,
+            slots_used: before.slots_used,
             bindings: bindings,
             store: entry_node,
             loads: vec![entry_node],
-            stack: entry_node,
+            debug: entry_node,
         }
     }
 
-    /** Returns the `Out` that is bound to `value`. */
+    /** Returns a [`Value`] representing the top of the stack. */
+    fn top(&self) -> Value {
+        assert!(self.slots_used > 0);
+        Slot(self.slots_used - 1).into()
+    }
+
+    /** Returns the [`Out`] that is bound to `value`. */
     fn lookup(&self, value: Value) -> Out {
         *self.bindings.get(&value).expect("Read a dead value")
     }
@@ -64,6 +74,11 @@ impl Simulation {
     fn move_(&mut self, dest: Value, src: Value) {
         let out = self.lookup(src);
         self.bindings.insert(dest, out);
+    }
+
+    /** Binds `dest` to a dead value. */
+    fn drop(&mut self, dest: Value) {
+        self.bindings.remove(&dest);
     }
 
     /** Simulate executing `action`. */
@@ -100,17 +115,27 @@ impl Simulation {
                 self.loads.push(node);
             },
             Action::Push(src) => {
-                let node = self.op(Op::Push, &[self.stack], &[src], &[]);
-                self.stack = node;
+                self.slots_used += 1;
+                if let Some(src) = src {
+                    self.move_(self.top(), src);
+                }
             },
             Action::Pop(dest) => {
-                let node = self.op(Op::Pop, &[self.stack], &[], &[dest]);
-                self.stack = node;
+                if let Some(dest) = dest {
+                    self.move_(dest.into(), self.top());
+                }
+                self.drop(self.top());
+                self.slots_used -= 1;
             },
-            Action::DropMany(_) => {},
+            Action::DropMany(n) => {
+                for _ in 0..n {
+                    self.drop(self.top());
+                    self.slots_used -= 1;
+                }
+            },
             Action::Debug(src) => {
-                let node = self.op(Op::Debug, &[self.stack], &[src], &[]);
-                self.stack = node;
+                let node = self.op(Op::Debug, &[self.debug], &[src], &[]);
+                self.debug = node;
             },
         };
     }
@@ -120,8 +145,9 @@ impl Simulation {
      * outputs. On exit, `outputs` are live.
      * Returns the finished `Dataflow` graph and the exit `Node`.
      */
-    pub fn finish(mut self, outputs: &[Value]) -> (Dataflow, Node) {
-        let exit_node = self.op(Op::Convention, &[self.store, self.stack], outputs, &[]);
+    pub fn finish(mut self, after: &Convention) -> (Dataflow, Node) {
+        assert_eq!(self.slots_used, after.slots_used);
+        let exit_node = self.op(Op::Convention, &[self.store, self.debug], &after.live_values, &[]);
         (self.dataflow, exit_node)
     }
 }

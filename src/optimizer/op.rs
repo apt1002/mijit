@@ -11,8 +11,6 @@ pub enum Op {
     Binary(Precision, BinaryOp),
     Load(Width, AliasMask),
     Store(Width, AliasMask),
-    Push,
-    Pop,
     Debug,
 }
 
@@ -50,16 +48,6 @@ impl Op {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 2);
                 Action::Store(outs[0], ins[0], (ins[1], width), alias)
-            },
-            Op::Push => {
-                assert_eq!(outs.len(), 0);
-                assert_eq!(ins.len(), 1);
-                Action::Push(ins[0])
-            },
-            Op::Pop => {
-                assert_eq!(outs.len(), 1);
-                assert_eq!(ins.len(), 0);
-                Action::Pop(outs[0])
             },
             Op::Debug => {
                 assert_eq!(outs.len(), 0);

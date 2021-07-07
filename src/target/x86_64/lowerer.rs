@@ -593,14 +593,22 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 self.a.store_narrow(width, (addr, 0), src);
             },
             Action::Push(src) => {
-                let src = self.src_to_register(src, TEMP);
+                if let Some(src) = src {
+                    let src = self.src_to_register(src, TEMP);
+                    self.a.push(src);
+                } else {
+                    self.a.const_op(BinaryOp::Sub, P64, RSP, 8);
+                }
                 *self.slots_used() += 1;
-                self.a.push(src);
             },
             Action::Pop(dest) => {
-                let dest = dest.into();
                 assert!(*self.slots_used() >= 1);
-                self.a.pop(dest);
+                if let Some(dest) = dest {
+                    let dest = dest.into();
+                    self.a.pop(dest);
+                } else {
+                    self.a.const_op(BinaryOp::Add, P64, RSP, 8);
+                }
                 *self.slots_used() -= 1;
             },
             Action::DropMany(n) => {

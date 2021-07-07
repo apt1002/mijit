@@ -44,11 +44,11 @@ pub use codegen::{codegen};
 
 /** Optimizes a basic block. */
 pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
-    let mut simulation = Simulation::new(&before.live_values);
+    let mut simulation = Simulation::new(&before);
     for action in actions {
         simulation.action(action);
     }
-    let (dataflow, exit_node) = simulation.finish(&after.live_values);
+    let (dataflow, exit_node) = simulation.finish(&after);
     let nodes: Vec<_> = dataflow.all_nodes().collect(); // TODO.
     assert_eq!(dataflow.entry_node(), nodes[0]);
     assert_eq!(exit_node, nodes[nodes.len()-1]);
