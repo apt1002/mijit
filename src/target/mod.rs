@@ -33,7 +33,7 @@ pub fn native() -> impl Target {
 mod tests {
     use super::*;
 
-    use code::{Register, REGISTERS, Global, Precision, UnaryOp, BinaryOp, Action};
+    use code::{Register, REGISTERS, Slot, Global, Precision, UnaryOp, BinaryOp, Action};
     use Precision::*;
     use UnaryOp::*;
     use BinaryOp::*;
@@ -115,6 +115,87 @@ mod tests {
             for y in TEST_VALUES {
                 vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected(x, y)});
             }
+        }
+    }
+
+    // Move, Constant, Push, Pop, DropMany.
+
+    #[test]
+    fn push_pop() {
+        test_unary(
+            |lo| {
+                assert_eq!(*lo.slots_used(), 0);
+                lo.action(Push(None, Some(Global(0).into())));
+                assert_eq!(*lo.slots_used(), 2);
+                lo.action(Pop(None, Some(R0.into())));
+                assert_eq!(*lo.slots_used(), 0);
+            },
+            |x| x,
+        );
+        test_unary(
+            |lo| {
+                assert_eq!(*lo.slots_used(), 0);
+                lo.action(Push(Some(Global(0).into()), None));
+                assert_eq!(*lo.slots_used(), 2);
+                lo.action(Pop(Some(R0.into()), None));
+                assert_eq!(*lo.slots_used(), 0);
+            },
+            |x| x,
+        );
+    }
+
+    #[test]
+    fn drop_many() {
+        test_unary(
+            |lo| {
+                assert_eq!(*lo.slots_used(), 0);
+                lo.action(Push(None, None));
+                assert_eq!(*lo.slots_used(), 2);
+                lo.action(Push(None, Some(Global(0).into())));
+                assert_eq!(*lo.slots_used(), 4);
+                lo.action(Push(None, None));
+                assert_eq!(*lo.slots_used(), 6);
+                lo.action(Push(None, None));
+                assert_eq!(*lo.slots_used(), 8);
+                lo.action(DropMany(2));
+                assert_eq!(*lo.slots_used(), 4);
+                lo.action(Pop(None, Some(R0.into())));
+                assert_eq!(*lo.slots_used(), 2);
+                lo.action(DropMany(1));
+                assert_eq!(*lo.slots_used(), 0);
+            },
+            |x| x,
+        );
+    }
+
+    #[test]
+    fn move_() {
+        for value in [R0.into(), Slot(0).into(), Global(0).into()] {
+            test_unary(
+                |lo| {
+                    lo.action(Push(None, None));
+                    lo.action(Constant(P64, R0, 42));
+                    lo.action(Move(Slot(0).into(), R0.into()));
+                    lo.action(Move(value, Global(0).into()));
+                    lo.action(Move(R0.into(), value));
+                    lo.action(Pop(None, None));
+                },
+                |x| x,
+            );
+        }
+    }
+
+    #[test]
+    fn constant() {
+        for x in TEST_VALUES {
+            let vm = VM::new(native(), 0, |lo| {
+                lo.action(Constant(P32, R0, x as i64));
+            });
+            vm.run(&[], Word {u: x as u32 as u64});
+            let vm = VM::new(native(), 0, |lo| {
+                lo.action(Constant(P64, R0, x as i64));
+            });
+            vm.run(&[], Word {u: x});
         }
     }
 
