@@ -82,6 +82,7 @@ mod tests {
 
     pub const R0: Register = REGISTERS[0];
     pub const R1: Register = REGISTERS[1];
+    pub const R2: Register = REGISTERS[2];
 
     pub const TEST_VALUES: [u64; 18] = [
         0x0000000000000000,
@@ -615,5 +616,57 @@ mod tests {
             (TestOp::Always, P32),
             |_| true,
         );
+    }
+
+    // Test extremes.
+
+    #[test]
+    fn long_jump() {
+        // Choose an order in which to visit a large number of blocks.
+        const SIZE: usize = 0x10000;
+        let permutation = crate::util::permutation(SIZE);
+        // Work out which block each block jumps to.
+        let mut nexts: Vec<Option<usize>> = vec![None; SIZE];
+        let mut prev = permutation[0];
+        for &p in &permutation[1..SIZE] {
+            nexts[prev] = Some(p);
+            prev = p;
+        }
+        // Choose a pseudo-random constant per block.
+        let constants: Vec<u64> = permutation.iter().map(|&p|
+            (p as u64).wrapping_mul(39564853453457569)
+        ).collect();
+        // Compile all the blocks.
+        let vm = VM::new(native(), 0, |lo| {
+            let mut labels: Vec<Label> = permutation.iter().map(|_| Label::new(None)).collect();
+            let mut exit = Label::new(None);
+            lo.action(Constant(P64, R0, 0));
+            lo.jump(&mut labels[permutation[0]]);
+            for i in 0..permutation.len() {
+                lo.define(&mut labels[i]);
+                // Rotate `R0` right by 21 places.
+                lo.action(Constant(P64, R2, 21));
+                lo.action(Binary(Lsr, P64, R1, R0.into(), R2.into()));
+                lo.action(Constant(P64, R2, 64 - 21));
+                lo.action(Binary(Lsl, P64, R0, R0.into(), R2.into()));
+                lo.action(Binary(Or, P64, R0, R0.into(), R1.into()));
+                // Add `constants[i]` to `R0`.
+                lo.action(Constant(P64, R2, constants[i] as i64));
+                lo.action(Binary(Add, P64, R0, R0.into(), R2.into()));
+                // Jump to next block.
+                if let Some(next) = nexts[i] {
+                    lo.jump(&mut labels[next]);
+                } else {
+                    lo.jump(&mut exit);
+                }
+            }
+            lo.define(&mut exit);
+        });
+        // Check against the expected result.
+        let mut expected: u64 = 0;
+        for p in permutation {
+            expected = crate::util::rotate_right(expected, 21).wrapping_add(constants[p]);
+        }
+        vm.run(&[], Word {u: expected});
     }
 }
