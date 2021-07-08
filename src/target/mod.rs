@@ -33,10 +33,11 @@ pub fn native() -> impl Target {
 mod tests {
     use super::*;
 
-    use code::{Register, REGISTERS, Slot, Global, Precision, UnaryOp, BinaryOp, Action};
+    use code::{Register, REGISTERS, Slot, Global, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
     use Precision::*;
     use UnaryOp::*;
     use BinaryOp::*;
+    use Width::*;
     use Action::*;
 
     pub struct VM<T: Target> {
@@ -80,18 +81,21 @@ mod tests {
     }
 
     pub const R0: Register = REGISTERS[0];
+    pub const R1: Register = REGISTERS[1];
 
-    pub const TEST_VALUES: [u64; 16] = [
+    pub const TEST_VALUES: [u64; 18] = [
         0x0000000000000000,
         0x0000000000000001,
         0x000000007FFFFFFF,
         0x0000000080000000,
         0x00000000FFFFFFFE,
         0x00000000FFFFFFFF,
+        0x0123456789ABCDEF,
         0x1111111111111111,
         0x7FFFFFFFFFFFFFFF,
         0x8000000000000000,
         0xEEEEEEEEEEEEEEEE,
+        0xFEDCBA9876543210,
         0xFFFFFFFF00000000,
         0xFFFFFFFF00000001,
         0xFFFFFFFF7FFFFFFF,
@@ -101,7 +105,7 @@ mod tests {
     ];
 
     /** Constructs a [`VM`], then calls it passing example values. */
-    pub fn test_unary<F: FnOnce(&mut dyn Lower)>(compile: F, expected: impl Fn(u64) -> u64) {
+    pub fn test_unary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64) -> u64) {
         let mut vm = VM::new(native(), 1, |lo| compile(lo));
         for x in TEST_VALUES {
             vm = vm.run(&[Word {u: x}], Word {u: expected(x)});
@@ -109,13 +113,22 @@ mod tests {
     }
 
     /** Constructs a [`VM`], then calls it passing example pairs of values. */
-    pub fn test_binary<F: FnOnce(&mut dyn Lower)>(compile: F, expected: impl Fn(u64, u64) -> u64) {
+    pub fn test_binary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, u64) -> u64) {
         let mut vm = VM::new(native(), 2, |lo| compile(lo));
         for x in TEST_VALUES {
             for y in TEST_VALUES {
                 vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected(x, y)});
             }
         }
+    }
+
+    /** Constructs a [`VM`], then calls it passing a pointer. */
+    pub fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 1]) -> u64) {
+        let mut vm = VM::new(native(), 1, |lo| compile(lo));
+        for x in TEST_VALUES {
+            let mut memory = [x];
+            vm = vm.run(&[Word {mp: memory.as_mut_ptr() as *mut ()}], Word {u: expected(x, &mut memory)});
+        }        
     }
 
     // Move, Constant, Push, Pop, DropMany.
@@ -422,6 +435,85 @@ mod tests {
         test_binary(
             |lo| { lo.action(Binary(Min, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| std::cmp::min(x as i64, y as i64) as u64,
+        );
+    }
+
+    // Load and Store.
+
+    #[test]
+    fn load() {
+        test_mem(
+            |lo| { lo.action(Load(R0, (Global(0).into(), One), AliasMask(1))); },
+            |x, _| x as u8 as u64,
+        );
+        test_mem(
+            |lo| { lo.action(Load(R0, (Global(0).into(), Two), AliasMask(1))); },
+            |x, _| x as u16 as u64,
+        );
+        test_mem(
+            |lo| { lo.action(Load(R0, (Global(0).into(), Four), AliasMask(1))); },
+            |x, _| x as u32 as u64,
+        );
+        test_mem(
+            |lo| { lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1))); },
+            |x, _| x,
+        );
+    }
+
+    #[test]
+    fn store() {
+        const DATA: u64 = 0x5555555555555555;
+        // Check returned address.
+        test_mem(
+            |lo| {
+                lo.action(Constant(P64, R1, DATA as i64));
+                lo.action(Store(R0, R1.into(), (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |_, p| p.as_mut_ptr() as u64,
+        );
+        // Check returned address gets stored.
+        test_mem(
+            |lo| {
+                lo.action(Constant(P64, R0, DATA as i64));
+                lo.action(Store(R0, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |_, p| p.as_mut_ptr() as u64,
+        );
+        // Check all `Width`s.
+        test_mem(
+            |lo| {
+                lo.action(Constant(P64, R0, DATA as i64));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), One), AliasMask(1)));
+                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |x, _| {
+                (x ^ DATA) as u8 as u64 ^ x
+            },
+        );
+        test_mem(
+            |lo| {
+                lo.action(Constant(P64, R0, DATA as i64));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), Two), AliasMask(1)));
+                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |x, _| (x ^ DATA) as u16 as u64 ^ x,
+        );
+        test_mem(
+            |lo| {
+                lo.action(Constant(P64, R0, DATA as i64));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), Four), AliasMask(1)));
+                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |x, _| (x ^ DATA) as u32 as u64 ^ x,
+        );
+        test_mem(
+            |lo| {
+                lo.action(Constant(P64, R0, DATA as i64));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |_, _| DATA,
         );
     }
 }
