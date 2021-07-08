@@ -2,7 +2,7 @@ use super::{buffer, code, Patch, Label, Counter, Pool, STATE_INDEX, Lower, Execu
 use buffer::{Mmap};
 
 mod enums;
-pub use enums::{Register, RSP, Condition, ALL_CONDITIONS, MemOp, ShiftOp, LogicOp};
+pub use enums::{Register, RSP, Condition, ALL_CONDITIONS, MemOp, ShiftOp, AddOp, LogicOp};
 
 mod assembler;
 pub use assembler::{Assembler, logic_immediate};

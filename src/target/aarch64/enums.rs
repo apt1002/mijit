@@ -89,6 +89,23 @@ pub enum ShiftOp {
 
 //-----------------------------------------------------------------------------
 
+/** All addition operations. */
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
+#[repr(u8)]
+#[allow(clippy::upper_case_acronyms)]
+pub enum AddOp {
+    /** Add. */
+    ADD = 0,
+    /** Add and set flags. */
+    ADDS = 1,
+    /** Subtract. */
+    SUB = 2,
+    /** Subtract and set the condition flags. */
+    SUBS = 3,
+}
+
+//-----------------------------------------------------------------------------
+
 /** All logic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]

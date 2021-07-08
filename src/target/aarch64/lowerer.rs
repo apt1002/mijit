@@ -2,11 +2,12 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Pool, STATE_INDEX,
-    Assembler, Register, RSP, MemOp, LogicOp, ShiftOp, Condition,
+    Assembler, Register, RSP, MemOp, ShiftOp, AddOp, LogicOp, Condition,
     CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
 };
 use Register::*;
 use MemOp::*;
+use AddOp::*;
 use LogicOp::*;
 use ShiftOp::*;
 use Width::*;
@@ -154,7 +155,7 @@ impl<B: Buffer> Lowerer<B> {
 
     /** Compare `src1` to `src2` and set condition flags. */
     fn cmp(&mut self, prec: Precision, src1: impl Into<Register>, src2: impl Into<Register>) {
-        self.a.shift_add(prec, true, true, RZR, src1.into(), src2.into(), 0);
+        self.a.shift_add(SUBS, prec, RZR, src1.into(), src2.into(), 0);
     }
 
     /**
@@ -163,7 +164,11 @@ impl<B: Buffer> Lowerer<B> {
      */
     fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: i64, temp: Register) {
         if constant.abs() < 0x1000 {
-            self.a.const_add(prec, true, RZR, src.into(), -constant);
+            if constant >= 0 {
+                self.a.const_add(SUBS, prec, RZR, src.into(), constant as u64);
+            } else {
+                self.a.const_add(ADDS, prec, RZR, src.into(), -constant as u64);
+            }
         } else {
             self.const_(temp, constant as u64);
             self.cmp(prec, src, temp);
@@ -188,7 +193,7 @@ impl<B: Buffer> Lowerer<B> {
             // Handle the high bits separately.
             // TODO: Use an `LDR` with a shifted register offset.
             self.const_(temp, offset_high);
-            self.a.shift_add(P64, false, false, temp, base, temp, IMM_BITS);
+            self.a.shift_add(ADD, P64, temp, base, temp, IMM_BITS);
             temp
         };
         self.a.mem(op, Eight, data, (base, offset_low as i64));
@@ -242,12 +247,12 @@ impl<B: Buffer> Lowerer<B> {
         let src = self.src_to_register(src, dest);
         match unary_op {
             code::UnaryOp::Abs => {
-                self.a.shift_add(prec, true, true, TEMP0, RZR, src, 0);
+                self.a.shift_add(SUBS, prec, TEMP0, RZR, src, 0);
                 self.a.csel(prec, Condition::LE, dest, src, TEMP0);
             },
             code::UnaryOp::Negate => {
                 let src = self.src_to_register(src, dest);
-                self.a.shift_add(prec, true, false, dest, RZR, src, 0);
+                self.a.shift_add(SUB, prec, dest, RZR, src, 0);
             },
             code::UnaryOp::Not => {
                 let src = self.src_to_register(src, dest);
@@ -270,10 +275,10 @@ impl<B: Buffer> Lowerer<B> {
         let src2 = self.src_to_register(src2, TEMP1);
         match binary_op {
             code::BinaryOp::Add => {
-                self.a.shift_add(prec, false, false, dest, src1, src2, 0);
+                self.a.shift_add(ADD, prec, dest, src1, src2, 0);
             },
             code::BinaryOp::Sub => {
-                self.a.shift_add(prec, true, false, dest, src1, src2, 0);
+                self.a.shift_add(SUB, prec, dest, src1, src2, 0);
             },
             code::BinaryOp::Mul => {
                 self.a.mul(prec, dest, src1, src2);
@@ -345,7 +350,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn prologue(&mut self) {
         self.a.push(RFP, RLR);
-        self.a.const_add(P64, false, RFP, RSP, 0);
+        self.a.const_add(ADD, P64, RFP, RSP, 0);
         for rs in CALLEE_SAVES.chunks(2).rev() {
             self.a.push(rs[0], rs[1]);
         }
@@ -477,7 +482,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Pop(dest1, dest2) => {
                 assert!(*self.slots_used() >= 2);
                 if dest1.is_none() && dest2.is_none() {
-                    self.a.const_add(P64, false, RSP, RSP, 16);
+                    self.a.const_add(ADD, P64, RSP, RSP, 16);
                 } else {
                     let dest1 = dest1.map_or(RZR, Register::from);
                     let dest2 = dest2.map_or(RZR, Register::from);
@@ -487,7 +492,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             },
             Action::DropMany(n) => {
                 assert!(*self.slots_used() >= 2 * n);
-                self.a.const_add(P64, false, RSP, RSP, (n * 16) as i64);
+                self.a.const_add(ADD, P64, RSP, RSP, (n * 16) as u64);
                 *self.slots_used() -= 2 * n;
             },
             Action::Debug(x) => {
@@ -507,7 +512,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn count(&mut self, counter: Counter) {
         self.mem(LDR, TEMP0, self.counter_address(counter), TEMP1);
-        self.a.const_add(P64, false, TEMP0, TEMP0, 1);
+        self.a.const_add(ADD, P64, TEMP0, TEMP0, 1);
         self.mem(STR, TEMP0, self.counter_address(counter), TEMP1);
     }
 }
