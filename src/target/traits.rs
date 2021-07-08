@@ -12,7 +12,7 @@ use code::{Precision, TestOp, Action};
  * absolute memory addresses. `Lower` itself always expresses addresses using
  * [`Label`].
  */
-pub trait Lower: Sized {
+pub trait Lower {
     /** The [`Pool`]. */
     fn pool(&self) -> &Pool;
 
