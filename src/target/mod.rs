@@ -33,13 +33,14 @@ pub fn native() -> impl Target {
 mod tests {
     use super::*;
 
-    use code::{Register, REGISTERS, Slot, Global, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
+    use code::{Register, REGISTERS, Slot, Global, Precision, TestOp, UnaryOp, BinaryOp, Width, AliasMask, Action};
     use Precision::*;
     use UnaryOp::*;
     use BinaryOp::*;
     use Width::*;
     use Action::*;
 
+    /** A test harness for a `T::Lowerer`. */
     pub struct VM<T: Target> {
         pub lowerer: T::Lowerer,
         pub entry: Label,
@@ -48,8 +49,7 @@ mod tests {
     impl<T: Target> VM<T> {
         /** Constructs a `T::Lowerer` and passes it to `compile()`. */
         pub fn new(target: T, num_globals: usize, compile: impl FnOnce(&mut T::Lowerer)) -> Self {
-            let pool = Pool::new(num_globals);
-            let mut lowerer = target.lowerer(pool);
+            let mut lowerer = target.lowerer(Pool::new(num_globals));
             let entry = lowerer.here();
             lowerer.prologue();
             compile(&mut lowerer);
@@ -129,6 +129,22 @@ mod tests {
             let mut memory = [x];
             vm = vm.run(&[Word {mp: memory.as_mut_ptr() as *mut ()}], Word {u: expected(x, &mut memory)});
         }        
+    }
+
+    fn test_test_op(guard: (TestOp, Precision), expected: impl Fn(u64) -> bool) {
+        let mut vm = VM::new(native(), 1, |lo| {
+            let mut else_ = Label::new(None);
+            let mut endif = Label::new(None);
+            lo.test_op(guard, &mut else_);
+            lo.action(Constant(P64, R0, !0));
+            lo.jump(&mut endif);
+            lo.define(&mut else_);
+            lo.action(Constant(P64, R0, 0));
+            lo.define(&mut endif);
+        });
+        for x in TEST_VALUES {
+            vm = vm.run(&[Word {u: x}], Word {u: if expected(x) { !0 } else { 0 }});
+        }
     }
 
     // Move, Constant, Push, Pop, DropMany.
@@ -514,6 +530,90 @@ mod tests {
                 lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
             },
             |_, _| DATA,
+        );
+    }
+
+    // TestOps.
+
+    #[test]
+    fn bits_test() {
+        for mask in [0, 1, 2, 3] {
+            for pattern in [0, 1, 2, 3] {
+                if mask & pattern == pattern {
+                    test_test_op(
+                        (TestOp::Bits(Global(0).into(), mask, pattern), P32),
+                        |x| (x as i32) & mask == pattern,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn lt_test() {
+        for y in TEST_VALUES {
+            test_test_op(
+                (TestOp::Lt(Global(0).into(), y as i32), P32),
+                |x| (x as i32) < (y as i32),
+            );
+        }
+    }
+
+    #[test]
+    fn ge_test() {
+        for y in TEST_VALUES {
+            test_test_op(
+                (TestOp::Ge(Global(0).into(), y as i32), P32),
+                |x| (x as i32) >= (y as i32),
+            );
+        }
+    }
+
+    #[test]
+    fn ult_test() {
+        for y in TEST_VALUES {
+            test_test_op(
+                (TestOp::Ult(Global(0).into(), y as i32), P32),
+                |x| (x as u32) < (y as u32),
+            );
+        }
+    }
+
+    #[test]
+    fn uge_test() {
+        for y in TEST_VALUES {
+            test_test_op(
+                (TestOp::Uge(Global(0).into(), y as i32), P32),
+                |x| (x as u32) >= (y as u32),
+            );
+        }
+    }
+
+    #[test]
+    fn eq_test() {
+        for y in TEST_VALUES {
+            test_test_op(
+                (TestOp::Eq(Global(0).into(), y as i32), P32),
+                |x| (x as u32) == (y as u32),
+            );
+        }
+    }
+
+    #[test]
+    fn ne_test() {
+        for y in TEST_VALUES {
+            test_test_op(
+                (TestOp::Ne(Global(0).into(), y as i32), P32),
+                |x| (x as u32) != (y as u32),
+            );
+        }
+    }
+
+    #[test]
+    fn always_test() {
+        test_test_op(
+            (TestOp::Always, P32),
+            |_| true,
         );
     }
 }
