@@ -263,7 +263,7 @@ impl<B: Buffer> Assembler<B> {
         } else if let Some(imm) = unsigned(!imm, 16) {
             // MOVN.
             self.write_d(0x92800000 | (imm << 5), rd);
-        } else if let Some(imm) = unsigned(0xFFFFFFFF & !imm, 16) {
+        } else if let Some(imm) = unsigned(0xFFFFFFFF ^ imm, 16) {
             // 32-bit MOVN.
             self.write_d(0x12800000 | (imm << 5), rd);
         } else {
@@ -341,7 +341,9 @@ impl<B: Buffer> Assembler<B> {
      */
     pub fn const_add(&mut self, prec: Precision, set_flags: bool, dest: Register, src: Register, mut constant: i64) {
         let mut opcode = 0x11000000;
-        if constant < 0 {
+        if constant <= 0 {
+            // FIXME: `n-0` sets that carry flag for all `n` but `n+0` doesn't.
+            // There's no way to tell which is desired. API needs redesigning.
             constant = -constant;
             opcode |= 1 << 30;
         }
