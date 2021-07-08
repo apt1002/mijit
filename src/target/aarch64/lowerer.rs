@@ -475,10 +475,14 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 self.a.push(src1, src2);
             },
             Action::Pop(dest1, dest2) => {
-                let dest1 = dest1.map_or(RZR, Register::from);
-                let dest2 = dest2.map_or(RZR, Register::from);
                 assert!(*self.slots_used() >= 2);
-                self.a.pop(dest1, dest2);
+                if dest1.is_none() && dest2.is_none() {
+                    self.a.const_add(P64, false, RSP, RSP, 16);
+                } else {
+                    let dest1 = dest1.map_or(RZR, Register::from);
+                    let dest2 = dest2.map_or(RZR, Register::from);
+                    self.a.pop(dest1, dest2);
+                }
                 *self.slots_used() -= 2;
             },
             Action::DropMany(n) => {
