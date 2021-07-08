@@ -301,6 +301,12 @@ impl std::ops::BitXor for AliasMask {
 
 //-----------------------------------------------------------------------------
 
+/** Called by [`Action::Debug`]. */
+#[no_mangle]
+pub extern fn debug_word(x: u64) {
+    println!("Debug: {:#018x}", x);
+}
+
 /**
  * An imperative instruction.
  * The destination register (where applicable) is on the left.
@@ -328,7 +334,7 @@ pub enum Action {
     Pop(Option<Register>, Option<Register>),
     /// sp <- sp + 16*n
     DropMany(usize),
-    /// No-op, but print out `src`.
+    /// Pass `src` to [`debug_word()`].
     Debug(Value),
 }
 
@@ -439,5 +445,11 @@ pub mod tests {
             }
             state
         }
+    }
+
+    /** Ensure the linker symbol `debug_word` is included in the binary. */
+    #[test]
+    fn not_really_a_test() {
+        debug_word(0);
     }
 }

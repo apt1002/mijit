@@ -17,9 +17,13 @@ indexmap = "1.4.0"
 
 [dev-dependencies]
 rand = "0.7"
+bad64 = "0.2.0"
 
 [dev-dependencies.iced-x86]
 version = "1.2.0"
 default-features = false
 # See below for all features
 features = ["std", "decoder", "nasm"]
+
+[patch.crates-io]
+bad64 = {git='https://github.com/apt1002/bad64', branch='main'}

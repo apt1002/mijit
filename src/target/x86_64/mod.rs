@@ -1,9 +1,12 @@
 use super::{buffer, code, Patch, Label, Counter, Word, Pool, Lower, ExecuteFn, Execute, STATE_INDEX};
 use buffer::{Mmap};
 
-mod assembler;
-pub use assembler::{Assembler, Register, BinaryOp, ShiftOp, Condition, Width};
+mod enums;
+pub use enums::{Register, ALL_REGISTERS, BinaryOp, ALL_BINARY_OPS, ShiftOp, ALL_SHIFT_OPS, Condition, ALL_CONDITIONS, Width, ALL_WIDTHS};
 use Register::*;
+
+mod assembler;
+pub use assembler::{Assembler};
 
 mod lowerer;
 pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};

@@ -10,6 +10,7 @@ mod traits;
 pub use traits::{Lower, ExecuteFn, Execute, Target};
 
 pub mod x86_64;
+pub mod aarch64;
 
 /**
  * The [`Register`] which holds the state index on entry and exit from Mijit.
@@ -20,10 +21,12 @@ pub const STATE_INDEX: code::Register = code::REGISTERS[0];
 
 /** A [`Target`] that generates code which can be executed. */
 pub fn native() -> impl Target {
-    if cfg!(target_arch="x86_64") {
-        x86_64::Target
-    } else {
-        panic!("FIXME: Unknown target");
+    #[cfg(target_arch="x86_64")]
+    return x86_64::Target;
+    #[cfg(target_arch="aarch64")]
+    return aarch64::Target;
+    #[allow(unreachable_code)] {
+        panic!("Unknown target");
     }
 }
 

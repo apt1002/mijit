@@ -8,8 +8,6 @@ use super::{Buffer};
  */
 pub struct Mmap {
     memory: MmapMut,
-    /// The write pointer: an index into `memory`.
-    pos: usize,
 }
 
 impl Mmap {
@@ -47,7 +45,7 @@ impl DerefMut for Mmap {
 impl Buffer for Mmap {
     fn new() -> Self {
         let memory = MmapMut::map_anon(0x1000).expect("Out of memory");
-        Mmap {memory, pos: 0}
+        Mmap {memory}
     }
 
     fn resize(&mut self, min_length: usize) {
@@ -57,9 +55,6 @@ impl Buffer for Mmap {
             self.memory = new_memory
         }
     }
-
-    fn get_pos(&self) -> usize { self.pos }
-    fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 }
 
 //-----------------------------------------------------------------------------

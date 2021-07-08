@@ -11,173 +11,12 @@
 //! encodings. We include unnecessary functionality (e.g. testing the P flag)
 //! only if it is a regular generalization of functionality we need.
 
-use super::{buffer, code, Patch, CALLER_SAVES};
+use super::{buffer, code, Patch, CALLER_SAVES, Register, BinaryOp, ShiftOp, Condition, Width};
 use buffer::{Buffer};
-use code::{Precision};
-use Precision::*;
-
-/**
- * All x86_64 registers that can be used interchangeably in our chosen subset
- * of x86_64.
- *
- * All register names include a leading `R`, and omit a trailing `X`. This is
- * not intended to imply anything about the operand width, which is specified
- * in another way.
- */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-#[allow(clippy::upper_case_acronyms)]
-pub enum Register {
-    RA = 0,
-    RC = 1,
-    RD = 2,
-    RB = 3,
-    RSP = 4,
-    RBP = 5,
-    RSI = 6,
-    RDI = 7,
-    R8 = 8,
-    R9 = 9,
-    R10 = 10,
-    R11 = 11,
-    R12 = 12,
-    R13 = 13,
-    R14 = 14,
-    R15 = 15,
-}
-
+use code::{Precision, debug_word};
 use Register::*;
-
-impl Register {
-    /** Returns a bit pattern which includes `self` in all useful positions. */
-    pub fn mask(self) -> u64 {
-        [
-            0x0000000000,
-            0x0909090900, // 1
-            0x1212121200, // 2
-            0x1B1B1B1B00,
-            0x2424242400, // 4
-            0x2D2D2D2D00,
-            0x3636363600,
-            0x3F3F3F3F00,
-            0x0000000007, // 8
-            0x0909090907,
-            0x1212121207,
-            0x1B1B1B1B07,
-            0x2424242407,
-            0x2D2D2D2D07,
-            0x3636363607,
-            0x3F3F3F3F07,
-        ][self as usize]
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum BinaryOp {
-    Add = 0,
-    Or = 1,
-    Adc = 2,
-    Sbb = 3,
-    And = 4,
-    Sub = 5,
-    Xor = 6,
-    Cmp = 7,
-}
-
 use BinaryOp::*;
-
-impl BinaryOp {
-    pub fn rm_imm(self, rm_is_reg: bool) -> u64 {
-        0x808140 | (rm_is_reg as u64) << 22 | (self as u64) << 19
-    }
-
-    pub fn rm_reg(self, rm_is_reg: bool) -> u64 {
-        0x800140 | (rm_is_reg as u64) << 22 | (self as u64) << 11
-    }
-
-    pub fn reg_rm(self, rm_is_reg: bool) -> u64 {
-        0x800340 | (rm_is_reg as u64) << 22 | (self as u64) << 11
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum ShiftOp {
-    Rol = 0,
-    Ror = 1,
-    Rcl = 2,
-    Rcr = 3,
-    Shl = 4,
-    Shr = 5,
-    // 6 is allegedly an undocumented synonym for 4.
-    Sar = 7,
-}
-
-impl ShiftOp {
-    pub fn rm_imm(self, rm_is_reg: bool) -> u64 {
-        0x80C140 | (rm_is_reg as u64) << 22 | (self as u64) << 19
-    }
-
-    pub fn rm_c(self, rm_is_reg: bool) -> u64 {
-        0x80D340 | (rm_is_reg as u64) << 22 | (self as u64) << 19
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-#[repr(u8)]
-#[allow(clippy::upper_case_acronyms)]
-pub enum Condition {
-    O  = 0x0,
-    NO = 0x1,
-    B  = 0x2,
-    AE = 0x3,
-    Z  = 0x4,
-    NZ = 0x5,
-    BE = 0x6,
-    A  = 0x7,
-    S  = 0x8,
-    NS = 0x9,
-    P  = 0xA,
-    NP = 0xB,
-    L  = 0xC,
-    GE = 0xD,
-    LE = 0xE,
-    G  = 0xF,
-}
-
-impl Condition {
-    pub fn move_if(self, is_true: bool) -> u64 {
-        0xC0400F40 | ((!is_true as u64) ^ (self as u64)) << 16
-    }
-
-    pub fn load_if(self, is_true: bool) -> u64 {
-        0x80400F40 | ((!is_true as u64) ^ (self as u64)) << 16
-    }
-
-    pub fn load_pc_relative_if(self, is_true: bool) -> u64 {
-        0x00400F40 | ((!is_true as u64) ^ (self as u64)) << 16
-    }
-
-    pub fn jump_if(self, is_true: bool) -> u64 {
-        0x800F | ((!is_true as u64) ^ (self as u64)) << 8
-    }
-}
-
-//-----------------------------------------------------------------------------
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Width {U8, S8, U16, S16, U32, S32, U64, S64}
-
-use Width::*;
-
-//-----------------------------------------------------------------------------
+use Precision::*;
 
 /** Computes the displacement from `from` to `to`. */
 pub fn disp(from: usize, to: usize) -> isize {
@@ -205,11 +44,6 @@ const UNKNOWN_DISP: i32 = -0x80000000;
 /** Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`. */
 pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
     to.map_or(UNKNOWN_DISP, |to| disp32(from, to))
-}
-
-#[no_mangle]
-pub extern fn debug_word(x: u64) {
-    println!("Debug: {:#018x}", x);
 }
 
 /**
@@ -251,12 +85,13 @@ pub extern fn debug_word(x: u64) {
 pub struct Assembler<B: Buffer> {
     /// The area we're filling with code.
     buffer: B,
+    pos: usize,
 }
 
 impl<B: Buffer> Assembler<B> {
     /** Construct an Assembler. */
     pub fn new() -> Self {
-        Assembler {buffer: B::new()}
+        Assembler {buffer: B::new(), pos: 0}
     }
 
     /** Apply `callback` to the contained [`Buffer`]. */
@@ -270,60 +105,56 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Get the assembly pointer. */
-    pub fn get_pos(&self) -> usize {
-        self.buffer.get_pos()
-    }
+    pub fn get_pos(&self) -> usize { self.pos }
 
     /** Set the assembly pointer. */
-    pub fn set_pos(&mut self, pos: usize) {
-        self.buffer.set_pos(pos);
-    }
+    pub fn set_pos(&mut self, pos: usize) { self.pos = pos; }
 
     // Patterns and constants.
 
+    /** Writes at `pos`, incrmenting it. */
+    fn write(&mut self, bytes: u64, len: usize) {
+        self.buffer.write(self.pos, bytes, len);
+        self.pos += len;
+    }
+
     /** Writes an 8-bit signed immediate constant. */
     pub fn write_imm8(&mut self, immediate: i8) {
-        self.buffer.write(u64::from(immediate as u8), 1);
+        self.write(u64::from(immediate as u8), 1);
     }
 
     /** Writes a 32-bit signed immediate constant. */
     pub fn write_imm32(&mut self, immediate: i32) {
-        self.buffer.write(u64::from(immediate as u32), 4);
+        self.write(u64::from(immediate as u32), 4);
     }
 
     /** Writes a 64-bit signed immediate constant. */
     pub fn write_imm64(&mut self, immediate: i64) {
-        self.buffer.write(immediate as u64, 8);
-    }
-
-    /** Writes a 32-bit displacement from `self.get_pos()+4` to `target`. */
-    pub fn write_rel32(&mut self, target: Option<usize>) {
-        let pos = self.get_pos();
-        self.write_imm32(optional_disp32(pos + 4, target));
+        self.write(immediate as u64, 8);
     }
 
     /** Writes an instruction with pattern "OO", and no registers. */
     pub fn write_oo_0(&mut self, opcode: u64) {
-        self.buffer.write(opcode, 2);
+        self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "RO", and no registers. */
     pub fn write_ro_0(&mut self, opcode: u64) {
-        self.buffer.write(opcode, 2);
+        self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "RO", and one register. */
     pub fn write_ro_1(&mut self, mut opcode: u64, prec: Precision, rd: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x0701 & rd.mask();
-        self.buffer.write(opcode, 2);
+        self.write(opcode, 2);
     }
 
     /** Writes an instruction with pattern "ROM" and one register. */
     pub fn write_rom_1(&mut self, mut opcode: u64, prec: Precision, rm: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
-        self.buffer.write(opcode, 3);
+        self.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROM" and two registers. */
@@ -331,7 +162,7 @@ impl<B: Buffer> Assembler<B> {
         opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
         opcode |= 0x380004 & reg.mask();
-        self.buffer.write(opcode, 3);
+        self.write(opcode, 3);
     }
 
     /** Writes an instruction with pattern "ROOM" and two registers. */
@@ -339,7 +170,7 @@ impl<B: Buffer> Assembler<B> {
         opcode |= (prec as u64) << 3;
         opcode |= 0x07000001 & rm.mask();
         opcode |= 0x38000004 & reg.mask();
-        self.buffer.write(opcode, 4);
+        self.write(opcode, 4);
     }
 
     /**
@@ -353,7 +184,7 @@ impl<B: Buffer> Assembler<B> {
      */
     pub fn write_sib_fix(&mut self, rm: Register) {
         if (rm as usize) & 7 == 4 {
-            self.buffer.write_byte(0x24);
+            self.write(0x24, 1);
         }
     }
 
@@ -483,31 +314,31 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Conditional move. */
-    pub fn move_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: Register) {
-        self.write_room_2(cc.move_if(is_true), prec, src, dest);
+    pub fn move_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: Register) {
+        self.write_room_2(cc.move_if(), prec, src, dest);
     }
 
     /** Conditional load. */
-    pub fn load_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, src: (Register, i32)) {
-        self.write_room_2(cc.load_if(is_true), prec, src.0, dest);
+    pub fn load_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: (Register, i32)) {
+        self.write_room_2(cc.load_if(), prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
     /** Conditional load from nearby. */
-    pub fn load_pc_relative_if(&mut self, cc: Condition, is_true: bool, prec: Precision, dest: Register, address: usize) {
-        self.write_room_2(cc.load_pc_relative_if(is_true), prec, RBP, dest);
+    pub fn load_pc_relative_if(&mut self, cc: Condition, prec: Precision, dest: Register, address: usize) {
+        self.write_room_2(cc.load_pc_relative_if(), prec, RBP, dest);
         // No SIB fix needed when `rm` is `RBP`.
         self.write_imm32(disp32(self.get_pos() + 4, address));
     }
 
     /** Conditional branch. */
-    pub fn jump_if(&mut self, cc: Condition, is_true: bool, target: Option<usize>)
+    pub fn jump_if(&mut self, cc: Condition, target: Option<usize>)
     -> Patch {
         let patch = Patch::new(self.get_pos());
-        self.write_oo_0(cc.jump_if(is_true));
+        self.write_oo_0(cc.jump_if());
         self.write_imm32(UNKNOWN_DISP);
-        self.patch(patch, target, None);
+        self.patch(patch, None, target);
         patch
     }
 
@@ -521,7 +352,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE940);
         self.write_imm32(UNKNOWN_DISP);
-        self.patch(patch, target, None);
+        self.patch(patch, None, target);
         patch
     }
 
@@ -535,7 +366,7 @@ impl<B: Buffer> Assembler<B> {
         let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE840);
         self.write_imm32(UNKNOWN_DISP);
-        self.patch(patch, target, None);
+        self.patch(patch, None, target);
         patch
     }
 
@@ -543,10 +374,10 @@ impl<B: Buffer> Assembler<B> {
      * Change the target of the instruction at `patch` from `old_target` to
      * `new_target`.
      * - patch - the instruction to modify.
-     * - new_target - an offset from the beginning of the buffer, or `None`.
      * - old_target - an offset from the beginning of the buffer, or `None`.
+     * - new_target - an offset from the beginning of the buffer, or `None`.
      */
-    pub fn patch(&mut self, patch: Patch, new_target: Option<usize>, old_target: Option<usize>) {
+    pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
         let pos = patch.address();
         #[allow(clippy::if_same_then_else)]
         let at = if self.buffer.read_byte(pos) == 0x0F && (self.buffer.read_byte(pos + 1) & 0xF0) == 0x80 {
@@ -561,13 +392,8 @@ impl<B: Buffer> Assembler<B> {
         } else {
             panic!("not a jump or call instruction");
         };
-        let old_disp = self.buffer.read(at, 4) as i32;
-        let old_pos = self.buffer.get_pos();
-        self.buffer.set_pos(at);
-        self.write_rel32(new_target);
-        let at_plus_4 = self.buffer.get_pos();
-        self.buffer.set_pos(old_pos);
-        assert_eq!(old_disp, optional_disp32(at_plus_4, old_target));
+        assert_eq!(self.buffer.read(at, 4) as i32, optional_disp32(at + 4, old_target));
+        self.buffer.write(at, optional_disp32(at + 4, new_target) as u32 as u64, 4);
     }
 
     pub fn ret(&mut self) {
@@ -584,8 +410,9 @@ impl<B: Buffer> Assembler<B> {
         self.write_ro_1(0x5840, P64, rd);
     }
 
-    /** Load narrow data, zero-extending to the given precision. */
+    /** Load narrow data, sign- or zero-extending to the given precision. */
     pub fn load_narrow(&mut self, prec: Precision, type_: Width, dest: Register, src: (Register, i32)) {
+        use Width::*;
         match type_ {
             U8 => {
                 self.write_room_2(0x80B60F40, prec, src.0, dest);
@@ -621,13 +448,14 @@ impl<B: Buffer> Assembler<B> {
 
     /** Store narrow data. */
     pub fn store_narrow(&mut self, type_: Width, dest: (Register, i32), src: Register) {
+        use Width::*;
         match type_ {
             U8 | S8 => {
                 self.write_rom_2(0x808840, P32, dest.0, src);
                 self.write_sib_fix(dest.0);
             }
             U16 | S16 => {
-                self.buffer.write_byte(0x66);
+                self.write(0x66, 1);
                 self.write_rom_2(0x808940, P32, dest.0, src);
                 self.write_sib_fix(dest.0);
             }
@@ -675,26 +503,12 @@ impl<B: Buffer> Default for Assembler<B> {
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use super::super::{ALL_REGISTERS, ALL_BINARY_OPS, ALL_SHIFT_OPS, ALL_CONDITIONS, ALL_WIDTHS};
     use ShiftOp::*;
-    use Condition::*;
 
-    use std::cmp::{max};
+    use std::cmp::{min, max};
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
-
-    use super::super::super::super::buffer::{VecU8};
-
-    const ALL_REGISTERS: [Register; 16] =
-        [RA, RC, RD, RB, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
-    const ALL_PRECISIONS: [Precision; 2] = [P32, P64];
-    const ALL_BINARY_OPS: [BinaryOp; 8] =
-        [Add, Or, Adc, Sbb, And, Sub, Xor, Cmp];
-    const ALL_SHIFT_OPS: [ShiftOp; 7] =
-        [Rol, Ror, Rcl, Rcr, Shl, Shr, Sar];
-    const ALL_CONDITIONS: [Condition; 16] =
-        [O, NO, B, AE, Z, NZ, BE, A, S, NS, P, NP, L, GE, LE, G];
-    const ALL_WIDTHS: [Width; 8] =
-        [U8, S8, U16, S16, U32, S32, U64, S64];
 
     /**
      * Disassemble the code that has been assembled by `a` as if the [`Buffer`]
@@ -712,15 +526,11 @@ pub mod tests {
         decoder.set_ip(start_address as u64);
         let mut formatter = NasmFormatter::new();
         let mut ips = Vec::new();
-        let mut hex_dumps = Vec::new();
+        let mut lens = Vec::new();
         let mut observed = Vec::new();
         for instruction in decoder {
-            let start = instruction.ip() as usize - start_address;
-            let len = instruction.len() as usize;
-            ips.push(start);
-            hex_dumps.push(code_bytes[start..][..len].iter().rev().map(
-                |b| format!("{:02X}", b)
-            ).collect::<Vec<String>>().join(" "));
+            ips.push(instruction.ip() as usize);
+            lens.push(instruction.len() as usize);
             let mut assembly = String::with_capacity(80);
             formatter.format(&instruction, &mut assembly);
             observed.push(assembly);
@@ -732,8 +542,13 @@ pub mod tests {
             let e_line = if i < expected.len() { &expected[i] } else { "missing" };
             let o_line = if i < observed.len() { &observed[i] } else { "missing" };
             if e_line != o_line {
+                let instruction_bytes = &a.buffer[ips[i]..a.get_pos()];
+                let instruction_bytes = &instruction_bytes[..min(instruction_bytes.len(), lens[i])];
+                let hex_dump = instruction_bytes.iter().rev().map(
+                    |b| format!("{:02X}", b)
+                ).collect::<Vec<String>>().join(" ");
                 println!("Difference in line {}", i+1);
-                println!("{:016X}   {:>32}   {}", ips[i], hex_dumps[i], o_line);
+                println!("{:016X}   {:>32}   {}", ips[i], hex_dump, o_line);
                 println!("{:>16}   {:>32}   {}", "Expected", "", e_line);
                 error = true;
             }
@@ -743,8 +558,8 @@ pub mod tests {
 
     #[test]
     fn test_disassemble() {
-        let mut a = Assembler::<VecU8>::new();
-        a.buffer.write(0x00005510245C8948, 6);
+        let mut a = Assembler::<Vec<u8>>::new();
+        a.write(0x00005510245C8948, 6);
         disassemble(&a, 0, vec![
             "mov [rsp+10h],rbx",
             "push rbp",
@@ -758,7 +573,7 @@ pub mod tests {
     /** Test that the Registers are named correctly. */
     #[test]
     fn regs() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &r in &ALL_REGISTERS {
             a.move_(P32, r, r);
         }
@@ -785,8 +600,8 @@ pub mod tests {
     /** Test that the Precisions are named correctly. */
     #[test]
     fn precs() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             a.move_(p, RA, RA);
         }
         disassemble(&a, 0, vec![
@@ -798,8 +613,8 @@ pub mod tests {
     /** Test that we can assemble all the different sizes of constant. */
     #[test]
     fn const_() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             for &c in &[0, 1, 1000, 0x76543210, 0x76543210FEDCBA98] {
                 a.const_(p, R8, c);
                 a.const_(p, R15, !c);
@@ -832,8 +647,8 @@ pub mod tests {
     /** Test that we can assemble all the different kinds of "MOV". */
     #[test]
     fn move_() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             a.move_(p, R10, R9);
             a.store(p, (R8, DISP), R10);
             a.store(p, (R12, DISP), R10);
@@ -860,7 +675,7 @@ pub mod tests {
     /** Test that all the BinaryOps are named correctly. */
     #[test]
     fn binary_op() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &op in &ALL_BINARY_OPS {
             a.op(op, P32, R10, R9);
         }
@@ -879,8 +694,8 @@ pub mod tests {
     /** Test that we can assemble BinaryOps in all the different ways. */
     #[test]
     fn binary_mode() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             a.op(Add, p, R10, R9);
             a.const_op(Add, p, R10, IMM);
             a.load_op(Add, p, R9, (R8, DISP));
@@ -901,7 +716,7 @@ pub mod tests {
     /** Test that all the ShiftOps are named correctly. */
     #[test]
     fn shift_op() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         for &op in &ALL_SHIFT_OPS {
             a.shift(op, P32, R8);
         }
@@ -919,8 +734,8 @@ pub mod tests {
     /** Test that we can assemble ShiftOps in all the different ways. */
     #[test]
     fn shift_mode() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             a.shift(Shl, p, R8);
             a.const_shift(Shl, p, R8, 7);
         }
@@ -935,8 +750,8 @@ pub mod tests {
     /** Test that we can assemble multiplications in all the different ways. */
     #[test]
     fn mul() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             a.mul(p, R8, R9);
             a.const_mul(p, R10, R11, IMM);
             a.load_mul(p, R13, (R14, DISP));
@@ -957,8 +772,8 @@ pub mod tests {
     /** Test that we can assemble divisions in all the different ways. */
     #[test]
     fn div() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             a.udiv(p, R8);
             a.load_udiv(p, (R14, DISP));
             a.load_udiv(p, (R12, DISP));
@@ -979,59 +794,43 @@ pub mod tests {
      */
     #[test]
     fn condition() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         let target = Some(0x28); // Somewhere in the middle of the code.
         for &cc in &ALL_CONDITIONS {
-            a.jump_if(cc, true, target);
-            a.jump_if(cc, false, target);
+            a.jump_if(cc, target);
         }
         disassemble(&a, 0, vec![
             "jo near 0000000000000028h",
             "jno near 0000000000000028h",
-            "jno near 0000000000000028h",
-            "jo near 0000000000000028h",
             "jb near 0000000000000028h",
             "jae near 0000000000000028h",
-            "jae near 0000000000000028h",
-            "jb near 0000000000000028h",
             "je near 0000000000000028h",
             "jne near 0000000000000028h",
-            "jne near 0000000000000028h",
-            "je near 0000000000000028h",
             "jbe near 0000000000000028h",
             "ja near 0000000000000028h",
-            "ja near 0000000000000028h",
-            "jbe near 0000000000000028h",
             "js near 0000000000000028h",
             "jns near 0000000000000028h",
-            "jns near 0000000000000028h",
-            "js near 0000000000000028h",
             "jp near 0000000000000028h",
             "jnp near 0000000000000028h",
-            "jnp near 0000000000000028h",
-            "jp near 0000000000000028h",
             "jl near 0000000000000028h",
             "jge near 0000000000000028h",
-            "jge near 0000000000000028h",
-            "jl near 0000000000000028h",
             "jle near 0000000000000028h",
             "jg near 0000000000000028h",
-            "jg near 0000000000000028h",
-            "jle near 0000000000000028h",
         ]).unwrap();
     }
 
     /** Test that we can assemble conditional moves and loads. */
     #[test]
     fn move_if() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
-            a.move_if(G, true, p, R8, R9);
-            a.move_if(G, false, p, R10, R11);
-            a.load_if(G, true, p, RBP, (R13, DISP));
-            a.load_if(G, false, p, R14, (R15, DISP));
-            a.load_if(G, false, p, R14, (R12, DISP));
-            a.load_pc_relative_if(G, false, p, R12, DISP as usize);
+        use Condition::*;
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
+            a.move_if(G, p, R8, R9);
+            a.move_if(LE, p, R10, R11);
+            a.load_if(G, p, RBP, (R13, DISP));
+            a.load_if(LE, p, R14, (R15, DISP));
+            a.load_if(LE, p, R14, (R12, DISP));
+            a.load_pc_relative_if(LE, p, R12, DISP as usize);
         }
         disassemble(&a, 0, vec![
             "cmovg r8d,r9d",
@@ -1052,7 +851,7 @@ pub mod tests {
     /** Test that we can assemble the different kinds of unconditional jump. */
     #[test]
     fn jump() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.jump(R8);
         a.const_jump(Some(LABEL));
         disassemble(&a, 0, vec![
@@ -1064,7 +863,7 @@ pub mod tests {
     /** Test that we can assemble the different kinds of call and return. */
     #[test]
     fn call_ret() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.call(R8);
         a.const_call(Some(LABEL));
         a.ret();
@@ -1078,7 +877,7 @@ pub mod tests {
     /** Test that we can assemble "PUSH" and "POP". */
     #[test]
     fn push_pop() {
-        let mut a = Assembler::<VecU8>::new();
+        let mut a = Assembler::<Vec<u8>>::new();
         a.push(R8);
         a.pop(R9);
         disassemble(&a, 0, vec![
@@ -1090,8 +889,8 @@ pub mod tests {
     /** Test that we can assemble loads and stores for narrow data. */
     #[test]
     fn narrow() {
-        let mut a = Assembler::<VecU8>::new();
-        for &p in &ALL_PRECISIONS {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
             for &w in &ALL_WIDTHS {
                 a.load_narrow(p, w, R9, (R8, DISP));
                 a.load_narrow(p, w, R9, (R12, DISP));
@@ -1166,11 +965,5 @@ pub mod tests {
             "mov [r8+12345678h],r9",
             "mov [r12+12345678h],r9",
         ]).unwrap();
-    }
-
-    /** Ensure the linker symbol `debug_word` is included in the binary. */
-    #[test]
-    fn not_really_a_test() {
-        debug_word(0);
     }
 }
