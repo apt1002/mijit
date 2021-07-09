@@ -1,10 +1,10 @@
-use std::cmp::{max};
 use std::collections::{HashMap};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{Convention, NUM_REGISTERS, all_registers, Op, Schedule, RegisterPool, Placer, moves};
+use super::{Convention, NUM_REGISTERS, all_registers, Op, Schedule, RegisterPool, moves};
 use super::dataflow::{Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
+use super::placer::{Time, LEAST as EARLY, Placer};
 use super::code::{Register, REGISTERS, Slot, Value, Action};
 use crate::util::{ArrayMap, map_filter_max};
 
@@ -38,9 +38,10 @@ impl Default for Instruction {
 //-----------------------------------------------------------------------------
 
 /** The information that a [`CodeGen`] stores about each [`Out`]. */
+#[derive(Default)]
 pub struct OutInfo {
-    /** The time at which the `Out` became available, or [`usize::MAX`]. */
-    time: usize,
+    /** The `Time` at which the `Out` became available. */
+    time: Option<Time>,
     /** The `Register` allocated for the `Out`. */
     reg: Option<Register>,
 }
@@ -51,20 +52,11 @@ impl Debug for OutInfo {
     }
 }
 
-impl Default for OutInfo {
-    fn default() -> Self {
-        OutInfo {
-            time: usize::MAX,
-            reg: None,
-        }
-    }
-}
-
 /** The information that a [`CodeGen`] stores about each [`Register`]. */
 #[derive(Default)]
 pub struct RegInfo {
-    /** The last time at which each [`Register`] is used, or zero. */
-    time: usize,
+    /** The last `Time` at which each [`Register`] is used, or zero. */
+    time: Time,
     /** The contents of the `Register` at the current time. */
     out: Option<Out>,
 }
@@ -95,8 +87,8 @@ struct CodeGen<'a> {
     placer: Placer<Instruction>,
     /** An `OutInfo` for each `Out`. */
     outs: ArrayMap<Out, OutInfo>,
-    /** The time at which each [`Node`] was executed. */
-    node_times: ArrayMap<Node, usize>,
+    /** The `Time` at which each [`Node`] was executed. */
+    node_times: ArrayMap<Node, Option<Time>>,
     /** A `RegInfo` for each `Reg`. */
     regs: ArrayMap<Register, RegInfo>,
     /** The `Register` allocator state. */
@@ -109,6 +101,8 @@ impl<'a> CodeGen<'a> {
         // Initialize the data structures with the live registers of `before`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
         let mut outs: ArrayMap<Out, OutInfo> = df.out_map();
+        let mut node_times: ArrayMap<Node, Option<Time>> = df.node_map();
+        node_times[df.entry_node()] = Some(EARLY);
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
             if schedule.first_use(out).is_some() {
@@ -117,7 +111,7 @@ impl<'a> CodeGen<'a> {
                     regs[reg].out = Some(out);
                     outs[out].reg = Some(reg);
                 }
-                outs[out].time = 0;
+                outs[out].time = Some(EARLY);
             }
         }
         // Construct and return.
@@ -128,7 +122,7 @@ impl<'a> CodeGen<'a> {
             schedule: schedule,
             placer: Placer::new(),
             outs: outs,
-            node_times: df.node_map(),
+            node_times: node_times,
             regs: regs,
             pool: RegisterPool::new(dirty),
         }
@@ -140,8 +134,8 @@ impl<'a> CodeGen<'a> {
     }
 
     /** Record that we used `reg` at `time` (either reading or writing). */
-    fn use_reg(&mut self, reg: Register, time: usize) {
-        self.regs[reg].time = max(self.regs[reg].time, time);
+    fn use_reg(&mut self, reg: Register, time: Time) {
+        self.regs[reg].time.max_with(time);
     }
 
     /** Select a `Register` to spill and free it. */
@@ -165,7 +159,8 @@ impl<'a> CodeGen<'a> {
             // Spill the `Register`.
             let out_x = self.regs[reg_x].out.unwrap();
             let out_y = self.regs[reg_y].out.unwrap();
-            let mut time = max(self.outs[out_x].time, self.outs[out_y].time);
+            let mut time  = self.outs[out_x].time.expect("Not computed yet");
+            time.max_with(self.outs[out_y].time.expect("Not computed yet"));
             self.placer.add_item(Spill(out_x, out_y), SPILL_COST, &mut time);
             self.use_reg(reg_x, time);
             self.use_reg(reg_y, time);
@@ -175,7 +170,7 @@ impl<'a> CodeGen<'a> {
     /** Called for each [`Node`] in the [`Schedule`] in forwards order. */
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.schedule.dataflow;
-        let mut time = 0; // Earliest time (in cycles) when we can place `node`.
+        let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
         for &in_ in df.ins(node) {
             if self.schedule.first_use(in_).is_none() {
@@ -188,17 +183,17 @@ impl<'a> CodeGen<'a> {
         self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
         for &dep in df.deps(node) {
-            time = max(time, self.node_times[dep]);
+            time.max_with(self.node_times[dep].expect("Not executed yet"));
         }
         // Bump `time` until the operands are available.
         for (&in_, &latency) in df.ins(node).iter().zip(df.cost(node).input_latencies) {
-            time = max(time, self.outs[in_].time + latency as usize);
+            time.max_with(self.outs[in_].time.expect("Not computed yet") + latency as usize);
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
             let reg = self.pool.allocate();
             self.outs[out].reg = Some(reg);
-            time = max(time, self.regs[reg].time);
+            time.max_with(self.regs[reg].time);
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
@@ -208,7 +203,7 @@ impl<'a> CodeGen<'a> {
         }
         self.placer.add_item(Node(node), resources, &mut time);
         // Record the node's placement.
-        self.node_times[node] = time;
+        self.node_times[node] = Some(time);
         // Record when the inputs were used.
         for &in_ in df.ins(node) {
             if let Some(reg) = self.current_reg(in_) {
@@ -218,7 +213,7 @@ impl<'a> CodeGen<'a> {
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
             self.regs[self.outs[out].reg.unwrap()] = RegInfo {time: time, out: Some(out)};
-            self.outs[out].time = time + latency as usize;
+            self.outs[out].time = Some(time + latency as usize);
         }
     }
 

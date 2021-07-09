@@ -53,7 +53,7 @@ pub const CONDITIONAL_COST: Cost = Cost {
     resources: Resources::new(0x0200013),
 };
 
-/** The cost of a typical ALU operation such as `Constant`, `Add`. */
+/** The cost of a `Mul` operation. */
 pub const MUL_COST: Cost = Cost {
     input_latencies: &[0, 0],
     output_latencies: &[3],
