@@ -39,22 +39,42 @@ pub use schedule::{Schedule};
 mod moves;
 pub use moves::{moves};
 
+mod allocator;
+pub use allocator::{Instruction, Allocator};
+
 mod codegen;
-pub use codegen::{codegen};
+pub use codegen::{CodeGen};
 
 /** Optimizes a basic block. */
 pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
-    let mut simulation = Simulation::new(&before);
+    // Generate the [`Dataflow`] graph.
+    let mut simulation = Simulation::new(before);
     for action in actions {
         simulation.action(action);
     }
     let (dataflow, exit_node) = simulation.finish(&after);
+    // Make an initial [`Schedule`].
     let nodes: Vec<_> = dataflow.all_nodes().collect(); // TODO.
     assert_eq!(dataflow.entry_node(), nodes[0]);
     assert_eq!(exit_node, nodes[nodes.len()-1]);
     let nodes = &nodes[1..nodes.len()-1];
     let schedule = Schedule::new(&dataflow, nodes, exit_node);
-    codegen(num_globals, before, after, schedule, exit_node)
+    // Choose the execution order and allocate [`Register`]s.
+    let mut allocator = Allocator::new(before, schedule);
+    while let Some(node) = allocator.next() {
+        allocator.add_node(node);
+    }
+    let (instructions, allocation) = allocator.finish();
+    // Generate the [`Action`]s.
+    let mut codegen = CodeGen::new(num_globals, before, &dataflow, allocation);
+    for i in instructions {
+        match i {
+            Instruction::Absent => panic!("Absent instruction"),
+            Instruction::Spill(out1, out2) => codegen.add_spill(out1, out2),
+            Instruction::Node(n) => codegen.add_node(n),
+        }
+    }
+    codegen.finish(after, exit_node)
 }
 
 //-----------------------------------------------------------------------------
@@ -92,12 +112,12 @@ mod tests {
         };
         let emulator = Emulator::new(convention.live_values.clone());
         use Precision::*;
-        for action in &[
+        for action in [
             Action::Constant(P64, V0, 924573497),
             Action::Unary(UnaryOp::Not, P64, V0, V1.into()),
             Action::Binary(BinaryOp::Add, P64, V0, V0.into(), V1.into()),
         ] {
-            let actions = vec![*action];
+            let actions = vec![action];
             let expected = emulator.execute(&actions);
             let optimized = optimize(0, &convention, &convention, &actions);
             let observed_with_temporaries = emulator.execute(&optimized);

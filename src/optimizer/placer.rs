@@ -76,7 +76,7 @@ impl<T: Default> Cycle<T> {
 
 //-----------------------------------------------------------------------------
 
-/** Represents an allocation of instructions to clock cycles. */
+/** Represents an allocation of items to clock cycles. */
 #[derive(Debug)]
 pub struct Placer<T: Debug + Default> {
     /** The Cycles in which we're placing things. */
@@ -129,6 +129,7 @@ impl<T: Debug + Default> Placer<T> {
         c.num_items += 1;
     }
 
+    /** Yields all the items in the chosen order. */
     pub fn iter(&self) -> impl Iterator<Item=&T> {
         self.cycles.iter().flat_map(|c: &Cycle<T>| {
             c.items[0..c.num_items].iter()
