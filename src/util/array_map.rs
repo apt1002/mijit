@@ -20,11 +20,12 @@ pub struct ArrayMap<K: AsUsize, V>(
 );
 
 impl<K: AsUsize, V> ArrayMap<K, V> {
+    pub fn from_iter(iter: impl IntoIterator<Item=V>) -> Self {
+        ArrayMap(iter.into_iter().collect(), PhantomData)
+    }
+
     pub fn new_with(length: usize, f: impl Fn() -> V) -> Self {
-        ArrayMap(
-            (0..length).map(|_| f()).collect(),
-            PhantomData,
-        )
+        Self::from_iter((0..length).map(|_| f()))
     }
 
     pub fn new(length: usize) -> Self where V: Default {
@@ -58,6 +59,10 @@ impl<'a, K: AsUsize, V> IntoIterator for &'a mut ArrayMap<K, V> {
     type IntoIter = std::slice::IterMut<'a, V>;
 
     fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
+}
+
+impl<K: AsUsize, V> std::iter::FromIterator<V> for ArrayMap<K, V> {
+    fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self { Self::from_iter(iter) }
 }
 
 impl<K: AsUsize, V> AsRef<[V]> for ArrayMap<K, V> {
