@@ -1465,7 +1465,6 @@ pub mod tests {
         ]
     }
 
-/*
     #[test]
     pub fn halt() {
         let mut vm = VM::new(native(), MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
@@ -1474,7 +1473,6 @@ pub mod tests {
         assert_eq!(vm.registers().s0, vm.registers().sp);
         assert_eq!(vm.registers().r0, vm.registers().rp);
     }
-*/
 
     #[test]
     pub fn ackermann() {
