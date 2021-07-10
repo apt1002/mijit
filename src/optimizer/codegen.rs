@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use super::{Convention, NUM_REGISTERS, all_registers, Op, moves};
 use super::dataflow::{Dataflow, Node, Out};
-use super::code::{Register, REGISTERS, Slot, Value, Action};
+use super::code::{Register, Slot, Value, Action};
 use crate::util::{ArrayMap};
 
 /** The state of an algorithm that builds a list of [`Action`]s. */
@@ -90,20 +90,11 @@ impl<'a> CodeGen<'a> {
      * return the final list of Actions.
      */
     pub fn finish(mut self, after: &Convention, exit_node: Node) -> Box<[Action]> {
-        println!("dataflow = {:#?}", self.dataflow);
-        println!("allocation = {:#?}", self.allocation);
-        println!("spills = {:#?}", self.spills);
-        println!("regs = {:#?}", self.regs);
-        println!("actions = {:#?}", self.actions);
         // Work out which live values need to be moved where.
-        let mut is_used = ArrayMap::new(NUM_REGISTERS);
         let mut dest_to_src: HashMap<Value, Value> =
-            self.dataflow.ins(exit_node).iter().zip(&after.live_values).map(|(&out, &dest)| {
-                let src = self.read(out);
-                if let Value::Register(r) = dest { is_used[r] = true; }
-                if let Value::Register(r) = src { is_used[r] = true; }
-                (dest, src)
-            }).collect();
+            self.dataflow.ins(exit_node).iter().zip(&after.live_values)
+                .map(|(&out, &dest)| (dest, self.read(out)))
+                .collect();
         // Create spill slots if necessary to match `after`.
         while self.slots_used < after.slots_used {
             let src1 = dest_to_src.remove(&Slot(self.slots_used + 1).into());
@@ -111,33 +102,34 @@ impl<'a> CodeGen<'a> {
             self.actions.push(Action::Push(src1, src2));
             self.slots_used += 2;
         }
+        // We need a temporary `Register`: the least used in `dest_to_src`.
+        let mut uses: ArrayMap<Register, usize> = ArrayMap::new(NUM_REGISTERS);
+        for (&dest, &src) in &dest_to_src {
+                if let Value::Register(r) = dest { uses[r] |= 1; }
+                if let Value::Register(r) = src { uses[r] += 2; }
+        }
+        let temp = all_registers().min_by_key(|&r| uses[r]).unwrap();
+        // If `temp` is used, spill it and replace all mentions of it.
+        let temp_replacement = Value::from(Slot(self.slots_used));
+        if uses[temp] == 1 {
+            // `temp` is a destination only.
+            self.actions.push(Action::Push(None, None));
+            self.slots_used += 2;
+        } else if uses[temp] >= 2 {
+            // `temp` is used as a source.
+            self.actions.push(Action::Push(None, Some(temp.into())));
+            self.slots_used += 2;
+        }
         // Move all live values into the expected `Value`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
-        // We need a temporary `Register` that is not live.
-        // If one is available, use it.
-        // Otherwise, spill an arbitrary `Register` and use it.
-        let spill_reg = REGISTERS[0]; // TODO: Pick more carefully.
-        #[allow(clippy::option_if_let_else)]
-        let (temp_value, temp_replacement) =
-            if let Some(r) = all_registers().find(|&r| !is_used[r]) {
-                // We found an unused `Register`.
-                (r.into(), r.into())
-            } else {
-                // Spill `spill_reg` and use it.
-                let spill_slot = Slot(self.slots_used);
-                self.actions.push(Action::Push(None, Some(spill_reg.into())));
-                self.slots_used += 2;
-                (spill_reg.into(), spill_slot.into())
-            };
-        let is_temp_a_dest = dest_to_src.contains_key(&temp_value);
-        self.actions.extend(moves(dest_to_src, &temp_value).map(|(mut dest, mut src)| {
-            if src == temp_value { src = temp_replacement; }
-            if dest == temp_value { dest = temp_replacement; }
+        self.actions.extend(moves(dest_to_src, &temp.into()).map(|(mut dest, mut src)| {
+            if src == temp.into() { src = temp_replacement; }
+            if dest == temp.into() { dest = temp_replacement; }
             Action::Move(dest, src)
         }));
-        if is_temp_a_dest {
-            self.actions.push(Action::Pop(None, Some(spill_reg)));
-            self.slots_used -= 2;
+        if uses[temp] & 1 != 0 {
+            // `temp` is a destination.
+            self.actions.push(Action::Move(temp.into(), temp_replacement));
         }
         // Drop now-unused slots.
         let num_drops = self.slots_used.checked_sub(after.slots_used).unwrap();
