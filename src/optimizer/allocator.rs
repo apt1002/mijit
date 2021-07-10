@@ -149,7 +149,7 @@ impl<'a> Allocator<'a> {
             // Spill the `Register`.
             let out_x = self.regs[reg_x].out.unwrap();
             let out_y = self.regs[reg_y].out.unwrap();
-            let mut time  = self.outs[out_x].time.expect("Not computed yet");
+            let mut time = self.outs[out_x].time.expect("Not computed yet");
             time.max_with(self.outs[out_y].time.expect("Not computed yet"));
             self.placer.add_item(Spill(out_x, out_y), SPILL_COST, &mut time);
             self.use_reg(reg_x, time);

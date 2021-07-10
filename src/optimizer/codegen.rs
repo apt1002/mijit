@@ -105,8 +105,8 @@ impl<'a> CodeGen<'a> {
         // We need a temporary `Register`: the least used in `dest_to_src`.
         let mut uses: ArrayMap<Register, usize> = ArrayMap::new(NUM_REGISTERS);
         for (&dest, &src) in &dest_to_src {
-                if let Variable::Register(r) = dest { uses[r] |= 1; }
-                if let Variable::Register(r) = src { uses[r] += 2; }
+            if let Variable::Register(r) = dest { uses[r] |= 1; }
+            if let Variable::Register(r) = src { uses[r] += 2; }
         }
         let temp = all_registers().min_by_key(|&r| uses[r]).unwrap();
         // If `temp` is used, spill it and replace all mentions of it.
