@@ -2,14 +2,14 @@ use super::{buffer, code, Patch, Label, Counter, Pool, STATE_INDEX, Lower, Execu
 use buffer::{Mmap};
 
 mod immediate;
-pub use immediate::{Shift, Unsigned};
+pub use immediate::{Shift, Unsigned, LogicImmediate};
 
 mod enums;
 pub use enums::{Register, RSP, Condition, ALL_CONDITIONS, MemOp, ShiftOp, AddOp, LogicOp};
 use Register::*;
 
 mod assembler;
-pub use assembler::{Assembler, logic_immediate};
+pub use assembler::{Assembler};
 
 mod lowerer;
 pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};

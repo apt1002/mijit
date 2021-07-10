@@ -1,9 +1,7 @@
-use super::{buffer, code, Patch, Shift, Unsigned, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
+use super::{buffer, code, Patch, Shift, Unsigned, LogicImmediate, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
 use buffer::{Buffer};
 use code::{Precision, Width};
-use crate::util::{rotate_left};
 
-use Precision::*;
 use Register::*;
 
 //-----------------------------------------------------------------------------
@@ -52,58 +50,6 @@ pub fn jump_offset(from: usize, to: Option<usize>, bits: usize) -> Option<u32> {
             Some(1 << (bits - 1))
         },
     }
-}
-
-/**
- * Returns a bitmask representing `x` as a "logic immediate". The [encoding]
- * is quite esoteric. Here we use the ARM's terminology; see `DecodeBitMasks()`
- * in the [ARMv8 Architecture Reference Manual] (on page 7954).
- *
- * [encoding]: https://dinfuehr.github.io/blog/encoding-of-immediate-values-on-aarch64/
- * [ARMv8 Architecture Reference Manual]: https://documentation-service.arm.com/static/60119835773bb020e3de6fee
- */
-#[allow(clippy::many_single_char_names)]
-pub fn logic_immediate(prec: Precision, mut x: u64) -> Option<u32> {
-    if prec == P32 {
-        if (x >> 32) != 0 {
-            panic!("High bits set in 32-bit immediate");
-        }
-        x |= x << 32;
-    }
-    // `0` and `-1` are not encodable.
-    if x == 0 || x == !0 {
-        return None;
-    }
-    // Count the first four runs of binary digits.
-    let num_zeros = x.leading_zeros();
-    x = rotate_left(x, num_zeros);
-    let num_ones = (!x).leading_zeros();
-    x = rotate_left(x, num_ones);
-    let mut y = x;
-    let num_zeros2 = y.leading_zeros();
-    y = rotate_left(y, num_zeros2);
-    let num_ones2 = (!y).leading_zeros();
-    y = rotate_left(y, num_ones2);
-    // `num_zeros2 + num_ones2` should be a whole repeating unit.
-    if x != y {
-        return None;
-    }
-    // The repeat length should be a power of two and not `1`.
-    let esize = num_zeros2 + num_ones2;
-    if !esize.is_power_of_two() || esize < 2 {
-        return None;
-    }
-    // `num_zeros + num_ones` undid `ROR(welem, r)`.
-    let r = num_zeros + num_ones;
-    assert!(r <= esize);
-    // `num_ones2` undid `Ones(s + 1)`.
-    let s = num_ones2 - 1;
-    assert!(s < esize);
-    // Encode.
-    let imms = (128 - 2 * esize + s) & 0x3F;
-    let immr = r & (esize - 1);
-    let n = (esize == 64) as u32;
-    Some((n << 12) | (immr << 6) | imms)
 }
 
 //-----------------------------------------------------------------------------
@@ -364,16 +310,13 @@ impl<B: Buffer> Assembler<B> {
      * Assembles an instruction that does `dest <- src <op> constant`. `dest`
      * can be `RSP` but not `RZR`, except if `op` is `ANDS`, in which case it
      * can be `RZR` but not `RSP`. `src` can be `RZR` but not `RSP`.
-     *  - prec - `P32` to zero-extend the result from 32 bits.
-     *  - constant - A 12-bit unsigned integer, or the negative of one. This
-     *    method will panic if the constant is not encodable.
+     * The [`Precision`] is taken from `constant`.
      */
-    pub fn const_logic(&mut self, op: LogicOp, prec: Precision, dest: Register, src: Register, constant: u64) {
+    pub fn const_logic(&mut self, op: LogicOp, dest: Register, src: Register, constant: LogicImmediate) {
         let mut opcode = 0x12000000;
-        let imm = logic_immediate(prec, constant).expect("Invalid logic immediate");
-        opcode |= imm << 10;
+        opcode |= constant.encoding() << 10;
         opcode |= (op as u32) << 29;
-        opcode |= (prec as u32) << 31;
+        opcode |= (constant.prec() as u32) << 31;
         self.write_dn(opcode, dest, src);
     }
 
@@ -506,6 +449,7 @@ pub mod tests {
 
     use super::super::{ALL_CONDITIONS};
     use super::*;
+    use Precision::*;
     use MemOp::*;
     use Width::*;
 
@@ -679,59 +623,13 @@ pub mod tests {
     }
 
     #[test]
-    fn logic_immediate() {
-        // Exhaustively enumerate all encodable immediates.
-        for prec in [P32, P64] {
-            for (size, imms_size_bits, imms_length_mask) in [
-                ( 2, 0b111100, 0b000001),
-                ( 4, 0b111000, 0b000011),
-                ( 8, 0b110000, 0b000111),
-                (16, 0b100000, 0b001111),
-                (32, 0b000000, 0b011111),
-                (64, 0b000000, 0b111111),
-            ] {
-                if size == 64 && prec == P32 {
-                    // There are no 32-bit constants with a size of 64.
-                    continue;
-                }
-                for length in 0..imms_length_mask {
-                    let pattern = (0..64).step_by(size as usize).fold(
-                        (1 << (length + 1)) - 1,
-                        |acc, shift| acc | (acc << shift));
-                    for rotation in 0..size {
-                        let mut val = crate::util::rotate_right(pattern, rotation);
-                        if prec == P32 { val >>= 32 };
-                        let n = (size == 64) as u32;
-                        let immr = rotation;
-                        let imms = imms_size_bits | length;
-                        let encoding = (n << 12) | (immr << 6) | imms;
-                        assert_eq!(
-                            super::logic_immediate(prec, val),
-                            Some(encoding),
-                        );
-                    }
-                }
-            }
-        }
-        // Check some notable non-encodable immediates.
-        assert_eq!(super::logic_immediate(P32, 0x00000000), None);
-        assert_eq!(super::logic_immediate(P32, 0xFFFFFFFF), None);
-        assert_eq!(super::logic_immediate(P32, 0x5A5A5A5A), None);
-        assert_eq!(super::logic_immediate(P32, 0x00000005), None);
-        assert_eq!(super::logic_immediate(P64, 0x0000000000000000), None);
-        assert_eq!(super::logic_immediate(P64, 0xFFFFFFFFFFFFFFFF), None);
-        assert_eq!(super::logic_immediate(P64, 0x5A5A5A5A5A5A5A5A), None);
-        assert_eq!(super::logic_immediate(P64, 0x0000000000000005), None);
-    }
-
-    #[test]
     fn logic() {
         use LogicOp::*;
         let mut a = Assembler::<Vec<u8>>::new();
         for (prec, value) in [(P32, 0x33333333), (P64, 0x3333333333333333)] {
             for op in [AND, ORR, EOR, ANDS] {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
-                    a.const_logic(op, prec, rd, rn, value);
+                    a.const_logic(op, rd, rn, LogicImmediate::new(prec, value).unwrap());
                     for rm in [R1, RZR] {
                         a.shift_logic(op, false, rd, rn, rm, Shift::new(prec, 21).unwrap());
                         a.shift_logic(op, true, rd, rn, rm, Shift::new(prec, 11).unwrap());

@@ -2,7 +2,7 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Pool, STATE_INDEX,
-    Unsigned, Shift,
+    Unsigned, Shift, LogicImmediate,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
 };
@@ -178,6 +178,16 @@ impl<B: Buffer> Lowerer<B> {
     /** Assemble `op` with no shift. */
     fn logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
         self.a.shift_logic(op, not, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
+    }
+
+    /** Apply `op` to `src` and `constant`. */
+    fn const_logic(&mut self, op: LogicOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: u64, temp: Register) {
+        if let Ok(imm) = LogicImmediate::new(prec, constant) {
+            self.a.const_logic(op, dest.into(), src.into(), imm);
+        } else {
+            self.a.const_(temp, constant);
+            self.logic(op, prec, false, dest, src, temp);
+        }
     }
 
     /** Move `src` to `dest` if they are different. */
@@ -393,8 +403,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         match test_op {
             TestOp::Bits(discriminant, mask, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_(TEMP1, i64::from(mask) as u64);
-                self.logic(AND, prec, false, TEMP0, discriminant, TEMP1);
+                self.const_logic(AND, prec, TEMP0, discriminant, mask as u64, TEMP0);
                 self.const_cmp(prec, TEMP0, i64::from(value), TEMP1);
                 self.jump_if(Condition::EQ, skip);
                 self.const_jump(false_label);
