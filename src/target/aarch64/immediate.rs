@@ -21,3 +21,19 @@ impl Shift {
     pub const fn amount(self) -> u32 { self.amount }
 }
 
+// ----------------------------------------------------------------------------
+
+/** Represents an unsigned `N`-bit integer. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Unsigned<const N: usize>(u32);
+
+impl<const N: usize> Unsigned<N> {
+    pub fn new(value: u64) -> Result<Self, ()> {
+        let _ = 32 - N; // Static assertion: N <= 32.
+        let limit = 1 << N;
+        if value >= limit { return Err(()); }
+        Ok(Self(value as u32))
+    }
+
+    pub fn as_u32(self) -> u32 { self.0 }
+}

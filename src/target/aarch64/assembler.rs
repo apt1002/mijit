@@ -1,4 +1,4 @@
-use super::{buffer, code, Patch, Shift, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
+use super::{buffer, code, Patch, Shift, Unsigned, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
 use buffer::{Buffer};
 use code::{Precision, Width};
 use crate::util::{rotate_left};
@@ -339,10 +339,9 @@ impl<B: Buffer> Assembler<B> {
      *  - constant - A 12-bit unsigned integer. This method will panic if the
      *    constant is not encodable.
      */
-    pub fn const_add(&mut self, op: AddOp, prec: Precision, dest: Register, src: Register, constant: u64) {
+    pub fn const_add(&mut self, op: AddOp, prec: Precision, dest: Register, src: Register, constant: Unsigned<12>) {
         let mut opcode = 0x11000000;
-        let imm = unsigned(constant as u64, 12).expect("Cannot add so much");
-        opcode |= imm << 10;
+        opcode |= constant.as_u32() << 10;
         opcode |= (op as u32) << 29;
         opcode |= (prec as u32) << 31;
         self.write_dn(opcode, dest, src);
@@ -651,7 +650,7 @@ pub mod tests {
         for prec in [P32, P64] {
             for op in [ADD, ADDS, SUB, SUBS] {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
-                    a.const_add(op, prec, rd, rn, 4095);
+                    a.const_add(op, prec, rd, rn, Unsigned::new(4095).unwrap());
                     for rm in [R1, RZR] {
                         a.shift_add(op, rd, rn, rm, Shift::new(prec, 21).unwrap());
                     }

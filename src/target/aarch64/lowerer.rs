@@ -2,7 +2,7 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Pool, STATE_INDEX,
-    Shift,
+    Unsigned, Shift,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
 };
@@ -139,7 +139,7 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /** Unconditional call to a constant. */
-        #[allow(dead_code)]
+    #[allow(dead_code)]
     fn const_call(&mut self, target: &mut Label) {
         let patch = self.a.const_call(target.target());
         target.push(patch);
@@ -148,6 +148,18 @@ impl<B: Buffer> Lowerer<B> {
     /** Assemble `op` with no shift. */
     fn add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
         self.a.shift_add(op, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
+    }
+
+    /** Apply `op` to `src` and `constant`. */
+    fn const_add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: i64, temp: Register) {
+        if let Ok(x) = Unsigned::new(constant as u64) {
+            self.a.const_add(op, prec, dest.into(), src.into(), x);
+        } else if let Ok(x) = Unsigned::new(-constant as u64) {
+            self.a.const_add(op.negate(), prec, dest.into(), src.into(), x);
+        } else {
+            self.const_(temp, constant as u64);
+            self.add(op, prec, dest, src, temp);
+        }
     }
 
     /** Compare `src1` to `src2` and set condition flags. */
@@ -160,16 +172,7 @@ impl<B: Buffer> Lowerer<B> {
      * `temp` is corrupted.
      */
     fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: i64, temp: Register) {
-        if constant.abs() < 0x1000 {
-            if constant >= 0 {
-                self.a.const_add(SUBS, prec, RZR, src.into(), constant as u64);
-            } else {
-                self.a.const_add(ADDS, prec, RZR, src.into(), -constant as u64);
-            }
-        } else {
-            self.const_(temp, constant as u64);
-            self.cmp(prec, src, temp);
-        }
+        self.const_add(SUBS, prec, RZR, src, constant, temp);
     }
 
     /** Assemble `op` with no shift. */
@@ -361,7 +364,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn prologue(&mut self) {
         self.a.push(RFP, RLR);
-        self.a.const_add(ADD, P64, RFP, RSP, 0);
+        self.a.const_add(ADD, P64, RFP, RSP, Unsigned::new(0).unwrap());
         for rs in CALLEE_SAVES.chunks(2).rev() {
             self.a.push(rs[0], rs[1]);
         }
@@ -493,7 +496,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Pop(dest1, dest2) => {
                 assert!(*self.slots_used() >= 2);
                 if dest1.is_none() && dest2.is_none() {
-                    self.a.const_add(ADD, P64, RSP, RSP, 16);
+                    self.a.const_add(ADD, P64, RSP, RSP, Unsigned::new(16).unwrap());
                 } else {
                     let dest1 = dest1.map_or(RZR, Register::from);
                     let dest2 = dest2.map_or(RZR, Register::from);
@@ -503,7 +506,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             },
             Action::DropMany(n) => {
                 assert!(*self.slots_used() >= 2 * n);
-                self.a.const_add(ADD, P64, RSP, RSP, (n * 16) as u64);
+                self.a.const_add(ADD, P64, RSP, RSP, Unsigned::new(n as u64 * 16).expect("Dropped too many"));
                 *self.slots_used() -= 2 * n;
             },
             Action::Debug(x) => {
@@ -523,7 +526,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn count(&mut self, counter: Counter) {
         self.mem(LDR, TEMP0, self.counter_address(counter), TEMP1);
-        self.a.const_add(ADD, P64, TEMP0, TEMP0, 1);
+        self.a.const_add(ADD, P64, TEMP0, TEMP0, Unsigned::new(1_u64).unwrap());
         self.mem(STR, TEMP0, self.counter_address(counter), TEMP1);
     }
 }

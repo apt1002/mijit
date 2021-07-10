@@ -42,16 +42,17 @@ pub enum Condition {
     GT = 0xC, LE = 0xD,
 }
 
-impl Condition {
-    pub fn invert(self) -> Self {
-        ALL_CONDITIONS[(self as usize) ^ 1]
-    }
-}
-
 use Condition::*;
 
 /** All `Condition`s. */
 pub const ALL_CONDITIONS: [Condition; 14] = [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE];
+
+impl Condition {
+    /** Changes `EQ` into `NE` and vice versa, and so on. */
+    pub fn invert(self) -> Self {
+        ALL_CONDITIONS[(self as usize) ^ 1]
+    }
+}
 
 //-----------------------------------------------------------------------------
 
@@ -104,6 +105,19 @@ pub enum AddOp {
     SUBS = 3,
 }
 
+use AddOp::*;
+
+/** All `Condition`s. */
+pub const ALL_ADD_OPS: [AddOp; 4] = [ADD, ADDS, SUB, SUBS];
+
+impl AddOp {
+    /** Changes `ADD` into `SUB` and vice versa, and so on. */
+    pub fn negate(self) -> Self {
+        ALL_ADD_OPS[(self as usize) ^ 2]
+    }
+}
+
+
 //-----------------------------------------------------------------------------
 
 /** All logic operations. */
@@ -151,5 +165,14 @@ mod tests {
         assert_eq!(LT.invert(), GE);
         assert_eq!(GT.invert(), LE);
         assert_eq!(LE.invert(), GT);
+    }
+
+    #[test]
+    fn negate() {
+        use AddOp::*;
+        assert_eq!(ADD.negate(), SUB);
+        assert_eq!(ADDS.negate(), SUBS);
+        assert_eq!(SUB.negate(), ADD);
+        assert_eq!(SUBS.negate(), ADDS);
     }
 }
