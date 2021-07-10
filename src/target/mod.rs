@@ -203,14 +203,14 @@ mod tests {
 
     #[test]
     fn move_() {
-        for value in [R0.into(), Slot(0).into(), Global(0).into()] {
+        for variable in [R0.into(), Slot(0).into(), Global(0).into()] {
             test_unary(
                 |lo| {
                     lo.action(Push(None, None));
                     lo.action(Constant(P64, R0, 42));
                     lo.action(Move(Slot(0).into(), R0.into()));
-                    lo.action(Move(value, Global(0).into()));
-                    lo.action(Move(R0.into(), value));
+                    lo.action(Move(variable, Global(0).into()));
+                    lo.action(Move(R0.into(), variable));
                     lo.action(Pop(None, None));
                 },
                 |x| x,
@@ -308,58 +308,76 @@ mod tests {
         );
     }
 
+    /**
+     * Representative shift amounts.
+     * Shifts < 0 or >= word size are undefined.
+     */
+    const SHIFTS: [usize; 5] = [0, 1, 21, 31, 63];
+
     #[test]
     fn lsl() {
-        test_unary(
-            |lo| {
-                lo.action(Constant(P64, R0, 21));
-                lo.action(Binary(Lsl, P32, R0, Global(0).into(), R0.into()));
-            },
-            |x| ((x as u32) << 21) as u64,
-        );
-        test_unary(
-            |lo| {
-                lo.action(Constant(P64, R0, 21));
-                lo.action(Binary(Lsl, P64, R0, Global(0).into(), R0.into()));
-            },
-            |x| x << 21,
-        );
+        for shift in SHIFTS {
+            if shift < 32 {
+                test_unary(
+                    |lo| {
+                        lo.action(Constant(P64, R0, shift as i64));
+                        lo.action(Binary(Lsl, P32, R0, Global(0).into(), R0.into()));
+                    },
+                    |x| ((x as u32) << shift) as u64,
+                );
+            }
+            test_unary(
+                |lo| {
+                    lo.action(Constant(P64, R0, shift as i64));
+                    lo.action(Binary(Lsl, P64, R0, Global(0).into(), R0.into()));
+                },
+                |x| x << shift,
+            );
+        }
     }
 
     #[test]
     fn lsr() {
-        test_unary(
-            |lo| {
-                lo.action(Constant(P64, R0, 21));
-                lo.action(Binary(Lsr, P32, R0, Global(0).into(), R0.into()));
-            },
-            |x| ((x as u32) >> 21) as u64,
-        );
-        test_unary(
-            |lo| {
-                lo.action(Constant(P64, R0, 21));
-                lo.action(Binary(Lsr, P64, R0, Global(0).into(), R0.into()));
-            },
-            |x| x >> 21,
-        );
+        for shift in SHIFTS {
+            if shift < 32 {
+                test_unary(
+                    |lo| {
+                        lo.action(Constant(P64, R0, shift as i64));
+                        lo.action(Binary(Lsr, P32, R0, Global(0).into(), R0.into()));
+                    },
+                    |x| ((x as u32) >> shift) as u64,
+                );
+            }
+            test_unary(
+                |lo| {
+                    lo.action(Constant(P64, R0, shift as i64));
+                    lo.action(Binary(Lsr, P64, R0, Global(0).into(), R0.into()));
+                },
+                |x| x >> shift,
+            );
+        }
     }
 
     #[test]
     fn asr() {
-        test_unary(
-            |lo| {
-                lo.action(Constant(P64, R0, 21));
-                lo.action(Binary(Asr, P32, R0, Global(0).into(), R0.into()));
-            },
-            |x| ((x as i32) >> 21) as u32 as u64,
-        );
-        test_unary(
-            |lo| {
-                lo.action(Constant(P64, R0, 21));
-                lo.action(Binary(Asr, P64, R0, Global(0).into(), R0.into()));
-            },
-            |x| ((x as i64) >> 21) as u64,
-        );
+        for shift in SHIFTS {
+            if shift < 32 {
+                test_unary(
+                    |lo| {
+                        lo.action(Constant(P64, R0, shift as i64));
+                        lo.action(Binary(Asr, P32, R0, Global(0).into(), R0.into()));
+                    },
+                    |x| ((x as i32) >> shift) as u32 as u64,
+                );
+            }
+            test_unary(
+                |lo| {
+                    lo.action(Constant(P64, R0, shift as i64));
+                    lo.action(Binary(Asr, P64, R0, Global(0).into(), R0.into()));
+                },
+                |x| ((x as i64) >> shift) as u64,
+            );
+        }
     }
 
     #[test]
