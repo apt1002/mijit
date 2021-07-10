@@ -4,7 +4,7 @@ use super::{Convention, NUM_REGISTERS, all_registers, Schedule, RegisterPool};
 use super::dataflow::{Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::placer::{Time, LEAST as EARLY, Placer};
-use super::code::{Register, Value};
+use super::code::{Register, Variable};
 use crate::util::{ArrayMap, map_filter_max};
 
 //-----------------------------------------------------------------------------
@@ -99,7 +99,7 @@ impl<'a> Allocator<'a> {
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
             if schedule.first_use(out).is_some() {
-                if let Value::Register(reg) = value {
+                if let Variable::Register(reg) = value {
                     dirty[reg] = true;
                     regs[reg].out = Some(out);
                     outs[out].reg = Some(reg);

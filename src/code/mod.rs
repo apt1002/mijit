@@ -7,10 +7,10 @@
  * branch-free. More complex control flow can be achieved by driving the finite
  * state machine using values loaded from memory.
  *
- * A virtual machine's storage consists of a number of `Value`s, some of which
- * are global, meaning that their values are preserved when a trap occurs. More
- * complex data structures can be achieved by loading and storing values in
- * memory.
+ * A virtual machine's storage consists of a number of `Variable`s, some of
+ * which are global, meaning that their values are preserved when a trap
+ * occurs. More complex data structures can be achieved by loading and storing
+ * values in memory.
  *
  * Arithmetic operations are 32-bit or 64-bit. 32-bit operations set the upper
  * 32 bits of the destination register to zero.
@@ -76,34 +76,6 @@ pub const REGISTERS: [Register; 12] = unsafe {[
     Register::new_unchecked(10), Register::new_unchecked(11),
 ]};
 
-const fn make_reg(r: usize) -> Value { Value::Register(REGISTERS[r]) }
-const fn make_slot(s: usize) -> Value { Value::Slot(Slot(s)) }
-
-/**
- * [`Value`]s that are likely to be efficient to access on all [`Target`]s.
- * The first 12 are guaranteed to match `REGISTERS`.
- *
- * [`Target`]: super::target::Target
- */
-pub const FAST_VALUES: [Value; 64] = [
-    make_reg(0), make_reg(1), make_reg(2), make_reg(3),
-    make_reg(4), make_reg(5), make_reg(6), make_reg(7),
-    make_reg(8), make_reg(9), make_reg(10), make_reg(11),
-    make_slot(0), make_slot(1), make_slot(2), make_slot(3),
-    make_slot(4), make_slot(5), make_slot(6), make_slot(7),
-    make_slot(8), make_slot(9), make_slot(10), make_slot(11),
-    make_slot(12), make_slot(13), make_slot(14), make_slot(15),
-    make_slot(16), make_slot(17), make_slot(18), make_slot(19),
-    make_slot(20), make_slot(21), make_slot(22), make_slot(23),
-    make_slot(24), make_slot(25), make_slot(26), make_slot(27),
-    make_slot(28), make_slot(29), make_slot(30), make_slot(31),
-    make_slot(32), make_slot(33), make_slot(34), make_slot(35),
-    make_slot(36), make_slot(37), make_slot(38), make_slot(39),
-    make_slot(40), make_slot(41), make_slot(42), make_slot(43),
-    make_slot(44), make_slot(45), make_slot(46), make_slot(47),
-    make_slot(48), make_slot(49), make_slot(50), make_slot(51),
-];
-
 /** Names a value that persists when Mijit is not running. */
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Global(pub usize);
@@ -127,68 +99,96 @@ impl Debug for Slot {
 /** A spill slot or register. */
 // TODO: Reorder cases for consistency: Register, Global, Slot.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum Value {
+pub enum Variable {
     Global(Global),
     Slot(Slot),
     Register(Register),
 }
 
-impl Debug for Value {
+impl Debug for Variable {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str(&match self {
-            Value::Global(g) => format!("{:#?}", g),
-            Value::Slot(s) => format!("{:#?}", s),
-            Value::Register(r) => format!("{:#?}", r),
+            Variable::Global(g) => format!("{:#?}", g),
+            Variable::Slot(s) => format!("{:#?}", s),
+            Variable::Register(r) => format!("{:#?}", r),
         })
     }
 }
 
-impl From<Global> for Value {
+impl From<Global> for Variable {
     fn from(v: Global) -> Self {
-        Value::Global(v)
+        Variable::Global(v)
     }
 }
 
-impl From<Slot> for Value {
+impl From<Slot> for Variable {
     fn from(v: Slot) -> Self {
-        Value::Slot(v)
+        Variable::Slot(v)
     }
 }
 
-impl From<Register> for Value {
+impl From<Register> for Variable {
     fn from(v: Register) -> Self {
-        Value::Register(v)
+        Variable::Register(v)
     }
 }
 
-impl TryFrom<Value> for Global {
-    type Error = Value;
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        if let Value::Global(g) = v { Ok(g) } else { Err(v) }
+impl TryFrom<Variable> for Global {
+    type Error = Variable;
+    fn try_from(v: Variable) -> Result<Self, Self::Error> {
+        if let Variable::Global(g) = v { Ok(g) } else { Err(v) }
     }
 }
 
-impl TryFrom<Value> for Slot {
-    type Error = Value;
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        if let Value::Slot(s) = v { Ok(s) } else { Err(v) }
+impl TryFrom<Variable> for Slot {
+    type Error = Variable;
+    fn try_from(v: Variable) -> Result<Self, Self::Error> {
+        if let Variable::Slot(s) = v { Ok(s) } else { Err(v) }
     }
 }
 
-impl TryFrom<Value> for Register {
-    type Error = Value;
-    fn try_from(v: Value) -> Result<Self, Self::Error> {
-        if let Value::Register(r) = v { Ok(r) } else { Err(v) }
+impl TryFrom<Variable> for Register {
+    type Error = Variable;
+    fn try_from(v: Variable) -> Result<Self, Self::Error> {
+        if let Variable::Register(r) = v { Ok(r) } else { Err(v) }
     }
 }
 
 /**
- * `impl IntoValue` is useful as the type of function arguments. It accepts
- * both Registers and Values.
+ * `impl IntoVariable` is useful as the type of function arguments. It accepts
+ * both [`Register`]s and [`Variable`]s.
  */
-pub trait IntoValue: Copy + Into<Value> {}
+pub trait IntoVariable: Copy + Into<Variable> {}
 
-impl<T: Copy + Into<Value>> IntoValue for T {}
+impl<T: Copy + Into<Variable>> IntoVariable for T {}
+
+const fn make_reg(r: usize) -> Variable { Variable::Register(REGISTERS[r]) }
+const fn make_slot(s: usize) -> Variable { Variable::Slot(Slot(s)) }
+
+/**
+ * [`Variable`]s that are likely to be efficient to access on all [`Target`]s.
+ * The first 12 are guaranteed to match `REGISTERS`.
+ *
+ * [`Target`]: super::target::Target
+ */
+pub const FAST_VALUES: [Variable; 64] = [
+    make_reg(0), make_reg(1), make_reg(2), make_reg(3),
+    make_reg(4), make_reg(5), make_reg(6), make_reg(7),
+    make_reg(8), make_reg(9), make_reg(10), make_reg(11),
+    make_slot(0), make_slot(1), make_slot(2), make_slot(3),
+    make_slot(4), make_slot(5), make_slot(6), make_slot(7),
+    make_slot(8), make_slot(9), make_slot(10), make_slot(11),
+    make_slot(12), make_slot(13), make_slot(14), make_slot(15),
+    make_slot(16), make_slot(17), make_slot(18), make_slot(19),
+    make_slot(20), make_slot(21), make_slot(22), make_slot(23),
+    make_slot(24), make_slot(25), make_slot(26), make_slot(27),
+    make_slot(28), make_slot(29), make_slot(30), make_slot(31),
+    make_slot(32), make_slot(33), make_slot(34), make_slot(35),
+    make_slot(36), make_slot(37), make_slot(38), make_slot(39),
+    make_slot(40), make_slot(41), make_slot(42), make_slot(43),
+    make_slot(44), make_slot(45), make_slot(46), make_slot(47),
+    make_slot(48), make_slot(49), make_slot(50), make_slot(51),
+];
 
 //-----------------------------------------------------------------------------
 
@@ -196,13 +196,13 @@ impl<T: Copy + Into<Value>> IntoValue for T {}
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {
     // TODO: These constants should probably be 64-bit.
-    Bits(Value, i32, i32),
-    Lt(Value, i32),
-    Ge(Value, i32),
-    Ult(Value, i32),
-    Uge(Value, i32),
-    Eq(Value, i32),
-    Ne(Value, i32),
+    Bits(Variable, i32, i32),
+    Lt(Variable, i32),
+    Ge(Variable, i32),
+    Ult(Variable, i32),
+    Uge(Variable, i32),
+    Eq(Variable, i32),
+    Ne(Variable, i32),
     Always,
 }
 
@@ -314,28 +314,28 @@ pub extern fn debug_word(x: u64) {
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
     /// dest <- src
-    Move(Value, Value),
+    Move(Variable, Variable),
     /// dest <- constant
     Constant(Precision, Register, i64),
     /// dest <- op(src)
-    Unary(UnaryOp, Precision, Register, Value),
+    Unary(UnaryOp, Precision, Register, Variable),
     /// dest <- op(src1, src2)
-    Binary(BinaryOp, Precision, Register, Value, Value),
+    Binary(BinaryOp, Precision, Register, Variable, Variable),
     /// dest <- \[addr]
-    Load(Register, (Value, Width), AliasMask),
+    Load(Register, (Variable, Width), AliasMask),
     /// dest <- addr; \[addr] <- \[src]
     /// `dest` exists to make the optimizer allocate a temporary register.
-    Store(Register, Value, (Value, Width), AliasMask),
+    Store(Register, Variable, (Variable, Width), AliasMask),
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
     /// If either `src` is `None`, push a dead value.
-    Push(Option<Value>, Option<Value>),
+    Push(Option<Variable>, Option<Variable>),
     /// dest1 <- \[sp]; dest2 <- \[sp + 8]; sp <- sp + 16
     /// If either `dest` is `None`, pop a dead value.
     Pop(Option<Register>, Option<Register>),
     /// sp <- sp + 16*n
     DropMany(usize),
     /// Pass `src` to [`debug_word()`].
-    Debug(Value),
+    Debug(Variable),
 }
 
 pub struct Case<S> {
@@ -364,7 +364,7 @@ pub trait Machine: Debug {
     fn num_slots(&self) -> usize;
 
     /**
-     * Returns a bitmask indicating which [`Value`]s are live in `state`.
+     * Returns a bitmask indicating which [`Variable`]s are live in `state`.
      *
      * The bits correspond to members of [`FAST_VALUES`].
      */
@@ -373,7 +373,7 @@ pub trait Machine: Debug {
     /**
      * Returns code to marshal data from the [`Global`]s to the live values.
      * It is not passed anything on entry. On exit it must have initialised
-     * all Values that are live in any [`State`].
+     * all [`Variable`]s that are live in any [`State`].
      */
     fn prologue(&self) -> Vec<Action>;
 
@@ -381,9 +381,9 @@ pub trait Machine: Debug {
      * Returns code to marshal data from the live values back to the
      * [`Global`]s.
      *
-     * On entry, it gets all [`Value`]s that are live in any [`State`]; those
-     * that are dead are set to a dummy value (0xdeaddeaddeaddead). On exit
-     * only the `Global`s are live.
+     * On entry, it gets all [`Variable`]s that are live in any [`State`];
+     * those that are dead are set to a dummy value (0xdeaddeaddeaddead).
+     * On exit only the `Global`s are live.
      */
     fn epilogue(&self) -> Vec<Action>;
 
@@ -410,16 +410,16 @@ pub mod tests {
      * automatically-generated code.
      */
     pub struct Emulator {
-        values: Vec<Value>,
+        values: Vec<Variable>,
     }
 
     impl Emulator {
-        pub fn new(values: Vec<Value>) -> Self {
+        pub fn new(values: Vec<Variable>) -> Self {
             Emulator {values}
         }
 
-        pub fn execute(&self, actions: &[Action]) -> HashMap<Value, i64> {
-            let mut state: HashMap<Value, i64> = self.values.iter().enumerate().map(|(i, value)| {
+        pub fn execute(&self, actions: &[Action]) -> HashMap<Variable, i64> {
+            let mut state: HashMap<Variable, i64> = self.values.iter().enumerate().map(|(i, value)| {
                 (*value, 1000 + i as i64)
             }).collect();
             for action in actions {

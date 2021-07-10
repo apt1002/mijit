@@ -65,7 +65,7 @@ impl From<code::Width> for Width {
 //-----------------------------------------------------------------------------
 
 /**
- * A low-level analogue of `code::Value`, which can hold unallocatable
+ * A low-level analogue of `code::Variable`, which can hold unallocatable
  * [`Register`]s.
  */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -99,12 +99,12 @@ impl From<code::Register> for Value {
     }
 }
 
-impl From<code::Value> for Value {
-    fn from(v: code::Value) -> Self {
+impl From<code::Variable> for Value {
+    fn from(v: code::Variable) -> Self {
         match v {
-            code::Value::Register(reg) => reg.into(),
-            code::Value::Global(global) => global.into(),
-            code::Value::Slot(slot) => slot.into(),
+            code::Variable::Register(reg) => reg.into(),
+            code::Variable::Global(global) => global.into(),
+            code::Variable::Slot(slot) => slot.into(),
         }
     }
 }
@@ -343,7 +343,7 @@ impl<B: Buffer> Lowerer<B> {
         unary_op: code::UnaryOp,
         prec: Precision,
         dest: code::Register,
-        src: code::Value,
+        src: code::Variable,
     ) {
         match unary_op {
             code::UnaryOp::Abs => {
@@ -371,8 +371,8 @@ impl<B: Buffer> Lowerer<B> {
         binary_op: code::BinaryOp,
         prec: Precision,
         dest: code::Register,
-        src1: code::Value,
-        src2: code::Value,
+        src1: code::Variable,
+        src2: code::Variable,
     ) {
         match binary_op {
             code::BinaryOp::Add => {
@@ -556,15 +556,15 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         match action {
             Action::Move(dest, src) => {
                 match dest {
-                    code::Value::Register(dest) => {
+                    code::Variable::Register(dest) => {
                         let src = self.src_to_register(src, dest);
                         self.move_(dest, src);
                     },
-                    code::Value::Global(global) => {
+                    code::Variable::Global(global) => {
                         let src = self.src_to_register(src, TEMP);
                         self.a.store(P64, self.global_address(global), src);
                     },
-                    code::Value::Slot(slot) => {
+                    code::Variable::Slot(slot) => {
                         let src = self.src_to_register(src, TEMP);
                         self.a.store(P64, self.slot_address(slot), src);
                     },

@@ -5,7 +5,7 @@ use indexmap::{IndexSet};
 use crate::util::{AsUsize, ArrayMap};
 use super::{code, optimizer};
 use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, STATE_INDEX};
-use code::{Action, TestOp, Machine, Precision, Global, Value, FAST_VALUES};
+use code::{Action, TestOp, Machine, Precision, Global, Variable, FAST_VALUES};
 use Precision::*;
 
 /**
@@ -23,10 +23,10 @@ use Precision::*;
  */
 #[derive(Debug, Clone)]
 pub struct Convention {
-    /** The Value that will be tested next. */
-    // pub discriminant: Value,
+    /** The [`Variable`] that will be tested next. */
+    // pub discriminant: Variable,
     /** The values that are live on entry, including `discriminant`. */
-    pub live_values: Vec<Value>,
+    pub live_values: Vec<Variable>,
     /**
      * The number of spill [`Slot`]s used by the Convention.
      *
@@ -395,8 +395,9 @@ impl<T: Target> JitInner<T> {
     pub unsafe fn execute(mut self, argument: Word) -> std::io::Result<(Self, Word)> {
         // FIXME: assert we are on x86_64 at compile time.
         let (lowerer, ret) = self.lowerer.execute(&self.entry_point, |f, pool| {
+            let pool = pool.as_mut().as_mut_ptr();
             // Here is a good place to set a gdb breakpoint.
-            f(pool.as_mut().as_mut_ptr(), argument)
+            f(pool, argument)
         })?;
         self.lowerer = lowerer;
         Ok((self, ret))
@@ -468,7 +469,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
         if self.states.insert(state.clone()) {
             // Make a new root `Specialization`.
             let mask = self.machine.liveness_mask(state);
-            let live_values: Vec<Value> = (0..FAST_VALUES.len())
+            let live_values: Vec<Variable> = (0..FAST_VALUES.len())
                 .filter(|i| (mask & (1 << i)) != 0)
                 .map(|i| FAST_VALUES[i])
                 .chain((0..self.machine.num_globals()).map(|i| Global(i).into()))

@@ -1,5 +1,5 @@
 use std::collections::{HashMap};
-use super::code::{Precision, Register, Slot, Value, Action};
+use super::code::{Precision, Register, Slot, Variable, Action};
 use super::{Convention};
 use super::{Dataflow, Node, Op, Out};
 
@@ -12,8 +12,8 @@ pub struct Simulation {
     dataflow: Dataflow,
     /** The number of `Slot`s on the stack. */
     slots_used: usize,
-    /** Maps each [`Value`] to the corresponding [`Out`]. */
-    bindings: HashMap<Value, Out>,
+    /** Maps each [`Variable`] to the corresponding [`Out`]. */
+    bindings: HashMap<Variable, Out>,
     /** The most recent [`Op::Store`] instruction, or the entry node. */
     store: Node,
     /** All memory accesses instructions since `store`, including `store`. */
@@ -44,14 +44,14 @@ impl Simulation {
         }
     }
 
-    /** Returns a [`Value`] representing the top of the stack. */
-    fn top(&self) -> Value {
+    /** Returns a [`Variable`] representing the top of the stack. */
+    fn top(&self) -> Variable {
         assert!(self.slots_used > 0);
         Slot(self.slots_used - 1).into()
     }
 
     /** Returns the [`Out`] that is bound to `value`. */
-    fn lookup(&self, value: Value) -> Out {
+    fn lookup(&self, value: Variable) -> Out {
         *self.bindings.get(&value).expect("Read a dead value")
     }
 
@@ -59,7 +59,7 @@ impl Simulation {
      * Returns a [`Node`] representing `op` applied to `ins`, depending on
      * `deps`. Binds `outs` to the `Node`'s outputs.
      */
-    fn op(&mut self, op: Op, deps: &[Node], ins: &[Value], outs: &[Register]) -> Node {
+    fn op(&mut self, op: Op, deps: &[Node], ins: &[Variable], outs: &[Register]) -> Node {
         let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
         // TODO: Common subexpression elimination.
         // TODO: Peephole optimizations.
@@ -70,14 +70,14 @@ impl Simulation {
         node
     }
 
-    /** Binds `dest` to the same [`Value`] as `src`. */
-    fn move_(&mut self, dest: Value, src: Value) {
+    /** Binds `dest` to the same [`Variable`] as `src`. */
+    fn move_(&mut self, dest: Variable, src: Variable) {
         let out = self.lookup(src);
         self.bindings.insert(dest, out);
     }
 
     /** Binds `dest` to a dead value. */
-    fn drop(&mut self, dest: Value) {
+    fn drop(&mut self, dest: Variable) {
         self.bindings.remove(&dest);
     }
 

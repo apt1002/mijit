@@ -1,4 +1,4 @@
-use super::code::{Register, Value, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
+use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
 
 /** Compactly represents a kind of [`Action`]. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
@@ -16,12 +16,11 @@ pub enum Op {
 
 impl Op {
     /**
-     * Aggregates this [`Op`] with the specified output and input [`Value`]s to
-     * make an [`Action`].
-     * Returns `None` if `self` is [`Op::Convention`].
+     * Aggregates this [`Op`] with the specified outputs and inputs to make an
+     * [`Action`].
      * Panics if the `Op` is a `Convention`.
      */
-    pub fn to_action(self, outs: &[Register], ins: &[Value]) -> Action {
+    pub fn to_action(self, outs: &[Register], ins: &[Variable]) -> Action {
         match self {
             Op::Convention => panic!("Cannot execute a Convention"),
             Op::Constant(c) => {

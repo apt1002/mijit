@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use super::{Convention, NUM_REGISTERS, all_registers, Op, moves};
 use super::dataflow::{Dataflow, Node, Out};
-use super::code::{Register, Slot, Value, Action};
+use super::code::{Register, Slot, Variable, Action};
 use crate::util::{ArrayMap};
 
 /** The state of an algorithm that builds a list of [`Action`]s. */
@@ -13,8 +13,8 @@ pub struct CodeGen<'a> {
     allocation: ArrayMap<Out, Option<Register>>,
     /** The current number of stack [`Slot`]s. */
     slots_used: usize,
-    /** For each [`Out`], the [`Value`] it is currently held in. */
-    spills: ArrayMap<Out, Option<Value>>,
+    /** For each [`Out`], the [`Variable`] it is currently held in. */
+    spills: ArrayMap<Out, Option<Variable>>,
     /** For each [`Register`], the [`Out`] it currently holds. */
     regs: ArrayMap<Register, Option<Out>>,
     /** The list of [`Action`]s so far. */
@@ -27,9 +27,9 @@ impl<'a> CodeGen<'a> {
         let mut regs = ArrayMap::new(NUM_REGISTERS);
         for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&before.live_values) {
             match value {
-                Value::Register(r) => regs[r] = Some(out),
-                Value::Global(g) => assert!(g.0 < num_globals),
-                Value::Slot(s) => assert!(s.0 < before.slots_used),
+                Variable::Register(r) => regs[r] = Some(out),
+                Variable::Global(g) => assert!(g.0 < num_globals),
+                Variable::Slot(s) => assert!(s.0 < before.slots_used),
             }
             spills[out] = Some(value);
         }
@@ -59,14 +59,14 @@ impl<'a> CodeGen<'a> {
         r
     }
 
-    /** Returns the [`Value`] currently holding the value of [`Out`]. */
-    fn read(&self, out: Out) -> Value {
+    /** Returns the [`Variable`] currently holding the value of [`Out`]. */
+    fn read(&self, out: Out) -> Variable {
         if let Some(r) = self.allocation[out] {
             if self.regs[r] == Some(out) {
                 return r.into()
             }
         }
-        self.spills[out].expect("Value was overwritten but not spilled")
+        self.spills[out].expect("Variable was overwritten but not spilled")
     }
 
     /** Generate an [`Action`] to spill `out_x` and `out_y`. */
@@ -80,7 +80,7 @@ impl<'a> CodeGen<'a> {
     /** Generate an [`Action`] to execute `n`. */
     pub fn add_node(&mut self, n: Node) {
         let df = self.dataflow;
-        let ins: Vec<Value> = df.ins(n).iter().map(|&in_| self.read(in_)).collect();
+        let ins: Vec<Variable> = df.ins(n).iter().map(|&in_| self.read(in_)).collect();
         let outs: Vec<Register> = df.outs(n).map(|out| self.write(out)).collect();
         self.actions.push(Op::to_action(df.op(n), &outs, &ins));
     }
@@ -91,7 +91,7 @@ impl<'a> CodeGen<'a> {
      */
     pub fn finish(mut self, after: &Convention, exit_node: Node) -> Box<[Action]> {
         // Work out which live values need to be moved where.
-        let mut dest_to_src: HashMap<Value, Value> =
+        let mut dest_to_src: HashMap<Variable, Variable> =
             self.dataflow.ins(exit_node).iter().zip(&after.live_values)
                 .map(|(&out, &dest)| (dest, self.read(out)))
                 .collect();
@@ -105,12 +105,12 @@ impl<'a> CodeGen<'a> {
         // We need a temporary `Register`: the least used in `dest_to_src`.
         let mut uses: ArrayMap<Register, usize> = ArrayMap::new(NUM_REGISTERS);
         for (&dest, &src) in &dest_to_src {
-                if let Value::Register(r) = dest { uses[r] |= 1; }
-                if let Value::Register(r) = src { uses[r] += 2; }
+                if let Variable::Register(r) = dest { uses[r] |= 1; }
+                if let Variable::Register(r) = src { uses[r] += 2; }
         }
         let temp = all_registers().min_by_key(|&r| uses[r]).unwrap();
         // If `temp` is used, spill it and replace all mentions of it.
-        let temp_replacement = Value::from(Slot(self.slots_used));
+        let temp_replacement = Variable::from(Slot(self.slots_used));
         if uses[temp] == 1 {
             // `temp` is a destination only.
             self.actions.push(Action::Push(None, None));
@@ -120,7 +120,7 @@ impl<'a> CodeGen<'a> {
             self.actions.push(Action::Push(None, Some(temp.into())));
             self.slots_used += 2;
         }
-        // Move all live values into the expected `Value`s.
+        // Move all live values into the expected `Variable`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
         self.actions.extend(moves(dest_to_src, &temp.into()).map(|(mut dest, mut src)| {
             if src == temp.into() { src = temp_replacement; }
