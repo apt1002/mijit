@@ -14,16 +14,6 @@ pub fn disp(from: usize, to: usize) -> i64 {
     (to as i64) - (from as i64)
 }
 
-/** Returns a bitmask representing `x` as a `bits`-bit unsigned integer. */
-fn unsigned(x: u64, bits: usize) -> Option<u32> {
-    let limit: u64 = 1 << bits;
-    if x >= limit {
-        None
-    } else {
-        Some((x & (limit - 1)) as u32)
-    }
-}
-
 /** Returns a bitmask representing `x` as a `bits`-bit signed integer. */
 fn signed(x: i64, bits: usize) -> Option<u32> {
     let limit: i64 = 1 << (bits - 1);
@@ -203,15 +193,15 @@ impl<B: Buffer> Assembler<B> {
     /** Writes an instruction to put an immediate constant in `rd`. */
     pub fn const_(&mut self, rd: Register, imm: u64) {
         // TODO: logic immediates.
-        if let Some(imm) = unsigned(imm, 16) {
+        if let Ok(imm) = Unsigned::<16>::new(imm) {
             // MOVZ.
-            self.write_d(0xD2800000 | (imm << 5), rd);
-        } else if let Some(imm) = unsigned(!imm, 16) {
+            self.write_d(0xD2800000 | (imm.as_u32() << 5), rd);
+        } else if let Ok(imm) = Unsigned::<16>::new(!imm) {
             // MOVN.
-            self.write_d(0x92800000 | (imm << 5), rd);
-        } else if let Some(imm) = unsigned(0xFFFFFFFF ^ imm, 16) {
+            self.write_d(0x92800000 | (imm.as_u32() << 5), rd);
+        } else if let Ok(imm) = Unsigned::<16>::new(0xFFFFFFFF ^ imm) {
             // 32-bit MOVN.
-            self.write_d(0x12800000 | (imm << 5), rd);
+            self.write_d(0x12800000 | (imm.as_u32() << 5), rd);
         } else {
             self.write_pc_relative(rd, imm);
         }
@@ -232,11 +222,11 @@ impl<B: Buffer> Assembler<B> {
             panic!("Too wide for LDRS");
         }
         let shift = width as usize;
-        if let Some(imm) = unsigned((address.1 as u64) >> shift, 12) {
-            if address.1 == ((imm as i64) << shift) {
+        if let Ok(imm) = Unsigned::<12>::new(address.1 as u64 >> shift) {
+            if address.1 == ((imm.as_u32() as i64) << shift) {
                 // Scaled unsigned.
                 let mut opcode = 0x39000000;
-                opcode |= imm << 10;
+                opcode |= imm.as_u32() << 10;
                 opcode |= (op as u32) << 22;
                 opcode |= (width as u32) << 30;
                 self.write_dn(opcode, data, address.0);
