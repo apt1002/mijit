@@ -1,12 +1,15 @@
 use super::{buffer, code, Patch, Label, Counter, Pool, STATE_INDEX, Lower, ExecuteFn, Execute};
 use buffer::{Mmap};
 
+mod immediate;
+pub use immediate::{Shift};
+
 mod enums;
 pub use enums::{Register, RSP, Condition, ALL_CONDITIONS, MemOp, ShiftOp, AddOp, LogicOp};
+use Register::*;
 
 mod assembler;
 pub use assembler::{Assembler, logic_immediate};
-use Register::*;
 
 mod lowerer;
 pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};

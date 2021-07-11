@@ -2,8 +2,9 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Pool, STATE_INDEX,
-    Assembler, Register, RSP, MemOp, ShiftOp, AddOp, LogicOp, Condition,
-    CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
+    Shift,
+    Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
+    Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
 };
 use Register::*;
 use MemOp::*;
@@ -144,18 +145,14 @@ impl<B: Buffer> Lowerer<B> {
         target.push(patch);
     }
 
-    /** Move `src` to `dest` if they are different. */
-    fn move_(&mut self, dest: impl Into<Register>, src: impl Into<Register>) {
-        let dest = dest.into();
-        let src = src.into();
-        if dest != src {
-            self.a.shift_logic(ORR, P64, false, dest, RZR, src, 0);
-        }
+    /** Assemble `op` with no shift. */
+    fn add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
+        self.a.shift_add(op, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
     }
 
     /** Compare `src1` to `src2` and set condition flags. */
     fn cmp(&mut self, prec: Precision, src1: impl Into<Register>, src2: impl Into<Register>) {
-        self.a.shift_add(SUBS, prec, RZR, src1.into(), src2.into(), 0);
+        self.add(SUBS, prec, RZR, src1, src2);
     }
 
     /**
@@ -175,6 +172,20 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
+    /** Assemble `op` with no shift. */
+    fn logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
+        self.a.shift_logic(op, not, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
+    }
+
+    /** Move `src` to `dest` if they are different. */
+    fn move_(&mut self, dest: impl Into<Register>, src: impl Into<Register>) {
+        let dest = dest.into();
+        let src = src.into();
+        if dest != src {
+            self.logic(ORR, P64, false, dest, RZR, src);
+        }
+    }
+
     /**
      * Access 8 bytes at `address`, which must be 8-byte aligned.
      * Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `dest`.
@@ -182,7 +193,7 @@ impl<B: Buffer> Lowerer<B> {
     fn mem(&mut self, op: MemOp, data: Register, address: (Register, u64), temp: Register) {
         let (base, offset) = address;
         // The low bits of `offset` fit in an immediate constant.
-        const IMM_BITS: usize = 12 + 3;
+        const IMM_BITS: u64 = 12 + 3;
         assert_eq!(offset & 7, 0);
         let offset_high = offset >> IMM_BITS;
         let offset_low = offset - (offset_high << IMM_BITS);
@@ -193,7 +204,7 @@ impl<B: Buffer> Lowerer<B> {
             // Handle the high bits separately.
             // TODO: Use an `LDR` with a shifted register offset.
             self.const_(temp, offset_high);
-            self.a.shift_add(ADD, P64, temp, base, temp, IMM_BITS);
+            self.a.shift_add(ADD, temp, base, temp, Shift::new(P64, IMM_BITS).unwrap());
             temp
         };
         self.a.mem(op, Eight, data, (base, offset_low as i64));
@@ -247,16 +258,16 @@ impl<B: Buffer> Lowerer<B> {
         let src = self.src_to_register(src, dest);
         match unary_op {
             code::UnaryOp::Abs => {
-                self.a.shift_add(SUBS, prec, TEMP0, RZR, src, 0);
+                self.add(SUBS, prec, TEMP0, RZR, src);
                 self.a.csel(prec, Condition::LE, dest, src, TEMP0);
             },
             code::UnaryOp::Negate => {
                 let src = self.src_to_register(src, dest);
-                self.a.shift_add(SUB, prec, dest, RZR, src, 0);
+                self.add(SUB, prec, dest, RZR, src);
             },
             code::UnaryOp::Not => {
                 let src = self.src_to_register(src, dest);
-                self.a.shift_logic(EOR, prec, true, dest, RZR, src, 0);
+                self.logic(EOR, prec, true, dest, RZR, src);
             },
         };
     }
@@ -275,10 +286,10 @@ impl<B: Buffer> Lowerer<B> {
         let src2 = self.src_to_register(src2, TEMP1);
         match binary_op {
             code::BinaryOp::Add => {
-                self.a.shift_add(ADD, prec, dest, src1, src2, 0);
+                self.add(ADD, prec, dest, src1, src2);
             },
             code::BinaryOp::Sub => {
-                self.a.shift_add(SUB, prec, dest, src1, src2, 0);
+                self.add(SUB, prec, dest, src1, src2);
             },
             code::BinaryOp::Mul => {
                 self.a.mul(prec, dest, src1, src2);
@@ -294,13 +305,13 @@ impl<B: Buffer> Lowerer<B> {
                 self.a.shift(ASR, prec, dest, src1, src2);
             },
             code::BinaryOp::And => {
-                self.a.shift_logic(AND, prec, false, dest, src1, src2, 0);
+                self.logic(AND, prec, false, dest, src1, src2);
             },
             code::BinaryOp::Or => {
-                self.a.shift_logic(ORR, prec, false, dest, src1, src2, 0);
+                self.logic(ORR, prec, false, dest, src1, src2);
             },
             code::BinaryOp::Xor => {
-                self.a.shift_logic(EOR, prec, false, dest, src1, src2, 0);
+                self.logic(EOR, prec, false, dest, src1, src2);
             },
             code::BinaryOp::Lt => {
                 self.cmp(prec, src1, src2);
@@ -380,7 +391,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             TestOp::Bits(discriminant, mask, value) => {
                 let discriminant = self.src_to_register(discriminant, TEMP0);
                 self.const_(TEMP1, i64::from(mask) as u64);
-                self.a.shift_logic(AND, prec, false, TEMP0, discriminant, TEMP1, 0);
+                self.logic(AND, prec, false, TEMP0, discriminant, TEMP1);
                 self.const_cmp(prec, TEMP0, i64::from(value), TEMP1);
                 self.jump_if(Condition::EQ, skip);
                 self.const_jump(false_label);

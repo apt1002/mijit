@@ -1,4 +1,4 @@
-use super::{buffer, code, Patch, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
+use super::{buffer, code, Patch, Shift, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
 use buffer::{Buffer};
 use code::{Precision, Width};
 use crate::util::{rotate_left};
@@ -317,17 +317,18 @@ impl<B: Buffer> Assembler<B> {
         self.write_dnm(opcode, dest, src1, src2);
     }
 
-    /** Assembles an instruction that does `dest <- src <op> constant`. */
-    pub fn const_shift(&mut self, op: ShiftOp, prec: Precision, dest: Register, src: Register, constant: u64) {
+    /**
+     * Assembles an instruction that does `dest <- src <op> constant`.
+     * The [`Precision`] is taken from `shift`.
+     */
+    pub fn const_shift(&mut self, op: ShiftOp, dest: Register, src: Register, shift: Shift) {
         // Use an `ORR` instruction, with `RZR` as the unshifted source.
         // This is easier than ARM's choice of `BFM`, I think.
         let mut opcode = 0x0A000000 | (LogicOp::ORR as u32) << 29;
-        let shift = unsigned(constant, 5 + (prec as usize)).expect("Cannot shift so far");
-        opcode |= shift << 10;
+        opcode |= shift.amount() << 10;
         opcode |= (op as u32) << 22;
-        opcode |= (prec as u32) << 31;
+        opcode |= (shift.prec() as u32) << 31;
         self.write_dnm(opcode, dest, RZR, src);
-        
     }
 
     /**
@@ -350,16 +351,13 @@ impl<B: Buffer> Assembler<B> {
     /**
      * Assembles an instruction that does `dest <- src1 ± (src2 << shift)`.
      * `dest`, `src1` or `src2` can be `RZR` but not `RSP`.
-     *  - prec - `P32` to zero-extend the result from 32 bits.
-     *  - shift - a 5- or 6-bit unsigned integer. This method will panic if the
-     *    constant is not encodeable.
+     * The [`Precision`] is taken from `shift`.
      */
-    pub fn shift_add(&mut self, op: AddOp, prec: Precision, dest: Register, src1: Register, src2: Register, shift: usize) {
+    pub fn shift_add(&mut self, op: AddOp, dest: Register, src1: Register, src2: Register, shift: Shift) {
         let mut opcode = 0x0B000000;
-        let shift = unsigned(shift as u64, 5 + (prec as usize)).expect("Cannot shift so far");
-        opcode |= shift << 10;
+        opcode |= shift.amount() << 10;
         opcode |= (op as u32) << 29;
-        opcode |= (prec as u32) << 31;
+        opcode |= (shift.prec() as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
     }
 
@@ -384,18 +382,15 @@ impl<B: Buffer> Assembler<B> {
      * Assembles an instruction that does `dest <- src1 <op> (src2 << shift)`
      * or `dest <- src1 <op> not(src2 << shift)`. `dest`, `src1` or `src2` can
      * be `RZR` but not `RSP`.
-     *  - prec - `P32` to zero-extend the result from 32 bits.
      *  - not - `true` to invert the second operand (after shifting it).
-     *  - shift - a 5- or 6-bit unsigned integer. This method will panic if the
-     *    constant is not encodeable.
+     * The [`Precision`] is taken from `shift`.
      */
-    pub fn shift_logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: Register, src1: Register, src2: Register, shift: usize) {
+    pub fn shift_logic(&mut self, op: LogicOp, not: bool, dest: Register, src1: Register, src2: Register, shift: Shift) {
         let mut opcode = 0x0A000000;
-        let shift = unsigned(shift as u64, 5 + (prec as usize)).expect("Cannot shift so far");
-        opcode |= shift << 10;
+        opcode |= shift.amount() << 10;
         opcode |= (not as u32) << 21;
         opcode |= (op as u32) << 29;
-        opcode |= (prec as u32) << 31;
+        opcode |= (shift.prec() as u32) << 31;
         self.write_dnm(opcode, dest, src1, src2);
     }
 
@@ -624,7 +619,7 @@ pub mod tests {
                     a.shift(op, prec, rd, rn, rm);
                 }
                 for (rd, rn) in [(R0, RZR), (RZR, R1)] {
-                    a.const_shift(op, prec, rd, rn, 11);
+                    a.const_shift(op, rd, rn, Shift::new(prec, 11).unwrap());
                 }
             }
         }
@@ -658,7 +653,7 @@ pub mod tests {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
                     a.const_add(op, prec, rd, rn, 4095);
                     for rm in [R1, RZR] {
-                        a.shift_add(op, prec, rd, rn, rm, 21);
+                        a.shift_add(op, rd, rn, rm, Shift::new(prec, 21).unwrap());
                     }
                 }
             }
@@ -739,8 +734,8 @@ pub mod tests {
                 for (rd, rn) in [(R0, RZR), (RZR, R0)] {
                     a.const_logic(op, prec, rd, rn, value);
                     for rm in [R1, RZR] {
-                        a.shift_logic(op, prec, false, rd, rn, rm, 21);
-                        a.shift_logic(op, prec, true, rd, rn, rm, 11);
+                        a.shift_logic(op, false, rd, rn, rm, Shift::new(prec, 21).unwrap());
+                        a.shift_logic(op, true, rd, rn, rm, Shift::new(prec, 11).unwrap());
                     }
                 }
             }
