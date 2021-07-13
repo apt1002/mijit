@@ -222,9 +222,12 @@ impl<B: Buffer> Assembler<B> {
         self.write_d(0x58000000 | (offset << 5), rd);
     }
 
-    /** Writes an instruction to put an immediate constant in `rd`. */
+    /**
+     * Writes an instruction to put an immediate constant in `rd`.
+     * `rd` must not be `RSP` or `RZR`, as we would likely confuse them.
+     */
     pub fn const_(&mut self, rd: Register, imm: u64) {
-        // TODO: logic immediates.
+        assert_ne!(rd, RZR);
         if let Ok(imm) = Unsigned::<16>::new(imm) {
             // MOVZ.
             self.write_d(0xD2800000 | (imm.as_u32() << 5), rd);
@@ -234,6 +237,12 @@ impl<B: Buffer> Assembler<B> {
         } else if let Ok(imm) = Unsigned::<16>::new(0xFFFFFFFF ^ imm) {
             // 32-bit MOVN.
             self.write_d(0x12800000 | (imm.as_u32() << 5), rd);
+        } else if let Ok(imm) = LogicImmediate::new(Precision::P64, imm) {
+            // 64-bit ORR.
+            self.write_dn(0x92000000 | ((LogicOp::ORR as u32) << 29) | (imm.encoding() << 10), rd, RZR);
+        } else if let Ok(imm) = LogicImmediate::new(Precision::P32, imm) {
+            // 32-bit ORR.
+            self.write_dn(0x12000000 | ((LogicOp::ORR as u32) << 29) | (imm.encoding() << 10), rd, RZR);
         } else {
             self.write_pc_relative(rd, imm);
         }
@@ -422,6 +431,7 @@ pub mod tests {
     use std::cmp::{min, max};
 
     use super::super::{ALL_CONDITIONS};
+    use super::super::super::tests::{TEST_VALUES};
     use super::*;
     use code::{Width};
     use Precision::*;
@@ -478,6 +488,38 @@ pub mod tests {
         disassemble(&a, 0, vec![
             "add x0, sp, #0xaa8",
             "mul x0, x0, x0",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn const_() {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for c in TEST_VALUES {
+            a.const_(R1, c);
+        }
+        disassemble(&a, 0, vec![
+            "mov x1, #0x0",
+            "mov x1, #0x1",
+            "mov w1, #0x11111111",
+            "mov x1, #0x7fffffff",
+            "orr x1, xzr, #0x80000000",
+            "mov w1, #0xeeeeeeee",
+            "mov w1, #0xfffffffffffffffe",
+            "mov w1, #0xffffffffffffffff",
+            "ldr x1, 0xffff8",
+            "orr x1, xzr, #0x1111111111111111",
+            "orr x1, xzr, #0x7fffffffffffffff",
+            "orr x1, xzr, #0x8000000000000000",
+            "orr x1, xzr, #0xeeeeeeeeeeeeeeee",
+            "ldr x1, 0xffff0",
+            "mov x1, #0xffffffff00000000",
+            "mov x1, #0xffffffff00000001",
+            "ldr x1, 0xfffe8",
+            "orr x1, xzr, #0xffffffff7fffffff",
+            "mov x1, #0xffffffff80000000",
+            "ldr x1, 0xfffe0",
+            "mov x1, #0xfffffffffffffffe",
+            "mov x1, #0xffffffffffffffff",
         ]).unwrap();
     }
 

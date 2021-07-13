@@ -87,11 +87,13 @@ mod tests {
     pub const R1: Register = REGISTERS[1];
     pub const R2: Register = REGISTERS[2];
 
-    pub const TEST_VALUES: [u64; 18] = [
+    pub const TEST_VALUES: [u64; 22] = [
         0x0000000000000000,
         0x0000000000000001,
+        0x0000000011111111,
         0x000000007FFFFFFF,
         0x0000000080000000,
+        0x00000000EEEEEEEE,
         0x00000000FFFFFFFE,
         0x00000000FFFFFFFF,
         0x0123456789ABCDEF,
@@ -102,8 +104,10 @@ mod tests {
         0xFEDCBA9876543210,
         0xFFFFFFFF00000000,
         0xFFFFFFFF00000001,
+        0xFFFFFFFF11111111,
         0xFFFFFFFF7FFFFFFF,
         0xFFFFFFFF80000000,
+        0xFFFFFFFFEEEEEEEE,
         0xFFFFFFFFFFFFFFFE,
         0xFFFFFFFFFFFFFFFF,
     ];

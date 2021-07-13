@@ -69,7 +69,7 @@ impl<const N: usize> Unsigned<N> {
 
 /** A reason why a constant is not encodable as a [`LogicImmediate`]. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub enum LogicImmediateError {AllSame, NonRepeating}
+pub enum LogicImmediateError {HighBits, AllSame, NonRepeating}
 
 /**
  * Represents a legal "logic immediate". The [encoding] is quite esoteric.
@@ -87,9 +87,8 @@ impl LogicImmediate {
         //
         // [ARMv8 Architecture Reference Manual]: https://documentation-service.arm.com/static/60119835773bb020e3de6fee
         if prec == Precision::P32 {
-            // Only the bottom 32 bits of `x` are significant.
+            if x >> 32 != 0 { return Err(LogicImmediateError::HighBits); }
             // Encode as if the top 32 bits are the same.
-            x &= 0xFFFFFFFF;
             x |= x << 32;
         }
         // `0` and `-1` are not encodable.
@@ -179,6 +178,7 @@ mod tests {
         }
         // Check some notable non-encodable immediates.
         use LogicImmediateError::*;
+        assert_eq!(LogicImmediate::new(P32, 0x0000000100000001), Err(HighBits));
         assert_eq!(LogicImmediate::new(P32, 0x00000000), Err(AllSame));
         assert_eq!(LogicImmediate::new(P32, 0xFFFFFFFF), Err(AllSame));
         assert_eq!(LogicImmediate::new(P32, 0x5A5A5A5A), Err(NonRepeating));
