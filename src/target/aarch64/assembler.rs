@@ -106,6 +106,36 @@ impl<B: Buffer> Assembler<B> {
     /** Get the assembly pointer. */
     pub fn get_pos(&self) -> usize { self.pos }
 
+    /**
+     * Change the target of the jump or call instruction at `patch` from
+     * `old_target` to `new_target`.
+     * - patch - the instruction to modify.
+     * - old_target - an offset from the beginning of the buffer, or `None`.
+     * - new_target - an offset from the beginning of the buffer, or `None`.
+     */
+    pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
+        let at = patch.address();
+        let old = self.buffer.read(at, 4) as u32;
+        let new = old ^ (
+            if (old & 0xFF000010) == 0x54000000 {
+                // Conditional branch.
+                let old_offset = jump_offset(at, old_target, 19).unwrap();
+                let new_offset = jump_offset(at, new_target, 19).expect("Cannot jump so far");
+                assert_eq!(old & 0x00FFFFE0, old_offset << 5);
+                (old_offset ^ new_offset) << 5
+            } else if (old & 0x7C000000) == 0x14000000 {
+                // Jump or call.
+                let old_offset = jump_offset(at, old_target, 26).unwrap();
+                let new_offset = jump_offset(at, new_target, 26).expect("Cannot jump so far");
+                assert_eq!(old & 0x03FFFFFF, old_offset);
+                old_offset ^ new_offset
+            } else {
+                panic!("not a jump or call instruction");
+            }
+        );
+        self.buffer.write(at, new as u64, 4);
+    }
+
     /** Returns the amount of free space between `pos` and `pool_pos`. */
     fn free_space(&self) -> usize { self.pool_pos - self.pos }
 
@@ -138,8 +168,9 @@ impl<B: Buffer> Assembler<B> {
         self.pos += 4;
         if self.free_space() < 16 {
             // Simplified `const_jump(self.pool_end)`.
-            let offset = jump_offset(self.pos, Some(self.pool_end), 26).unwrap();
-            self.write_jump(0x14000000 | offset);
+            let patch = Patch::new(self.get_pos());
+            self.write_jump(0x16000000);
+            self.patch(patch, None, Some(self.pool_end));
             assert_eq!(self.free_space(), PC_RELATIVE_RANGE);
         }
     }
@@ -156,14 +187,14 @@ impl<B: Buffer> Assembler<B> {
         self.write_instruction(opcode);
     }
 
-    /** Writes an instruction which uses `rd` or `rt`. */
+    /** Writes an instruction which uses `rd` and `rn`. */
     fn write_dn(&mut self, mut opcode: u32, rd: Register, rn: Register) {
         opcode |= rd as u32;
         opcode |= (rn as u32) << 5;
         self.write_instruction(opcode);
     }
 
-    /** Writes an instruction which uses `rd` or `rt`. */
+    /** Writes an instruction which uses `rd`, `rn` and `rm`. */
     fn write_dnm(&mut self, mut opcode: u32, rd: Register, rn: Register, rm: Register) {
         opcode |= rd as u32;
         opcode |= (rn as u32) << 5;
@@ -178,7 +209,7 @@ impl<B: Buffer> Assembler<B> {
         self.write_instruction(opcode);
     }    
 
-    /** Writes a PC-relative load of a constant, then calls `check_space()`. */
+    /** Writes a PC-relative load of a constant. */
     fn write_pc_relative(&mut self, rd: Register, imm: u64) {
         assert!(self.free_space() >= 16);
         // Write the constant.
@@ -352,7 +383,7 @@ impl<B: Buffer> Assembler<B> {
         self.write_n(0xD63F0000, src);
     }
 
-    /** Assembles an unconditional jump to `target`. */
+    /** Assembles a call to `target`. */
     pub fn const_call(&mut self, target: Option<usize>) -> Patch {
         let ret = Patch::new(self.get_pos());
         self.write_instruction(0x96000000);
@@ -375,36 +406,6 @@ impl<B: Buffer> Assembler<B> {
     pub fn pop(&mut self, src1: Register, src2: Register) {
         let opcode = 0xA8C10000 | (RSP as u32) << 5;
         self.write_tt(opcode, src1, src2);
-    }
-
-    /**
-     * Change the target of the instruction at `patch` from `old_target` to
-     * `new_target`.
-     * - patch - the instruction to modify.
-     * - old_target - an offset from the beginning of the buffer, or `None`.
-     * - new_target - an offset from the beginning of the buffer, or `None`.
-     */
-    pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
-        let at = patch.address();
-        let old = self.buffer.read(at, 4) as u32;
-        let new = old ^ (
-            if (old & 0xFF000010) == 0x54000000 {
-                // Conditional branch.
-                let old_offset = jump_offset(at, old_target, 19).unwrap();
-                let new_offset = jump_offset(at, new_target, 19).expect("Cannot jump so far");
-                assert_eq!(old & 0x00FFFFE0, old_offset << 5);
-                (old_offset ^ new_offset) << 5
-            } else if (old & 0x7C000000) == 0x14000000 {
-                // Jump or call.
-                let old_offset = jump_offset(at, old_target, 26).unwrap();
-                let new_offset = jump_offset(at, new_target, 26).expect("Cannot jump so far");
-                assert_eq!(old & 0x03FFFFFF, old_offset);
-                old_offset ^ new_offset
-            } else {
-                panic!("not a jump or call instruction");
-            }
-        );
-        self.buffer.write(at, new as u64, 4);
     }
 }
 
