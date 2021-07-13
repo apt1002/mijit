@@ -1,5 +1,31 @@
-use super::code::{Precision};
+use super::code::{Precision, Width};
 use crate::util::{rotate_left};
+
+/** A reason why an Offset can't be encoded. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub enum OffsetError {Unaligned, TooFar}
+
+/** Represents a `Width` and a field offset that is a multiple of it. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Offset {width: Width, scaled: u32}
+
+impl Offset {
+    pub fn new(width: Width, offset: u64) -> Result<Self, OffsetError> {
+        let shift = width as usize;
+        let scaled = offset >> shift;
+        if scaled << shift != offset { return Err(OffsetError::Unaligned); }
+        const LIMIT: u64 = 1 << 12;
+        if scaled >= LIMIT { return Err(OffsetError::TooFar); }
+        Ok(Self {width, scaled: scaled as u32})
+    }
+
+    pub fn width(self) -> Width { self.width }
+
+    /** Returns `offset / width`. */
+    pub fn scaled(self) -> u32 { self.scaled }
+}
+
+// ----------------------------------------------------------------------------
 
 /**
  * Represents a [`Precision`] and an amount to shift by.

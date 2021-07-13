@@ -2,7 +2,7 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Pool, STATE_INDEX,
-    Unsigned, Shift, LogicImmediate,
+    Offset, Shift, Unsigned, LogicImmediate,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
 };
@@ -11,7 +11,6 @@ use MemOp::*;
 use AddOp::*;
 use LogicOp::*;
 use ShiftOp::*;
-use Width::*;
 use buffer::{Buffer, Mmap};
 use code::{Precision, Action, TestOp, UnaryOp, BinaryOp, Width, Global, Slot, debug_word};
 use Precision::*;
@@ -200,27 +199,32 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /**
+     * Constructs a (Register, Offset) pair representing `base + offset`.
+     * Corrupts `temp`.
+     */
+    fn address(&mut self, width: Width, base: Register, offset: u64, temp: Register) -> (Register, Offset) {
+        if let Ok(imm) = Offset::new(width, offset) {
+            // `offset` fits in an immediate constant.
+            (base, imm)
+        } else {
+            // `offset` needs to be constructed.
+            let imm_bits = 12 + (width as u64);
+            let offset_high = offset >> imm_bits;
+            let offset_low = offset - (offset_high << imm_bits);
+            let imm = Offset::new(Width::Eight, offset_low).expect("Cannot encode offset");
+            self.const_(temp, offset_high);
+            self.a.shift_add(ADD, temp, base, temp, Shift::new(P64, imm_bits).unwrap());
+            (temp, imm)
+        }
+    }
+
+    /**
      * Access 8 bytes at `address`, which must be 8-byte aligned.
      * Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `dest`.
      */
     fn mem(&mut self, op: MemOp, data: Register, address: (Register, u64), temp: Register) {
-        let (base, offset) = address;
-        // The low bits of `offset` fit in an immediate constant.
-        const IMM_BITS: u64 = 12 + 3;
-        assert_eq!(offset & 7, 0);
-        let offset_high = offset >> IMM_BITS;
-        let offset_low = offset - (offset_high << IMM_BITS);
-        let base = if offset_high == 0 {
-            // Only the low bits are used.
-            base
-        } else {
-            // Handle the high bits separately.
-            // TODO: Use an `LDR` with a shifted register offset.
-            self.const_(temp, offset_high);
-            self.a.shift_add(ADD, temp, base, temp, Shift::new(P64, IMM_BITS).unwrap());
-            temp
-        };
-        self.a.mem(op, Eight, data, (base, offset_low as i64));
+        let address = self.address(Width::Eight, address.0, address.1, temp);
+        self.a.mem(op, data, address);
     }
 
     /** Returns the base and offset of `global`. */
@@ -486,15 +490,17 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             },
             Action::Load(dest, (addr, width), _) => {
                 let dest = dest.into();
-                let addr = self.src_to_register(addr, dest);
-                self.a.mem(LDR, width, dest, (addr, 0));
+                let base = self.src_to_register(addr, dest);
+                let offset = Offset::new(width, 0).unwrap();
+                self.a.mem(LDR, dest, (base, offset));
             },
             Action::Store(dest, src, (addr, width), _) => {
                 let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP0);
-                let addr = self.src_to_register(addr, dest);
-                self.move_(dest, addr);
-                self.a.mem(STR, width, src, (addr, 0));
+                let base = self.src_to_register(addr, dest);
+                let offset = Offset::new(width, 0).unwrap();
+                self.move_(dest, base);
+                self.a.mem(STR, src, (base, offset));
             },
             Action::Push(src1, src2) => {
                 let src1 = src1.map_or(RZR, |src1| self.src_to_register(src1, TEMP0));

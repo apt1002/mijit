@@ -1,6 +1,10 @@
-use super::{buffer, code, Patch, Shift, Unsigned, LogicImmediate, Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp};
+use super::{
+    buffer, code, Patch,
+    Offset, Shift, Unsigned, LogicImmediate,
+    Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
+};
 use buffer::{Buffer};
-use code::{Precision, Width};
+use code::{Precision};
 
 use Register::*;
 
@@ -210,39 +214,21 @@ impl<B: Buffer> Assembler<B> {
     /**
      * Assembles a load or store instruction.
      *
-     * The offset (`src.1`) can be a signed 9-bit number or `width` times an
-     * unsigned 12-bit number. Other offsets are not encodable so this method
-     * will panic.
-     *
-     * Some combinations of `op` and `width` make no sense, and this method
-     * will panic in those cases.
+     * The [`Width`] is taken from the [`Offset`]. Some combinations of `op`
+     * and `Width` make no sense, and this method will panic in those cases.
      */
-    pub fn mem(&mut self, op: MemOp, width: Width, data: Register, address: (Register, i64)) {
+    pub fn mem(&mut self, op: MemOp, data: Register, address: (Register, Offset)) {
+        let (base, offset) = address;
+        let width = offset.width();
         if (op as usize) + (width as usize) > 5 {
             panic!("Too wide for LDRS");
         }
-        let shift = width as usize;
-        if let Ok(imm) = Unsigned::<12>::new(address.1 as u64 >> shift) {
-            if address.1 == ((imm.as_u32() as i64) << shift) {
-                // Scaled unsigned.
-                let mut opcode = 0x39000000;
-                opcode |= imm.as_u32() << 10;
-                opcode |= (op as u32) << 22;
-                opcode |= (width as u32) << 30;
-                self.write_dn(opcode, data, address.0);
-                return;
-            }
-        }
-        if let Some(imm) = signed(address.1, 9) {
-            // Unscaled signed.
-            let mut opcode = 0x38000000;
-            opcode |= imm << 12;
-            opcode |= (op as u32) << 22;
-            opcode |= (width as u32) << 30;
-            self.write_dn(opcode, data, address.0);
-            return;
-        }
-        panic!("Cannot load so far");
+        // Scaled unsigned.
+        let mut opcode = 0x39000000;
+        opcode |= offset.scaled() << 10;
+        opcode |= (op as u32) << 22;
+        opcode |= (width as u32) << 30;
+        self.write_dn(opcode, data, base);
     }
 
     /** Assembles an instruction that does `dest <- src1 <op> src2`. */
@@ -439,6 +425,7 @@ pub mod tests {
 
     use super::super::{ALL_CONDITIONS};
     use super::*;
+    use code::{Width};
     use Precision::*;
     use MemOp::*;
     use Width::*;
@@ -506,39 +493,38 @@ pub mod tests {
                 (STR, Four), (LDR, Four), (LDRS64, Four),
                 (STR, Eight), (LDR, Eight),
             ] {
-                a.mem(op, width, rd, (rn, 4088));
-                a.mem(op, width, rd, (rn, 255));
-                a.mem(op, width, rd, (rn, -256));
+                let offset = Offset::new(width, 4088).unwrap();
+                a.mem(op, rd, (rn, offset));
             }
         }
         disassemble(&a, 0, vec![
-            "strb w0, [sp, #0xff8]", "strb w0, [sp, #0xff]", "sturb w0, [sp, #0xffffffffffffff00]",
-            "ldrb w0, [sp, #0xff8]", "ldrb w0, [sp, #0xff]", "ldurb w0, [sp, #0xffffffffffffff00]",
-            "ldrsb x0, [sp, #0xff8]", "ldrsb x0, [sp, #0xff]", "ldursb x0, [sp, #0xffffffffffffff00]",
-            "ldrsb w0, [sp, #0xff8]", "ldrsb w0, [sp, #0xff]", "ldursb w0, [sp, #0xffffffffffffff00]",
-            "strh w0, [sp, #0xff8]", "sturh w0, [sp, #0xff]", "sturh w0, [sp, #0xffffffffffffff00]",
-            "ldrh w0, [sp, #0xff8]", "ldurh w0, [sp, #0xff]", "ldurh w0, [sp, #0xffffffffffffff00]",
-            "ldrsh x0, [sp, #0xff8]", "ldursh x0, [sp, #0xff]", "ldursh x0, [sp, #0xffffffffffffff00]",
-            "ldrsh w0, [sp, #0xff8]", "ldursh w0, [sp, #0xff]", "ldursh w0, [sp, #0xffffffffffffff00]",
-            "str w0, [sp, #0xff8]", "stur w0, [sp, #0xff]", "stur w0, [sp, #0xffffffffffffff00]",
-            "ldr w0, [sp, #0xff8]", "ldur w0, [sp, #0xff]", "ldur w0, [sp, #0xffffffffffffff00]",
-            "ldrsw x0, [sp, #0xff8]", "ldursw x0, [sp, #0xff]", "ldursw x0, [sp, #0xffffffffffffff00]",
-            "str x0, [sp, #0xff8]", "stur x0, [sp, #0xff]", "stur x0, [sp, #0xffffffffffffff00]",
-            "ldr x0, [sp, #0xff8]", "ldur x0, [sp, #0xff]", "ldur x0, [sp, #0xffffffffffffff00]",
+            "strb w0, [sp, #0xff8]",
+            "ldrb w0, [sp, #0xff8]",
+            "ldrsb x0, [sp, #0xff8]",
+            "ldrsb w0, [sp, #0xff8]",
+            "strh w0, [sp, #0xff8]",
+            "ldrh w0, [sp, #0xff8]",
+            "ldrsh x0, [sp, #0xff8]",
+            "ldrsh w0, [sp, #0xff8]",
+            "str w0, [sp, #0xff8]",
+            "ldr w0, [sp, #0xff8]",
+            "ldrsw x0, [sp, #0xff8]",
+            "str x0, [sp, #0xff8]",
+            "ldr x0, [sp, #0xff8]",
 
-            "strb wzr, [x0, #0xff8]", "strb wzr, [x0, #0xff]", "sturb wzr, [x0, #0xffffffffffffff00]",
-            "ldrb wzr, [x0, #0xff8]", "ldrb wzr, [x0, #0xff]", "ldurb wzr, [x0, #0xffffffffffffff00]",
-            "ldrsb xzr, [x0, #0xff8]", "ldrsb xzr, [x0, #0xff]", "ldursb xzr, [x0, #0xffffffffffffff00]",
-            "ldrsb wzr, [x0, #0xff8]", "ldrsb wzr, [x0, #0xff]", "ldursb wzr, [x0, #0xffffffffffffff00]",
-            "strh wzr, [x0, #0xff8]", "sturh wzr, [x0, #0xff]", "sturh wzr, [x0, #0xffffffffffffff00]",
-            "ldrh wzr, [x0, #0xff8]", "ldurh wzr, [x0, #0xff]", "ldurh wzr, [x0, #0xffffffffffffff00]",
-            "ldrsh xzr, [x0, #0xff8]", "ldursh xzr, [x0, #0xff]", "ldursh xzr, [x0, #0xffffffffffffff00]",
-            "ldrsh wzr, [x0, #0xff8]", "ldursh wzr, [x0, #0xff]", "ldursh wzr, [x0, #0xffffffffffffff00]",
-            "str wzr, [x0, #0xff8]", "stur wzr, [x0, #0xff]", "stur wzr, [x0, #0xffffffffffffff00]",
-            "ldr wzr, [x0, #0xff8]", "ldur wzr, [x0, #0xff]", "ldur wzr, [x0, #0xffffffffffffff00]",
-            "ldrsw xzr, [x0, #0xff8]", "ldursw xzr, [x0, #0xff]", "ldursw xzr, [x0, #0xffffffffffffff00]",
-            "str xzr, [x0, #0xff8]", "stur xzr, [x0, #0xff]", "stur xzr, [x0, #0xffffffffffffff00]",
-            "ldr xzr, [x0, #0xff8]", "ldur xzr, [x0, #0xff]", "ldur xzr, [x0, #0xffffffffffffff00]",
+            "strb wzr, [x0, #0xff8]",
+            "ldrb wzr, [x0, #0xff8]",
+            "ldrsb xzr, [x0, #0xff8]",
+            "ldrsb wzr, [x0, #0xff8]",
+            "strh wzr, [x0, #0xff8]",
+            "ldrh wzr, [x0, #0xff8]",
+            "ldrsh xzr, [x0, #0xff8]",
+            "ldrsh wzr, [x0, #0xff8]",
+            "str wzr, [x0, #0xff8]",
+            "ldr wzr, [x0, #0xff8]",
+            "ldrsw xzr, [x0, #0xff8]",
+            "str xzr, [x0, #0xff8]",
+            "ldr xzr, [x0, #0xff8]",
         ]).unwrap();
     }
 
