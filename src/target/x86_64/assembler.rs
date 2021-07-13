@@ -107,9 +107,6 @@ impl<B: Buffer> Assembler<B> {
     /** Get the assembly pointer. */
     pub fn get_pos(&self) -> usize { self.pos }
 
-    /** Set the assembly pointer. */
-    pub fn set_pos(&mut self, pos: usize) { self.pos = pos; }
-
     // Patterns and constants.
 
     /** Writes at `pos`, incrmenting it. */

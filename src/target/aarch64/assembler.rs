@@ -106,9 +106,6 @@ impl<B: Buffer> Assembler<B> {
     /** Get the assembly pointer. */
     pub fn get_pos(&self) -> usize { self.pos }
 
-    /** Set the assembly pointer. */
-    pub fn set_pos(&mut self, pos: usize) { self.pos = pos; }
-
     /** Returns the amount of free space between `pos` and `pool_pos`. */
     fn free_space(&self) -> usize { self.pool_pos - self.pos }
 
