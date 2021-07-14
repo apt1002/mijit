@@ -1,6 +1,5 @@
 use std::collections::{HashMap};
-use super::code::{Precision, Register, Slot, Variable, Action};
-use super::{Convention};
+use super::code::{Precision, Register, Slot, Variable, Convention, Action};
 use super::{Dataflow, Node, Op, Out};
 
 /**

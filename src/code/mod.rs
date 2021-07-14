@@ -192,6 +192,28 @@ pub const FAST_VALUES: [Variable; 64] = [
 
 //-----------------------------------------------------------------------------
 
+/**
+ * Represents the convention by which code passes values to a label. The
+ * concept is similar to a calling convention, but it's for a jump, not a call.
+ *
+ * This is a place-holder. Possible future uses:
+ *  - Knowledge about values, e.g. minimum and maximum possible value, and
+ *    which bits are known to be set or clear.
+ *  - Knowledge about possible common sub-expressions, e.g. knowing that some
+ *    value is the difference of two other values.
+ *  - Knowledge about the cache state, e.g. that some value is the value of
+ *    some memory location, and whether it needs to be stored.
+ */
+#[derive(Debug, Clone)]
+pub struct Convention {
+    /** The values that are live on entry. */
+    pub live_values: Vec<Variable>,
+    /** The number of spill [`Slot`]s used by the `Convention`. */
+    pub slots_used: usize,
+}
+
+//-----------------------------------------------------------------------------
+
 /** Guard conditions used to define control flow. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum TestOp {

@@ -1,5 +1,4 @@
-use super::code::{self, Register, Action};
-use super::jit::{Convention};
+use super::code::{self, Register, Convention, Action};
 
 const NUM_REGISTERS: usize = super::target::x86_64::ALLOCATABLE_REGISTERS.len();
 

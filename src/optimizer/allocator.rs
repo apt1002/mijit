@@ -1,10 +1,10 @@
 use std::fmt::{self, Debug, Formatter};
 
-use super::{Convention, NUM_REGISTERS, all_registers, Schedule, RegisterPool};
+use super::{NUM_REGISTERS, all_registers, Schedule, RegisterPool};
 use super::dataflow::{Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::placer::{Time, LEAST as EARLY, Placer};
-use super::code::{Register, Variable};
+use super::code::{Register, Variable, Convention};
 use crate::util::{ArrayMap, map_filter_max};
 
 //-----------------------------------------------------------------------------

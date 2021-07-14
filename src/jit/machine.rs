@@ -1,7 +1,7 @@
 use indexmap::{IndexSet};
 
-use super::{code, target, engine, Convention};
-use code::{Action, TestOp, Machine, Precision, Global, Variable, FAST_VALUES};
+use super::{code, target, engine};
+use code::{Action, TestOp, Machine, Precision, Global, Variable, FAST_VALUES, Convention};
 use target::{Word, Target, STATE_INDEX};
 use engine::{Engine, Specialization};
 use Precision::*;

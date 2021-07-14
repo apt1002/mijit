@@ -1,8 +1,8 @@
 use std::collections::{HashMap};
 
-use super::{Convention, NUM_REGISTERS, all_registers, Op, moves};
+use super::{NUM_REGISTERS, all_registers, Op, moves};
 use super::dataflow::{Dataflow, Node, Out};
-use super::code::{Register, Slot, Variable, Action};
+use super::code::{Register, Slot, Variable, Convention, Action};
 use crate::util::{ArrayMap};
 
 /** The state of an algorithm that builds a list of [`Action`]s. */

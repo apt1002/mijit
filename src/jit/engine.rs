@@ -2,9 +2,9 @@ use std::num::{Wrapping};
 use std::ops::{Index, IndexMut};
 
 use crate::util::{AsUsize, ArrayMap};
-use super::{code, optimizer, Convention};
+use super::{code, optimizer};
 use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, STATE_INDEX};
-use code::{Action, TestOp, Precision, Global};
+use code::{Action, TestOp, Precision, Global, Convention};
 use Precision::*;
 
 /** Tracks the statistics for a [`Specialization`]. */
