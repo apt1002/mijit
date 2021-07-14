@@ -37,9 +37,9 @@ array_index! {
 #[derive(Debug)]
 struct Relatives {
     /** The fetch parent. `None` means the least specialization. */
-    pub _fetch_parent: Option<Specialization>,
+    pub fetch_parent: Option<Specialization>,
     /** The retire parent. `None` means the least specialization. */
-    pub _retire_parent: Option<Specialization>,
+    pub retire_parent: Option<Specialization>,
     /** The fetch children. */
     pub fetch_children: Vec<Specialization>,
     /** The retire children. */
@@ -49,7 +49,7 @@ struct Relatives {
 /** Tracks the code compiled for a [`Specialization`]. */
 struct Compiled {
     /** The test which must pass in order to execute `fetch`. */
-    pub _guard: (TestOp, Precision),
+    pub guard: (TestOp, Precision),
     /** The fetch code that was compiled for this specialization. */
     pub fetch_code: Box<[Action]>,
     /**
@@ -127,8 +127,8 @@ impl Internals {
             self[parent].relatives.retire_children.push(this);
         }
         let relatives = Relatives {
-            _fetch_parent: fetch_parent,
-            _retire_parent: retire_parent,
+            fetch_parent: fetch_parent,
+            retire_parent: retire_parent,
             fetch_children: Vec::new(),
             retire_children: Vec::new(),
         };
@@ -288,12 +288,12 @@ impl<T: Target> Engine<T> {
         retire_code: Box<[Action]>,
     ) -> Specialization {
         let compiled = Compiled {
-            _guard: guard,
-            fetch_code: fetch_code,
+            guard,
+            fetch_code,
             fetch_label: Label::new(None),
             convention,
             retire_label: Label::new(None),
-            retire_code: retire_code,
+            retire_code,
             retire_counter: self.lowerer.pool_mut().new_counter(),
             retire_threshold: Wrapping(0),
         };
@@ -359,6 +359,27 @@ impl<T: Target> Engine<T> {
         );
         self.increase_retire_threshold(this, DEFAULT_THRESHOLD_INCREMENT);
         this
+    }
+
+    /**
+     * Constructs a new [`Specialization`] that provides a code path from
+     * `fetch_parent` to `retire_parent` without going via their common parent.
+     */
+    #[allow(dead_code)]
+    pub fn specialize(
+        &mut self,
+        fetch_parent: Specialization,
+        retire_parent: Specialization,
+    ) -> Specialization {
+        assert_eq!(
+            self.internals[retire_parent].relatives.fetch_parent,
+            self.internals[fetch_parent].relatives.retire_parent,
+        );
+        let guard = self.internals[retire_parent].compiled.guard;
+        let mut actions: Vec<_> = Vec::new();
+        actions.extend(self.internals[fetch_parent].compiled.retire_code.iter().cloned());
+        actions.extend(self.internals[retire_parent].compiled.fetch_code.iter().cloned());
+        self.compile(fetch_parent, retire_parent, guard, &actions)
     }
 
     /**
