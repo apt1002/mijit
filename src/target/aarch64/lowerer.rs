@@ -2,7 +2,7 @@ use crate::util::{AsUsize};
 use super::{
     buffer, code,
     Patch, Label, Counter, Pool, STATE_INDEX,
-    Offset, Shift, Unsigned, LogicImmediate,
+    Offset, Shift, Unsigned,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
 };
@@ -12,7 +12,7 @@ use AddOp::*;
 use LogicOp::*;
 use ShiftOp::*;
 use buffer::{Buffer, Mmap};
-use code::{Precision, Action, TestOp, UnaryOp, BinaryOp, Width, Global, Slot, debug_word};
+use code::{Precision, Variable, Action, UnaryOp, BinaryOp, Width, Global, Slot, debug_word};
 use Precision::*;
 
 /** The [`Register`] used for the pool pointer. */
@@ -177,16 +177,6 @@ impl<B: Buffer> Lowerer<B> {
     /** Assemble `op` with no shift. */
     fn logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
         self.a.shift_logic(op, not, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
-    }
-
-    /** Apply `op` to `src` and `constant`. */
-    fn const_logic(&mut self, op: LogicOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: u64, temp: Register) {
-        if let Ok(imm) = LogicImmediate::new(prec, constant) {
-            self.a.const_logic(op, dest.into(), src.into(), imm);
-        } else {
-            self.a.const_(temp, constant);
-            self.logic(op, prec, false, dest, src, temp);
-        }
     }
 
     /** Move `src` to `dest` if they are different. */
@@ -395,61 +385,19 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         self.a.ret(RLR);
     }
 
-    fn test_op(
+    fn test_eq(
         &mut self,
-        guard: (TestOp, Precision),
+        guard: (Variable, u64),
         false_label: &mut Label,
     ) {
-        let (test_op, prec) = guard;
+        let (discriminant, value) = guard;
+        let discriminant = self.src_to_register(discriminant, TEMP0);
+        self.const_cmp(P64, discriminant, value as i64, TEMP1);
         // We can't assume a conditional branch can jump more than 1MB.
         // Therefore, conditionally branch past an unconditional branch.
         let skip = &mut Label::new(None);
-        match test_op {
-            TestOp::Bits(discriminant, mask, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_logic(AND, prec, TEMP0, discriminant, mask as u64, TEMP0);
-                self.const_cmp(prec, TEMP0, i64::from(value), TEMP1);
-                self.jump_if(Condition::EQ, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Lt(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::LT, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Ge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::GE, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Ult(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::CC, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Uge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::CS, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Eq(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::EQ, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Ne(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP0);
-                self.const_cmp(prec, discriminant, i64::from(value), TEMP1);
-                self.jump_if(Condition::NE, skip);
-                self.const_jump(false_label);
-            },
-            TestOp::Always => {},
-        };
+        self.jump_if(Condition::EQ, skip);
+        self.const_jump(false_label);
         self.define(skip);
     }
 

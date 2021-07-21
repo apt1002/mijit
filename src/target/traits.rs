@@ -1,5 +1,5 @@
 use super::{code, Counter, Word, Pool, Patch, Label};
-use code::{Precision, TestOp, Action};
+use code::{Variable, Action};
 
 /**
  * Wraps a contiguous block of executable memory, and provides methods for
@@ -22,7 +22,7 @@ pub trait Lower {
     /**
      * The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
      * by [`Push`] instructions and destroyed by [`Pop`] instructions. The
-     * number of spill slots at a `jump()` or `TestOp` must match the number at
+     * number of spill slots at a `jump()` or `Switch` must match the number at
      * its `Label`.
      *
      * Do not mutate the number of spill slots (other that using `Push` and
@@ -82,11 +82,11 @@ pub trait Lower {
     fn epilogue(&mut self);
 
     /**
-     * Assemble code that branches to `false_label` if `test_op` is false.
+     * Assemble code that branches to `false_label` if the equality test fails.
      */
-    fn test_op(
+    fn test_eq(
         &mut self,
-        guard: (TestOp, Precision),
+        guard: (Variable, u64),
         false_label: &mut Label,
     );
 

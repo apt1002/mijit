@@ -30,26 +30,20 @@ impl super::code::Machine for Machine {
 
     fn epilogue(&self) -> Vec<Action> { vec![] }
 
-    fn code(&self, state: Self::State) -> Vec<Case<Self::State>> {
+    fn code(&self, state: Self::State) -> Switch<Case<Self::State>> {
         match state {
-            State::Start => vec![
+            State::Start => Switch::always(
                 Case {
-                    condition: (TestOp::Always, P32),
                     actions: vec![
                         Constant(P32, R0, 1),
                         Move(reg::RESULT, R0.into()),
                     ],
                     new_state: State::Loop,
                 },
-            ],
-            State::Loop => vec![
+            ),
+            State::Loop => Switch::if_(
+                reg::N,
                 Case {
-                    condition: (TestOp::Eq(reg::N, 0), P32),
-                    actions: vec![],
-                    new_state: State::Return,
-                },
-                Case {
-                    condition: (TestOp::Ne(reg::N, 0), P32),
                     actions: vec![
                         Binary(Mul, P32, R0, reg::RESULT, reg::N),
                         Move(reg::RESULT, R0.into()),
@@ -59,8 +53,12 @@ impl super::code::Machine for Machine {
                     ],
                     new_state: State::Loop,
                 },
-            ],
-            State::Return => vec![],
+                Case {
+                    actions: vec![],
+                    new_state: State::Return,
+                },
+            ),
+            State::Return => Switch::Halt,
         }
     }
 

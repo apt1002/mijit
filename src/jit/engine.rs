@@ -4,7 +4,7 @@ use std::ops::{Index, IndexMut};
 use crate::util::{AsUsize, ArrayMap};
 use super::{code, optimizer};
 use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, STATE_INDEX};
-use code::{Action, TestOp, Precision, Global, Convention};
+use code::{Variable, Action, Precision, Global, Convention};
 use Precision::*;
 
 /** Tracks the statistics for a [`Specialization`]. */
@@ -48,8 +48,8 @@ struct Relatives {
 
 /** Tracks the code compiled for a [`Specialization`]. */
 struct Compiled {
-    /** The test which must pass in order to execute `fetch`. */
-    pub guard: (TestOp, Precision),
+    /** The equality test which must pass in order to execute `fetch`. */
+    pub guard: Option<(Variable, u64)>,
     /** The fetch code that was compiled for this specialization. */
     pub fetch_code: Box<[Action]>,
     /**
@@ -282,7 +282,7 @@ impl<T: Target> Engine<T> {
         &mut self,
         fetch_parent: Option<Specialization>,
         retire_parent: Option<Specialization>,
-        guard: (TestOp, Precision),
+        guard: Option<(Variable, u64)>,
         fetch_code: Box<[Action]>,
         convention: Convention,
         retire_code: Box<[Action]>,
@@ -303,7 +303,9 @@ impl<T: Target> Engine<T> {
         // Compile `guard`.
         let if_fail = self.internals.retire_label_mut(fetch_parent);
         lo.steal(if_fail, &mut lo.here());
-        lo.test_op(guard, if_fail);
+        if let Some(guard) = guard {
+            lo.test_eq(guard, if_fail);
+        }
         { // Lifetime of `compiled` (can't touch `self.internals`).
             let compiled = &mut self.internals[this].compiled;
             // Compile `fetch_code`.
@@ -329,7 +331,7 @@ impl<T: Target> Engine<T> {
 
     /**
      * Compile code for a new [`Specialization`].
-     *  - `guard` - the boolean test which distinguishes the new
+     *  - `guard` - the equality test which distinguishes the new
      *    `Specialization` from its fetch parent. The new `Specialization` will
      *    be reached only if its fetch parent is reached and `test_op` passes.
      *  - `actions` - the code that must be executed before retiring to the
@@ -340,7 +342,7 @@ impl<T: Target> Engine<T> {
         &mut self,
         fetch_parent: Specialization,
         retire_parent: Specialization,
-        guard: (TestOp, Precision),
+        guard: Option<(Variable, u64)>,
         actions: &[Action],
     ) -> Specialization {
         let fetch_code = optimizer::optimize(

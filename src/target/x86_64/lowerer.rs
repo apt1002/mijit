@@ -6,7 +6,7 @@ use super::{
     CALLEE_SAVES, ARGUMENTS, RESULTS,
 };
 use buffer::{Buffer, Mmap};
-use code::{Precision, Action, TestOp, Global, Slot};
+use code::{Precision, Variable, Action, Global, Slot};
 use Register::*;
 use Precision::*;
 use BinaryOp::*;
@@ -502,51 +502,15 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         self.a.ret();
     }
 
-    fn test_op(
+    fn test_eq(
         &mut self,
-        guard: (code::TestOp, Precision),
+        guard: (Variable, u64),
         false_label: &mut Label,
     ) {
-        let (test_op, prec) = guard;
-        match test_op {
-            TestOp::Bits(discriminant, mask, value) => {
-                self.const_(prec, TEMP, i64::from(mask));
-                self.value_op(And, prec, TEMP, discriminant);
-                self.const_op(Cmp, prec, TEMP, value);
-                self.jump_if(Condition::NZ, false_label);
-            },
-            TestOp::Lt(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::GE, false_label);
-            },
-            TestOp::Ge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::L, false_label);
-            },
-            TestOp::Ult(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::AE, false_label);
-            },
-            TestOp::Uge(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::B, false_label);
-            },
-            TestOp::Eq(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::NZ, false_label);
-            },
-            TestOp::Ne(discriminant, value) => {
-                let discriminant = self.src_to_register(discriminant, TEMP);
-                self.const_op(Cmp, prec, discriminant, value);
-                self.jump_if(Condition::Z, false_label);
-            },
-            TestOp::Always => {},
-        };
+        let (discriminant, value) = guard;
+        self.const_(P64, TEMP, value as i64);
+        self.value_op(Cmp, P64, TEMP, discriminant);
+        self.jump_if(Condition::NZ, false_label);
     }
 
     fn action(

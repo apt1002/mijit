@@ -1,7 +1,7 @@
 use indexmap::{IndexSet};
 
 use super::{code, target, engine};
-use code::{Action, TestOp, Machine, Precision, Global, Variable, FAST_VALUES, Convention};
+use code::{Action, Switch, Machine, Precision, Global, Variable, FAST_VALUES, Convention};
 use target::{Word, Target, STATE_INDEX};
 use engine::{Engine, Specialization};
 use Precision::*;
@@ -43,10 +43,20 @@ impl<M: Machine, T: Target> Jit<M, T> {
         }
         let mut done = 0;
         while let Some(old_state) = jit.states.get_index(done).cloned() {
-            let cases = jit.machine.code(old_state.clone());
-            for case in cases {
-                jit.ensure_root(case.new_state.clone());
-                jit.compile(&old_state, case.condition, &case.actions, &case.new_state);
+            match jit.machine.code(old_state.clone()) {
+                Switch::Index {discriminant, cases, default_} => {
+                    for (index, case) in cases.iter().enumerate() {
+                        jit.ensure_root(case.new_state.clone());
+                        let guard = (discriminant, index as u64);
+                        jit.compile(&old_state, Some(guard), &case.actions, &case.new_state);
+                    }
+                    jit.compile(&old_state, None, &default_.actions, &default_.new_state);
+                },
+                Switch::Always(case) => {
+                    jit.ensure_root(case.new_state.clone());
+                    jit.compile(&old_state, None, &case.actions, &case.new_state);
+                },
+                Switch::Halt => {},
             }
             done += 1;
         }
@@ -86,7 +96,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
             self.roots.push(self.engine.compile_inner(
                 None,
                 None,
-                (TestOp::Eq(STATE_INDEX.into(), index as i32), P32),
+                Some((STATE_INDEX.into(), index as u64)),
                 fetch_code.into(),
                 Convention {live_values, slots_used},
                 retire_code.into(),
@@ -101,7 +111,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
     pub fn compile(
         &mut self,
         old_state: &M::State,
-        guard: (TestOp, Precision),
+        guard: Option<(Variable, u64)>,
         actions: &[Action],
         new_state: &M::State,
     ) -> Specialization {

@@ -214,20 +214,6 @@ pub struct Convention {
 
 //-----------------------------------------------------------------------------
 
-/** Guard conditions used to define control flow. */
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum TestOp {
-    // TODO: These constants should probably be 64-bit.
-    Bits(Variable, i32, i32),
-    Lt(Variable, i32),
-    Ge(Variable, i32),
-    Ult(Variable, i32),
-    Uge(Variable, i32),
-    Eq(Variable, i32),
-    Ne(Variable, i32),
-    Always,
-}
-
 /** Unary arithmetic operations. */
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
@@ -361,15 +347,40 @@ pub enum Action {
 }
 
 pub struct Case<S> {
-    /**
-     * When to use the transition. Mijit selects the first transition with a
-     * true condition.
-     */
-    pub condition: (TestOp, Precision),
     /** Code to execute when the transition is selected. */
     pub actions: Vec<Action>,
     /** The destination state. */
     pub new_state: S,
+}
+
+pub enum Switch<C> {
+    /**
+     * If `discriminant` is `i` and `i < cases.len()` choose `cases[i]`.
+     * Otherwise choose `default_`.
+     */
+    Index {
+        discriminant: Variable,
+        cases: Box<[C]>,
+        default_: C,
+    },
+    /** Always does the same thing. */
+    Always(C),
+    /** Exit Mijit. */
+    Halt,
+}
+
+impl<C> Switch<C> {
+    pub fn new(discriminant: Variable, cases: Box<[C]>, default_: C) -> Self {
+        Self::Index {discriminant, cases, default_}
+    }
+
+    pub fn if_(condition: Variable, if_true: C, if_false: C) -> Self {
+        Self::new(condition, Box::new([if_false]), if_true)
+    }
+
+    pub fn always(default_: C) -> Self {
+        Self::Always(default_)
+    }
 }
 
 pub trait Machine: Debug {
@@ -414,7 +425,7 @@ pub trait Machine: Debug {
      *  - state - the source State.
      * Returns a [`Case`] for each transition from `state`.
      */
-    fn code(&self, state: Self::State) -> Vec<Case<Self::State>>;
+    fn code(&self, state: Self::State) -> Switch<Case<Self::State>>;
 
     /** Returns some States from which all others are reachable. */
     fn initial_states(&self) -> Vec<Self::State>;
