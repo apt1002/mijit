@@ -1,9 +1,9 @@
-use super::{code, target, optimizer};
+use super::{code, target};
 
 mod engine;
 
-mod machine;
-pub use machine::{Jit};
+//mod machine;
+//pub use machine::{Jit};
 
 #[cfg(test)]
 pub mod factorial;
