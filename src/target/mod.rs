@@ -13,11 +13,10 @@ pub mod x86_64;
 pub mod aarch64;
 
 /**
- * The [`Register`] which holds the state index on entry and exit from Mijit.
+ * The [`Register`] which holds the exit code on exit from Mijit.
  * This is guaranteed to be [`REGISTERS`][[`0`]].
  */
-// TODO: Somehow hide the state index from this module, and delete this.
-pub const STATE_INDEX: code::Register = code::REGISTERS[0];
+pub const RESULT: code::Register = code::REGISTERS[0];
 
 /** A [`Target`] that generates code which can be executed. */
 pub fn native() -> impl Target {
@@ -70,7 +69,7 @@ mod tests {
                 self.lowerer.pool_mut()[Global(i)] = global;
             }
             let (lowerer, observed_result) = self.lowerer.execute(&self.entry, |f, pool| {
-                f(pool.as_mut().as_mut_ptr(), Word {u: 0})
+                f(pool.as_mut().as_mut_ptr())
             }).expect("Couldn't change permissions");
             self.lowerer = lowerer;
             if observed_result != expected_result {

@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{
     buffer, code,
-    Patch, Label, Counter, Pool, STATE_INDEX,
+    Patch, Label, Counter, Pool, RESULT,
     Offset, Shift, Unsigned,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
@@ -373,11 +373,10 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             self.a.push(rs[0], rs[1]);
         }
         self.move_(POOL, ARGUMENTS[0]);
-        self.move_(STATE_INDEX, ARGUMENTS[1]);
     }
 
     fn epilogue(&mut self) {
-        self.move_(RESULTS[0], STATE_INDEX);
+        self.move_(RESULTS[0], RESULT);
         for rs in CALLEE_SAVES.chunks(2) {
             self.a.pop(rs[0], rs[1]);
         }

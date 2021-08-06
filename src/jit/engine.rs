@@ -104,7 +104,7 @@ impl<T: Target> Engine<T> {
         let (lowerer, ret) = self.lowerer.execute(label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
             // Here is a good place to set a gdb breakpoint.
-            f(pool, Word {u: 0})
+            f(pool)
         })?;
         self.lowerer = lowerer;
         Ok((self, ret))

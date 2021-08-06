@@ -69,15 +69,14 @@ pub trait Lower {
     fn jump(&mut self, label: &mut Label);
 
     /**
-     * Assemble Mijit's function prologue. The function takes two arguments:
+     * Assemble Mijit's function prologue. The function takes one argument:
      *  - The pool pointer.
-     *  - The state index, which is moved to `STATE_INDEX`.
      */
     fn prologue(&mut self);
 
     /**
      * Assemble Mijit's function epilogue. The function returns one result:
-     *  - The state index, which is moved from `STATE_INDEX`.
+     *  - The exit code, which is moved from `RESULT`.
      */
     fn epilogue(&mut self);
 
@@ -104,7 +103,6 @@ pub trait Lower {
 /** The type of the generated code. */
 pub type ExecuteFn = extern "C" fn(
     /* pool */ *mut Word,
-    /* argument */ Word,
 ) -> /* result */ Word;
 
 /** Add to [`Lower`] the ability to execute the compiled code. */
@@ -114,9 +112,11 @@ pub trait Execute: Sized + Lower {
      * the words of the [`Pool`] to `callback`, then make the memory writeable
      * (and not executable) again.
      *
+     * `callback` is typically something like
+     * `|f, pool| f(pool.as_mut().as_mut_ptr())`.
+     *
      * If we can't change the memory permissions, you get an [`Err`] and `self`
-     * is gone. `T` can itself be a [`Result`] if necessary to represent errors
-     * returned by `callback`.
+     * is gone.
      */
     fn execute<T>(
         self,

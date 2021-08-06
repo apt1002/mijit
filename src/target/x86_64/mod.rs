@@ -1,4 +1,4 @@
-use super::{buffer, code, Patch, Label, Counter, Word, Pool, Lower, ExecuteFn, Execute, STATE_INDEX};
+use super::{buffer, code, Patch, Label, Counter, Word, Pool, Lower, ExecuteFn, Execute, RESULT};
 use buffer::{Mmap};
 
 mod enums;
