@@ -208,6 +208,7 @@ pub struct Case<S> {
     pub new_state: S,
 }
 
+#[derive(Debug, Clone)]
 pub enum Switch<C> {
     /**
      * If `discriminant` is `i` and `i < cases.len()` choose `cases[i]`.
@@ -235,6 +236,20 @@ impl<C> Switch<C> {
 
     pub fn always(default_: C) -> Self {
         Self::Always(default_)
+    }
+
+    /** Apply `callback` to every `C` and return a fresh `Switch`. */
+    pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Switch<D> {
+        match self {
+            Switch::Index {discriminant, cases, default_} => {
+                let discriminant = discriminant.clone();
+                let cases = cases.iter().map(&mut callback).collect();
+                let default_ = callback(&default_);
+                Switch::Index {discriminant, cases, default_}
+            },
+            Switch::Always(case) => Switch::Always(callback(&case)),
+            Switch::Halt => Switch::Halt,
+        }
     }
 }
 
@@ -270,7 +285,7 @@ pub trait Machine: Debug {
      * [`Global`]s.
      *
      * On entry, it gets all [`Variable`]s that are live in any [`State`];
-     * those that are dead are set to a dummy value (0xdeaddeaddeaddead).
+     * those that are dead are set to a dummy value (`0xdeaddeaddeaddead`).
      * On exit only the `Global`s are live.
      */
     fn epilogue(&self) -> Vec<Action>;
