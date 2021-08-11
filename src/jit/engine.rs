@@ -112,9 +112,9 @@ pub struct Engine<T: Target> {
 impl<T: Target> Engine<T> {
     /**
      * Constructs an `Engine`, initially with no [`Entry`]s.
-     *  - num_globals - the number of `Global`s needed to pass values to and
+     *  - num_globals - the number of [`Global`]s needed to pass values to and
      *    from the compiled code.
-     *  - num_slots - the number of `Slot`s that are live at every `Entry`.
+     *  - num_slots - the number of [`Slot`]s that are live at every `Entry`.
      *    Must be even.
      *  - prologue - executed on every entry to the compiled code.
      *  - epilogue - executed on every exit from the compiled code.
@@ -165,7 +165,7 @@ impl<T: Target> Engine<T> {
         id
     }
 
-    /** Mutate a `Case` from a `Retire` into a `Fetch`. */
+    /** Mutate a [`Case`] from a [`Retire`] into a [`Fetch`]. */
     fn replace(&mut self, id: CaseId, fetch_code: Box<[Action]>, switch: Switch<CaseId>) {
         let lo = &mut self.lowerer;
         let case = &mut self.internals[id];
@@ -194,9 +194,9 @@ impl<T: Target> Engine<T> {
     }
 
     /**
-     * Construct an [`Entry`] to this `Engine`. Initially, the code at the
+     * Construct an [`Entry`] to this [`Engine`]. Initially, the code at the
      * `Entry` will immediately return `exit_value`. To change this behaviour,
-     * use `define()`.
+     * use [`define()`].
      */
     pub fn new_entry(&mut self, exit_value: i64) -> Entry {
         assert!(exit_value >= 0);
@@ -226,8 +226,8 @@ impl<T: Target> Engine<T> {
     }
 
     /**
-     * Replace the code at `Entry` such that it executes `actions` and then
-     * jumps to the `Entry` selected by `switch`. Each `Entry` may only be
+     * Replace the code at `entry` such that it executes `actions` and then
+     * jumps to the [`Entry`] selected by `switch`. Each `Entry` may only be
      * defined once.
      */
     pub fn define(&mut self, entry: &Entry, actions: Box<[Action]>, switch: &Switch<&Entry>) {
@@ -237,8 +237,9 @@ impl<T: Target> Engine<T> {
     }
 
     /**
-     * Returns a copy of the hot path starting at `id` up to the next `Switch`.
-     * Returns `None` if the hot path exits Mijit without reaching a `Switch`.
+     * Returns a copy of the hot path starting at `id` up to the next
+     * [`Switch`]. Returns `None` if the hot path exits Mijit without reaching
+     * a `Switch`.
      */
     fn hot_path(&self, mut id: CaseId) -> Option<(Vec<Action>, Switch<CaseId>)> {
         let mut code = Vec::new();
@@ -262,7 +263,7 @@ impl<T: Target> Engine<T> {
     }
 
     /**
-     * Find the hot path starting at `id`, which must be a `Retire`.
+     * Find the hot path starting at `id`, which must be a [`Retire`].
      * Clone it, optimize it, and replace `id` with a [`Fetch`].
      */
     // TODO: Make private. Revealing it suppresses several "unused" warnings.
@@ -280,7 +281,7 @@ impl<T: Target> Engine<T> {
     }
 
     /**
-     * Call the compiled code starting at `entry`, passing the `Pool`.
+     * Call the compiled code starting at `entry`, passing the [`Pool`].
      *
      * # Safety
      *
