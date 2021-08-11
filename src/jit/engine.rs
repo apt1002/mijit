@@ -21,7 +21,7 @@ enum Junction {
     /** Not yet specialized. Count, and retire to another [`Case`]. */
     Retire {
         /** The profiling [`Counter`] to increment. */
-        counter: Counter,
+        _counter: Counter,
         /** The code to run. */
         retire_code: Box<[Action]>,
         /** The [`Case`] to jump to. `None` means the root. */
@@ -50,6 +50,7 @@ struct Case {
 //-----------------------------------------------------------------------------
 
 /** An entry point into the compiled code. */
+#[derive(Debug)]
 pub struct Entry {
     label: Label,
     case: CaseId,
@@ -159,9 +160,37 @@ impl<T: Target> Engine<T> {
         let id = CaseId::new(self.internals.cases.len()).unwrap();
         self.internals.cases.push(Case {
             label,
-            junction: Retire {counter, retire_code, jump}
+            junction: Retire {_counter: counter, retire_code, jump}
         });
         id
+    }
+
+    /** Mutate a `Case` from a `Retire` into a `Fetch`. */
+    fn replace(&mut self, id: CaseId, fetch_code: Box<[Action]>, switch: Switch<CaseId>) {
+        let lo = &mut self.lowerer;
+        let case = &mut self.internals[id];
+        // Intercept all jumps to `id`.
+        let mut here = lo.here();
+        lo.steal(&mut case.label, &mut here);
+        case.label = here;
+        // Compile `fetch_code`.
+        for &action in fetch_code.iter() {
+            lo.action(action);
+        }
+        // Compile `switch`.
+        match switch {
+            Switch::Index {discriminant, ref cases, default_} => {
+                for (index, &case) in cases.iter().enumerate() {
+                    lo.test_eq((discriminant, index as u64), &mut self.internals[case].label);
+                }
+                lo.jump(&mut self.internals[default_].label);
+            },
+            Switch::Always(jump) => {
+                lo.jump(&mut self.internals[jump].label);
+            },
+            Switch::Halt => panic!("FIXME"),
+        }
+        self.internals[id].junction = Fetch {fetch_code, switch};
     }
 
     /**
@@ -192,7 +221,7 @@ impl<T: Target> Engine<T> {
     }
 
     /** Tests whether [`define(entry, ...)`] has been called. */
-    pub fn is_defined(&self, entry: Entry) -> bool {
+    pub fn is_defined(&self, entry: &Entry) -> bool {
         matches!(self.internals[entry.case].junction, Fetch {..})
     }
 
@@ -201,8 +230,53 @@ impl<T: Target> Engine<T> {
      * jumps to the `Entry` selected by `switch`. Each `Entry` may only be
      * defined once.
      */
-    pub fn define(&mut self, entry: Entry, actions: Box<[Action]>, switch: Switch<Entry>) {
+    pub fn define(&mut self, entry: &Entry, actions: Box<[Action]>, switch: &Switch<&Entry>) {
         assert!(!self.is_defined(entry));
+        let switch = switch.map(|entry2: &&Entry| self.new_case(Box::new([]), Some(entry2.case)));
+        self.replace(entry.case, actions, switch);
+    }
+
+    /**
+     * Returns a copy of the hot path starting at `id` up to the next `Switch`.
+     * Returns `None` if the hot path exits Mijit without reaching a `Switch`.
+     */
+    fn hot_path(&self, mut id: CaseId) -> Option<(Vec<Action>, Switch<CaseId>)> {
+        let mut code = Vec::new();
+        loop {
+            match self.internals[id].junction {
+                Retire {jump, ref retire_code, ..} => {
+                    code.extend(retire_code.iter().cloned());
+                    if let Some(jump) = jump {
+                        id = jump;
+                    } else {
+                        return None;
+                    }
+                },
+                Fetch {ref fetch_code, ref switch, ..} => {
+                    code.extend(fetch_code.iter().cloned());
+                    let switch: Switch<CaseId> = switch.clone();
+                    return Some((code, switch));
+                },
+            }
+        }
+    }
+
+    /**
+     * Find the hot path starting at `id`, which must be a `Retire`.
+     * Clone it, optimize it, and replace `id` with a [`Fetch`].
+     */
+    // TODO: Make private. Revealing it suppresses several "unused" warnings.
+    pub fn specialize(&mut self, id: CaseId) {
+        assert!(matches!(self.internals[id].junction, Retire {..}));
+        if let Some((code, switch)) = self.hot_path(id) {
+            // TODO: Optimize.
+            let fetch_code = code.into_boxed_slice();
+            let retire_code = Box::new([]);
+            // Clone `retire_code` into every `Case` of the `Switch`.
+            let switch = switch.map(|&jump| self.new_case(retire_code.clone(), Some(jump)));
+            // Replace the `Retire` with a `Fetch`.
+            self.replace(id, fetch_code, switch);
+        }
     }
 
     /**
@@ -213,7 +287,7 @@ impl<T: Target> Engine<T> {
      * This will crash if the code is compiled for the wrong [`Target`] or if
      * the code returned by the [`Machine`] is invalid.
      */
-    pub unsafe fn run(mut self, entry: Entry) -> std::io::Result<(Self, Word)> {
+    pub unsafe fn run(mut self, entry: &Entry) -> std::io::Result<(Self, Word)> {
         let (lowerer, ret) = self.lowerer.execute(&entry.label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
             // Here is a good place to set a gdb breakpoint.
