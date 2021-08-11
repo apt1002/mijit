@@ -1,5 +1,6 @@
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
+use std::iter::{FromIterator};
 use std::marker::{PhantomData};
 
 /**
@@ -20,10 +21,6 @@ pub struct ArrayMap<K: AsUsize, V>(
 );
 
 impl<K: AsUsize, V> ArrayMap<K, V> {
-    pub fn from_iter(iter: impl IntoIterator<Item=V>) -> Self {
-        ArrayMap(iter.into_iter().collect(), PhantomData)
-    }
-
     pub fn new_with(length: usize, f: impl Fn() -> V) -> Self {
         Self::from_iter((0..length).map(|_| f()))
     }
@@ -61,8 +58,10 @@ impl<'a, K: AsUsize, V> IntoIterator for &'a mut ArrayMap<K, V> {
     fn into_iter(self) -> Self::IntoIter { self.iter_mut() }
 }
 
-impl<K: AsUsize, V> std::iter::FromIterator<V> for ArrayMap<K, V> {
-    fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self { Self::from_iter(iter) }
+impl<K: AsUsize, V> FromIterator<V> for ArrayMap<K, V> {
+    fn from_iter<T: IntoIterator<Item=V>>(iter: T) -> Self {
+        ArrayMap(iter.into_iter().collect(), PhantomData)
+    }
 }
 
 impl<K: AsUsize, V> AsRef<[V]> for ArrayMap<K, V> {
