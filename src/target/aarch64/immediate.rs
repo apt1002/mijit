@@ -27,6 +27,10 @@ impl Offset {
 
 // ----------------------------------------------------------------------------
 
+/** Shift amount out of range. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct ShiftError;
+
 /**
  * Represents a [`Precision`] and an amount to shift by.
  * The shift amount is between `0` and `31` inclusive for `P32`, and between
@@ -36,10 +40,10 @@ impl Offset {
 pub struct Shift {prec: Precision, amount: u32}
 
 impl Shift {
-    pub const fn new(prec: Precision, amount: u64) -> Result<Self, ()> {
+    pub const fn new(prec: Precision, amount: u64) -> Result<Self, ShiftError> {
         let num_bits = 5 + (prec as usize);
         let limit = 1 << num_bits;
-        if amount >= limit { return Err(()); }
+        if amount >= limit { return Err(ShiftError); }
         Ok(Self {prec: prec, amount: amount as u32})
     }
 
@@ -50,15 +54,19 @@ impl Shift {
 
 // ----------------------------------------------------------------------------
 
+/** Unsigned amount out of range. */
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct UnsignedError;
+
 /** Represents an unsigned `N`-bit integer. */
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Unsigned<const N: usize>(u32);
 
 impl<const N: usize> Unsigned<N> {
-    pub fn new(value: u64) -> Result<Self, ()> {
+    pub fn new(value: u64) -> Result<Self, UnsignedError> {
         let _ = 32 - N; // Static assertion: N <= 32.
         let limit = 1 << N;
-        if value >= limit { return Err(()); }
+        if value >= limit { return Err(UnsignedError); }
         Ok(Self(value as u32))
     }
 
