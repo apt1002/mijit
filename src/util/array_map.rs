@@ -22,7 +22,7 @@ pub struct ArrayMap<K: AsUsize, V>(
 
 impl<K: AsUsize, V> ArrayMap<K, V> {
     pub fn new_with(length: usize, f: impl Fn() -> V) -> Self {
-        Self::from_iter((0..length).map(|_| f()))
+        (0..length).map(|_| f()).collect()
     }
 
     pub fn new(length: usize) -> Self where V: Default {
