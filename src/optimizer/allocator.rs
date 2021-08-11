@@ -157,9 +157,6 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /** Returns the next [`Node`] in the [`Schedule`] */
-    pub fn next(&mut self) -> Option<Node> { self.schedule.next() }
-
     /** Called for each [`Node`] in the [`Schedule`] in forwards order. */
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.schedule.dataflow;
@@ -219,4 +216,12 @@ impl<'a> Allocator<'a> {
         let allocation = self.outs.iter().map(|info| info.reg).collect();
         (instructions, allocation)
     }
+}
+
+impl<'a> std::iter::Iterator for Allocator<'a> {
+    type Item = Node;
+
+    fn next(&mut self) -> Option<Self::Item> { self.schedule.next() }
+
+    fn size_hint(&self) -> (usize, Option<usize>) { self.schedule.size_hint() }
 }
