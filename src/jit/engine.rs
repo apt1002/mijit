@@ -145,9 +145,7 @@ impl<T: Target> Engine<T> {
         let counter = lo.pool_mut().new_counter();
         lo.count(counter);
         // Compile `retire_code`.
-        for &action in retire_code.iter() {
-            lo.action(action);
-        }
+        lo.actions(&*retire_code);
         // Compile the jump to `jump`.
         if let Some(jump) = jump {
             // Jump to a non-root `Case`.
@@ -174,9 +172,7 @@ impl<T: Target> Engine<T> {
         lo.steal(&mut case.label, &mut here);
         case.label = here;
         // Compile `fetch_code`.
-        for &action in fetch_code.iter() {
-            lo.action(action);
-        }
+        lo.actions(&*fetch_code);
         // Compile `switch`.
         match switch {
             Switch::Index {discriminant, ref cases, default_} => {
@@ -207,9 +203,7 @@ impl<T: Target> Engine<T> {
         for _ in 0..(self.num_slots >> 1) {
             lo.action(Action::Push(None, None));
         }
-        for &action in self.prologue.iter() {
-            lo.action(action);
-        }
+        lo.actions(&*self.prologue);
         // Compile the epilogue.
         let mut retire_code = Vec::new();
         retire_code.extend(self.epilogue.iter().cloned());

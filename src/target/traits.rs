@@ -98,10 +98,15 @@ pub trait Lower {
         ne_label: &mut Label,
     );
 
-    /**
-     * Assemble code to perform the given `action`.
-     */
+    /** Assemble code to perform the given `action`. */
     fn action(&mut self, action: Action);
+
+    /** Call `action()` repeatedly. */
+    fn actions(&mut self, actions: &[Action]) {
+        for &action in actions {
+            self.action(action);
+        }
+    }
 
     /** Assemble code to increment the given `counter`. */
     fn count(&mut self, counter: Counter);
