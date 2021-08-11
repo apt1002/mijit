@@ -544,21 +544,43 @@ mod tests {
 
     // TestOps.
 
+    const TRUE: u64 = !0;
+    const FALSE: u64 = 0;
+
     #[test]
-    fn eq_test() {
+    fn if_eq() {
         for y in TEST_VALUES {
             let mut vm = VM::new(native(), 1, |lo| {
                 let mut else_ = Label::new(None);
                 let mut endif = Label::new(None);
-                lo.test_eq((Global(0).into(), y), &mut else_);
-                lo.action(Constant(P64, R0, !0));
+                lo.if_eq((Global(0).into(), y), &mut else_);
+                lo.action(Constant(P64, R0, FALSE as i64));
                 lo.jump(&mut endif);
                 lo.define(&mut else_);
-                lo.action(Constant(P64, R0, 0));
+                lo.action(Constant(P64, R0, TRUE as i64));
                 lo.define(&mut endif);
             });
             for x in TEST_VALUES {
-                vm = vm.run(&[Word {u: x}], Word {u: if x == y { !0 } else { 0 }});
+                vm = vm.run(&[Word {u: x}], Word {u: if x == y { TRUE } else { FALSE }});
+            }
+        }
+    }
+
+    #[test]
+    fn if_ne() {
+        for y in TEST_VALUES {
+            let mut vm = VM::new(native(), 1, |lo| {
+                let mut else_ = Label::new(None);
+                let mut endif = Label::new(None);
+                lo.if_ne((Global(0).into(), y), &mut else_);
+                lo.action(Constant(P64, R0, FALSE as i64));
+                lo.jump(&mut endif);
+                lo.define(&mut else_);
+                lo.action(Constant(P64, R0, TRUE as i64));
+                lo.define(&mut endif);
+            });
+            for x in TEST_VALUES {
+                vm = vm.run(&[Word {u: x}], Word {u: if x != y { TRUE } else { FALSE }});
             }
         }
     }

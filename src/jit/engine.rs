@@ -181,7 +181,7 @@ impl<T: Target> Engine<T> {
         match switch {
             Switch::Index {discriminant, ref cases, default_} => {
                 for (index, &case) in cases.iter().enumerate() {
-                    lo.test_eq((discriminant, index as u64), &mut self.internals[case].label);
+                    lo.if_eq((discriminant, index as u64), &mut self.internals[case].label);
                 }
                 lo.jump(&mut self.internals[default_].label);
             },

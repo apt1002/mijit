@@ -81,12 +81,21 @@ pub trait Lower {
     fn epilogue(&mut self);
 
     /**
-     * Assemble code that branches to `false_label` if the equality test fails.
+     * Assemble code that branches to `eq_label` if the equality test passes.
      */
-    fn test_eq(
+    fn if_eq(
         &mut self,
         guard: (Variable, u64),
-        false_label: &mut Label,
+        eq_label: &mut Label,
+    );
+
+    /**
+     * Assemble code that branches to `ne_label` if the equality test fails.
+     */
+    fn if_ne(
+        &mut self,
+        guard: (Variable, u64),
+        ne_label: &mut Label,
     );
 
     /**

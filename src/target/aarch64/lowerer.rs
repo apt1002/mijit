@@ -384,10 +384,26 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         self.a.ret(RLR);
     }
 
-    fn test_eq(
+    fn if_eq(
         &mut self,
         guard: (Variable, u64),
-        false_label: &mut Label,
+        eq_label: &mut Label,
+    ) {
+        let (discriminant, value) = guard;
+        let discriminant = self.src_to_register(discriminant, TEMP0);
+        self.const_cmp(P64, discriminant, value as i64, TEMP1);
+        // We can't assume a conditional branch can jump more than 1MB.
+        // Therefore, conditionally branch past an unconditional branch.
+        let skip = &mut Label::new(None);
+        self.jump_if(Condition::NE, skip);
+        self.const_jump(eq_label);
+        self.define(skip);
+    }
+
+    fn if_ne(
+        &mut self,
+        guard: (Variable, u64),
+        ne_label: &mut Label,
     ) {
         let (discriminant, value) = guard;
         let discriminant = self.src_to_register(discriminant, TEMP0);
@@ -396,7 +412,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         // Therefore, conditionally branch past an unconditional branch.
         let skip = &mut Label::new(None);
         self.jump_if(Condition::EQ, skip);
-        self.const_jump(false_label);
+        self.const_jump(ne_label);
         self.define(skip);
     }
 

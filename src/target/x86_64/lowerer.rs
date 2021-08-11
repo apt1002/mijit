@@ -501,15 +501,26 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         self.a.ret();
     }
 
-    fn test_eq(
+    fn if_ne(
         &mut self,
         guard: (Variable, u64),
-        false_label: &mut Label,
+        ne_label: &mut Label,
     ) {
         let (discriminant, value) = guard;
         self.const_(P64, TEMP, value as i64);
         self.value_op(Cmp, P64, TEMP, discriminant);
-        self.jump_if(Condition::NZ, false_label);
+        self.jump_if(Condition::NZ, ne_label);
+    }
+
+    fn if_eq(
+        &mut self,
+        guard: (Variable, u64),
+        eq_label: &mut Label,
+    ) {
+        let (discriminant, value) = guard;
+        self.const_(P64, TEMP, value as i64);
+        self.value_op(Cmp, P64, TEMP, discriminant);
+        self.jump_if(Condition::Z, eq_label);
     }
 
     fn action(
