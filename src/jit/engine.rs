@@ -246,7 +246,7 @@ impl<T: Target> Engine<T> {
         loop {
             match self.internals[id].junction {
                 Retire {jump, ref retire_code, ..} => {
-                    code.extend(retire_code.iter().cloned());
+                    code.extend(retire_code.iter().copied());
                     if let Some(jump) = jump {
                         id = jump;
                     } else {
@@ -254,7 +254,7 @@ impl<T: Target> Engine<T> {
                     }
                 },
                 Fetch {ref fetch_code, ref switch, ..} => {
-                    code.extend(fetch_code.iter().cloned());
+                    code.extend(fetch_code.iter().copied());
                     let switch: Switch<CaseId> = switch.clone();
                     return Some((code, switch));
                 },
