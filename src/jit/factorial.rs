@@ -6,7 +6,10 @@ use Precision::*;
 const R0: Register = REGISTERS[0];
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum State {Start, Loop, Return}
+pub enum State {Start, Loop}
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum Trap {Halt}
 
 pub mod reg {
     use super::{Global, Variable};
@@ -19,6 +22,7 @@ pub struct Machine;
 
 impl super::code::Machine for Machine {
     type State = State;
+    type Trap = Trap;
 
     fn num_globals(&self) -> usize { 2 } // reg::N and reg::RESULT
 
@@ -30,7 +34,7 @@ impl super::code::Machine for Machine {
 
     fn epilogue(&self) -> Vec<Action> { vec![] }
 
-    fn code(&self, state: Self::State) -> Switch<Case<Self::State>> {
+    fn code(&self, state: Self::State) -> Switch<Case<Result<Self::State, Self::Trap>>> {
         match state {
             State::Start => Switch::always(
                 Case {
@@ -38,7 +42,7 @@ impl super::code::Machine for Machine {
                         Constant(P32, R0, 1),
                         Move(reg::RESULT, R0.into()),
                     ],
-                    new_state: State::Loop,
+                    new_state: Ok(State::Loop),
                 },
             ),
             State::Loop => Switch::if_(
@@ -51,14 +55,13 @@ impl super::code::Machine for Machine {
                         Binary(Sub, P32, R0, reg::N, R0.into()),
                         Move(reg::N, R0.into()),
                     ],
-                    new_state: State::Loop,
+                    new_state: Ok(State::Loop),
                 },
                 Case {
                     actions: vec![],
-                    new_state: State::Return,
+                    new_state: Err(Trap::Halt),
                 },
             ),
-            State::Return => Switch::Halt,
         }
     }
 

@@ -64,6 +64,9 @@ pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
 
+    /** A reason for exiting the finite state machine. */
+    type Trap: Debug + Clone + Hash + Eq;
+
     /** The number of [`Global`]s used by this Machine. */
     fn num_globals(&self) -> usize;
 
@@ -102,7 +105,7 @@ pub trait Machine: Debug {
      *  - state - the source State.
      * Returns a [`Case`] for each transition from `state`.
      */
-    fn code(&self, state: Self::State) -> Switch<Case<Self::State>>;
+    fn code(&self, state: Self::State) -> Switch<Case<Result<Self::State, Self::Trap>>>;
 
     /** Returns some States from which all others are reachable. */
     fn initial_states(&self) -> Vec<Self::State>;

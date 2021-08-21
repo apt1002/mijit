@@ -210,7 +210,6 @@ impl<T: Target> Engine<T> {
             Switch::Always(jump) => {
                 lo.jump(&mut self.internals[jump].label);
             },
-            Switch::Halt => panic!("FIXME"),
         }
         self.internals[id].junction = Fetch {fetch_code, switch};
     }

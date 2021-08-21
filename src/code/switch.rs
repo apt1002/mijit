@@ -23,8 +23,6 @@ pub enum Switch<C> {
     },
     /** Always does the same thing. */
     Always(C),
-    /** Exit Mijit. */
-    Halt,
 }
 
 impl<C> Switch<C> {
@@ -50,7 +48,6 @@ impl<C> Switch<C> {
                 Switch::Index {discriminant, cases, default_}
             },
             Switch::Always(case) => Switch::Always(callback(&case)),
-            Switch::Halt => Switch::Halt,
         }
     }
 }
