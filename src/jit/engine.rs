@@ -49,6 +49,16 @@ struct Case {
 
 //-----------------------------------------------------------------------------
 
+// EntryId.
+array_index! {
+    /** Identifies an entry point of an [`Engine`]. */
+    #[derive(Copy, Clone, Hash, PartialEq, Eq)]
+    pub struct EntryId(std::num::NonZeroUsize) {
+        debug_name: "EntryId",
+        UInt: usize,
+    }
+}
+
 /** An entry point into the compiled code. */
 #[derive(Debug)]
 pub struct Entry {
@@ -68,9 +78,16 @@ struct Internals {
      * Indexed by [`CaseId`].
      */
     cases: Vec<Case>,
+    /** Indexed by `EntryId`. */
+    entries: Vec<Entry>,
 }
 
 impl Internals {
+    fn new_entry(&mut self, label: Label, case: CaseId) -> EntryId {
+        let index = self.entries.len();
+        self.entries.push(Entry {label, case});
+        EntryId::new(index).unwrap()
+    }
 }
 
 impl Index<CaseId> for Internals {
@@ -84,6 +101,14 @@ impl Index<CaseId> for Internals {
 impl IndexMut<CaseId> for Internals {
     fn index_mut(&mut self, id: CaseId) -> &mut Self::Output {
         &mut self.cases[id.as_usize()]
+    }
+}
+
+impl Index<EntryId> for Internals {
+    type Output = Entry;
+
+    fn index(&self, entry: EntryId) -> &Self::Output {
+        &self.entries[entry.as_usize()]
     }
 }
 
@@ -111,7 +136,7 @@ pub struct Engine<T: Target> {
 
 impl<T: Target> Engine<T> {
     /**
-     * Constructs an `Engine`, initially with no [`Entry`]s.
+     * Constructs an `Engine`, initially with no entries.
      *  - num_globals - the number of [`Global`]s needed to pass values to and
      *    from the compiled code.
      *  - num_slots - the number of [`Slot`]s that are live at every `Entry`.
@@ -125,6 +150,7 @@ impl<T: Target> Engine<T> {
         let lowerer = target.lowerer(pool);
         let internals = Internals {
             cases: Vec::new(),
+            entries: Vec::new(),
         };
         Engine {_target: target, num_slots, prologue, epilogue, lowerer, internals}
     }
@@ -190,11 +216,11 @@ impl<T: Target> Engine<T> {
     }
 
     /**
-     * Construct an [`Entry`] to this [`Engine`]. Initially, the code at the
-     * `Entry` will immediately return `exit_value`. To change this behaviour,
+     * Construct an entry to this [`Engine`]. Initially, the code at the
+     * entry will immediately return `exit_value`. To change this behaviour,
      * use [`define()`].
      */
-    pub fn new_entry(&mut self, exit_value: i64) -> Entry {
+    pub fn new_entry(&mut self, exit_value: i64) -> EntryId {
         assert!(exit_value >= 0);
         let lo = &mut self.lowerer;
         // Compile the prologue.
@@ -211,23 +237,26 @@ impl<T: Target> Engine<T> {
         retire_code.push(Action::Constant(P64, RESULT, exit_value));
         let case = self.new_case(retire_code.into(), None);
         // Return.
-        Entry {label, case}
+        self.internals.new_entry(label, case)
     }
 
     /** Tests whether [`define(entry, ...)`] has been called. */
-    pub fn is_defined(&self, entry: &Entry) -> bool {
-        matches!(self.internals[entry.case].junction, Fetch {..})
+    pub fn is_defined(&self, entry: EntryId) -> bool {
+        matches!(self.internals[self.internals[entry].case].junction, Fetch {..})
     }
 
     /**
      * Replace the code at `entry` such that it executes `actions` and then
-     * jumps to the [`Entry`] selected by `switch`. Each `Entry` may only be
-     * defined once.
+     * jumps to the [`EntryId`] selected by `switch`. Each `EntryId` may only
+     * be defined once.
      */
-    pub fn define(&mut self, entry: &Entry, actions: Box<[Action]>, switch: &Switch<&Entry>) {
+    pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
         assert!(!self.is_defined(entry));
-        let switch = switch.map(|entry2: &&Entry| self.new_case(Box::new([]), Some(entry2.case)));
-        self.replace(entry.case, actions, switch);
+        let switch = switch.map(|&e: &EntryId| self.new_case(
+            Box::new([]),
+            Some(self.internals[e].case),
+        ));
+        self.replace(self.internals[entry].case, actions, switch);
     }
 
     /**
@@ -282,8 +311,9 @@ impl<T: Target> Engine<T> {
      * This will crash if the code is compiled for the wrong [`Target`] or if
      * the code returned by the [`Machine`] is invalid.
      */
-    pub unsafe fn run(mut self, entry: &Entry) -> std::io::Result<(Self, Word)> {
-        let (lowerer, ret) = self.lowerer.execute(&entry.label, |f, pool| {
+    pub unsafe fn run(mut self, entry: EntryId) -> std::io::Result<(Self, Word)> {
+        let label = &self.internals[entry].label;
+        let (lowerer, ret) = self.lowerer.execute(label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
             // Here is a good place to set a gdb breakpoint.
             f(pool)
