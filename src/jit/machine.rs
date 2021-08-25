@@ -1,7 +1,7 @@
 use indexmap::{IndexSet};
 
 use super::{code, target, engine};
-use code::{Action, Switch, Machine, Precision, Global, Variable, FAST_VALUES, Convention};
+use code::{Action, Switch, Machine, Precision, Global, Variable, FAST_VARIABLES, Convention};
 use target::{Word, Target, STATE_INDEX};
 use engine::{Engine, Specialization};
 use Precision::*;
@@ -79,9 +79,9 @@ impl<M: Machine, T: Target> Jit<M, T> {
         if self.states.insert(state.clone()) {
             // Make a new root `Specialization`.
             let mask = self.machine.liveness_mask(state);
-            let live_values: Vec<Variable> = (0..FAST_VALUES.len())
+            let live_values: Vec<Variable> = (0..FAST_VARIABLES.len())
                 .filter(|i| (mask & (1 << i)) != 0)
-                .map(|i| FAST_VALUES[i])
+                .map(|i| FAST_VARIABLES[i])
                 .chain((0..self.machine.num_globals()).map(|i| Global(i).into()))
                 .collect();
             let slots_used = self.machine.num_slots();

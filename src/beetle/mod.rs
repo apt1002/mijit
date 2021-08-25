@@ -6,7 +6,7 @@ use super::target::{Target, Word};
 use super::{jit};
 use super::code::{
     self, Switch, Precision, UnaryOp, BinaryOp, Width,
-    Global, Register, Variable, IntoVariable, REGISTERS, FAST_VALUES, Action, Case,
+    Global, Register, Variable, IntoVariable, REGISTERS, FAST_VARIABLES, Action, Case,
 };
 use Precision::*;
 use UnaryOp::*;
@@ -234,16 +234,16 @@ const R3: Register = REGISTERS[3];
 const R4: Register = REGISTERS[4];
 const R5: Register = REGISTERS[5];
 
-const BEP: Variable = FAST_VALUES[6];
-const BA: Variable = FAST_VALUES[7];
-const BSP: Variable = FAST_VALUES[8];
-const BRP: Variable = FAST_VALUES[9];
-const MEMORY: Variable = FAST_VALUES[10];
-const OPCODE: Variable = FAST_VALUES[11];
-const STACK0: Variable = FAST_VALUES[12];
-const STACK1: Variable = FAST_VALUES[13];
-const LOOP_NEW: Variable = FAST_VALUES[14];
-const LOOP_OLD: Variable = FAST_VALUES[15];
+const BEP: Variable = FAST_VARIABLES[6];
+const BA: Variable = FAST_VARIABLES[7];
+const BSP: Variable = FAST_VARIABLES[8];
+const BRP: Variable = FAST_VARIABLES[9];
+const MEMORY: Variable = FAST_VARIABLES[10];
+const OPCODE: Variable = FAST_VARIABLES[11];
+const STACK0: Variable = FAST_VARIABLES[12];
+const STACK1: Variable = FAST_VARIABLES[13];
+const LOOP_NEW: Variable = FAST_VARIABLES[14];
+const LOOP_OLD: Variable = FAST_VARIABLES[15];
 
 //-----------------------------------------------------------------------------
 
