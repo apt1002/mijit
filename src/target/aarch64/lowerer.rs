@@ -354,7 +354,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn pool_mut(&mut self) -> &mut Pool { &mut self.pool }
 
-    fn slots_used(&mut self) -> &mut usize { &mut self.slots_used }
+    fn slots_used_mut(&mut self) -> &mut usize { &mut self.slots_used }
 
     fn here(&self) -> Label { Label::new(Some(self.a.get_pos())) }
 
@@ -453,11 +453,11 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Push(src1, src2) => {
                 let src1 = src1.map_or(RZR, |src1| self.src_to_register(src1, TEMP0));
                 let src2 = src2.map_or(RZR, |src2| self.src_to_register(src2, TEMP1));
-                *self.slots_used() += 2;
+                *self.slots_used_mut() += 2;
                 self.a.push(src1, src2);
             },
             Action::Pop(dest1, dest2) => {
-                assert!(*self.slots_used() >= 2);
+                assert!(*self.slots_used_mut() >= 2);
                 if dest1.is_none() && dest2.is_none() {
                     self.a.const_add(ADD, P64, RSP, RSP, Unsigned::new(16).unwrap());
                 } else {
@@ -465,12 +465,12 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                     let dest2 = dest2.map_or(RZR, Register::from);
                     self.a.pop(dest1, dest2);
                 }
-                *self.slots_used() -= 2;
+                *self.slots_used_mut() -= 2;
             },
             Action::DropMany(n) => {
-                assert!(*self.slots_used() >= 2 * n);
+                assert!(*self.slots_used_mut() >= 2 * n);
                 self.a.const_add(ADD, P64, RSP, RSP, Unsigned::new(n as u64 * 16).expect("Dropped too many"));
-                *self.slots_used() -= 2 * n;
+                *self.slots_used_mut() -= 2 * n;
             },
             Action::Debug(x) => {
                 for rs in CALLER_SAVES.chunks(2).rev() {

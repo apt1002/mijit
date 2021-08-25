@@ -466,7 +466,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn pool_mut(&mut self) -> &mut Pool { &mut self.pool }
 
-    fn slots_used(&mut self) -> &mut usize { &mut self.slots_used }
+    fn slots_used_mut(&mut self) -> &mut usize { &mut self.slots_used }
 
     fn here(&self) -> Label { Label::new(Some(self.a.get_pos())) }
 
@@ -579,10 +579,10 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                         self.a.const_op(BinaryOp::Sub, P64, RSP, 16);
                     },
                 }
-                *self.slots_used() += 2;
+                *self.slots_used_mut() += 2;
             },
             Action::Pop(dest1, dest2) => {
-                assert!(*self.slots_used() >= 2);
+                assert!(*self.slots_used_mut() >= 2);
                 match (dest1, dest2) {
                     (Some(dest1), Some(dest2)) => {
                         self.a.pop(dest1.into());
@@ -600,12 +600,12 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                         self.a.const_op(BinaryOp::Add, P64, RSP, 16);
                     },
                 }
-                *self.slots_used() -= 2;
+                *self.slots_used_mut() -= 2;
             },
             Action::DropMany(n) => {
-                assert!(*self.slots_used() >= n);
+                assert!(*self.slots_used_mut() >= n);
                 self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 16);
-                *self.slots_used() -= 2 * n;
+                *self.slots_used_mut() -= 2 * n;
             },
             Action::Debug(x) => {
                 let x = self.src_to_register(x, TEMP);

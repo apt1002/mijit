@@ -145,21 +145,21 @@ mod tests {
     fn push_pop() {
         test_unary(
             |lo| {
-                assert_eq!(*lo.slots_used(), 0);
+                assert_eq!(*lo.slots_used_mut(), 0);
                 lo.action(Push(None, Some(Global(0).into())));
-                assert_eq!(*lo.slots_used(), 2);
+                assert_eq!(*lo.slots_used_mut(), 2);
                 lo.action(Pop(None, Some(R0.into())));
-                assert_eq!(*lo.slots_used(), 0);
+                assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
         );
         test_unary(
             |lo| {
-                assert_eq!(*lo.slots_used(), 0);
+                assert_eq!(*lo.slots_used_mut(), 0);
                 lo.action(Push(Some(Global(0).into()), None));
-                assert_eq!(*lo.slots_used(), 2);
+                assert_eq!(*lo.slots_used_mut(), 2);
                 lo.action(Pop(Some(R0.into()), None));
-                assert_eq!(*lo.slots_used(), 0);
+                assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
         );
@@ -169,21 +169,21 @@ mod tests {
     fn drop_many() {
         test_unary(
             |lo| {
-                assert_eq!(*lo.slots_used(), 0);
+                assert_eq!(*lo.slots_used_mut(), 0);
                 lo.action(Push(None, None));
-                assert_eq!(*lo.slots_used(), 2);
+                assert_eq!(*lo.slots_used_mut(), 2);
                 lo.action(Push(None, Some(Global(0).into())));
-                assert_eq!(*lo.slots_used(), 4);
+                assert_eq!(*lo.slots_used_mut(), 4);
                 lo.action(Push(None, None));
-                assert_eq!(*lo.slots_used(), 6);
+                assert_eq!(*lo.slots_used_mut(), 6);
                 lo.action(Push(None, None));
-                assert_eq!(*lo.slots_used(), 8);
+                assert_eq!(*lo.slots_used_mut(), 8);
                 lo.action(DropMany(2));
-                assert_eq!(*lo.slots_used(), 4);
+                assert_eq!(*lo.slots_used_mut(), 4);
                 lo.action(Pop(None, Some(R0.into())));
-                assert_eq!(*lo.slots_used(), 2);
+                assert_eq!(*lo.slots_used_mut(), 2);
                 lo.action(DropMany(1));
-                assert_eq!(*lo.slots_used(), 0);
+                assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
         );

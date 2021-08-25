@@ -31,7 +31,7 @@ pub trait Lower {
      * [`Push`]: Action::Push
      * [`Pop`]: Action::Pop
      */
-    fn slots_used(&mut self) -> &mut usize;
+    fn slots_used_mut(&mut self) -> &mut usize;
 
     /** Returns the current assembly address as a fresh [`Label`]. */
     fn here(&self) -> Label;

@@ -299,7 +299,7 @@ impl<T: Target> Engine<T> {
         };
         let this = self.internals.new_specialization(fetch_parent, retire_parent, compiled);
         let lo = &mut self.lowerer;
-        *lo.slots_used() = self.internals.slots_used(fetch_parent);
+        *lo.slots_used_mut() = self.internals.slots_used(fetch_parent);
         // Compile `guard`.
         let if_fail = self.internals.retire_label_mut(fetch_parent);
         lo.steal(if_fail, &mut lo.here());
@@ -315,7 +315,7 @@ impl<T: Target> Engine<T> {
             lo.define(&mut compiled.fetch_label);
             lo.jump(&mut compiled.retire_label);
             // Compile `retire_code`.
-            assert_eq!(*lo.slots_used(), compiled.convention.slots_used);
+            assert_eq!(*lo.slots_used_mut(), compiled.convention.slots_used);
             lo.define(&mut compiled.retire_label);
             // TODO: Optimize the case where `retire_code` is empty.
             // The preceding jump should jump straight to `retire_parent`.
@@ -325,7 +325,7 @@ impl<T: Target> Engine<T> {
             lo.count(compiled.retire_counter);
         }
         lo.jump(self.internals.fetch_label_mut(retire_parent));
-        assert_eq!(*lo.slots_used(), self.internals.slots_used(retire_parent));
+        assert_eq!(*lo.slots_used_mut(), self.internals.slots_used(retire_parent));
         this
     }
 
