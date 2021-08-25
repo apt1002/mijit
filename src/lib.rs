@@ -9,7 +9,7 @@ pub mod optimizer;
 
 pub mod jit;
 
-//pub mod beetle;
+pub mod beetle;
 
 pub mod buffer;
 

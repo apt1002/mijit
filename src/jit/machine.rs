@@ -88,7 +88,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
         }).collect();
 
         // Make and define an `EntryId` for each `Trap`.
-        // Also, make a `Switch<EntryId>` for each `Trao`.
+        // Also, make a `Switch<EntryId>` for each `Trap`.
         let trap_infos: Vec<_> = (0..trap_index.len() as i64).map(|exit_value| {
             assert!(exit_value < NOT_IMPLEMENTED);
             let entry = engine.new_entry(
