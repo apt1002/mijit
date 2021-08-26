@@ -24,6 +24,9 @@ use std::hash::{Hash};
 mod variable;
 pub use variable::{Register, REGISTERS, Global, Slot, Variable, IntoVariable, FAST_VARIABLES};
 
+mod switch;
+pub use switch::{Case, Switch};
+
 // Not currently used. Planned for #11.
 pub mod clock;
 
@@ -199,58 +202,6 @@ pub enum Action {
     DropMany(usize),
     /// Pass `src` to [`debug_word()`].
     Debug(Variable),
-}
-
-pub struct Case<S> {
-    /** Code to execute when the transition is selected. */
-    pub actions: Vec<Action>,
-    /** The destination state. */
-    pub new_state: S,
-}
-
-#[derive(Debug, Clone)]
-pub enum Switch<C> {
-    /**
-     * If `discriminant` is `i` and `i < cases.len()` choose `cases[i]`.
-     * Otherwise choose `default_`.
-     */
-    Index {
-        discriminant: Variable,
-        cases: Box<[C]>,
-        default_: C,
-    },
-    /** Always does the same thing. */
-    Always(C),
-    /** Exit Mijit. */
-    Halt,
-}
-
-impl<C> Switch<C> {
-    pub fn new(discriminant: Variable, cases: Box<[C]>, default_: C) -> Self {
-        Self::Index {discriminant, cases, default_}
-    }
-
-    pub fn if_(condition: Variable, if_true: C, if_false: C) -> Self {
-        Self::new(condition, Box::new([if_false]), if_true)
-    }
-
-    pub fn always(default_: C) -> Self {
-        Self::Always(default_)
-    }
-
-    /** Apply `callback` to every `C` and return a fresh `Switch`. */
-    pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Switch<D> {
-        match self {
-            Switch::Index {discriminant, cases, default_} => {
-                let discriminant = discriminant.clone();
-                let cases = cases.iter().map(&mut callback).collect();
-                let default_ = callback(&default_);
-                Switch::Index {discriminant, cases, default_}
-            },
-            Switch::Always(case) => Switch::Always(callback(&case)),
-            Switch::Halt => Switch::Halt,
-        }
-    }
 }
 
 pub trait Machine: Debug {
