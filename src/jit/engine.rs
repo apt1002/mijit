@@ -43,6 +43,7 @@ use Junction::*;
  * See "doc/engine/structure.md".
  */
 struct Case {
+    _fetch_parent: Option<CaseId>,
     label: Label,
     junction: Junction,
 }
@@ -161,7 +162,7 @@ impl<T: Target> Engine<T> {
     }
 
     /** Construct a fresh [`Case`] which retires to `jump`. */
-    fn new_case(&mut self, retire_code: Box<[Action]>, jump: Option<CaseId>) -> CaseId {
+    fn new_case(&mut self, _fetch_parent: Option<CaseId>, retire_code: Box<[Action]>, jump: Option<CaseId>) -> CaseId {
         let lo = &mut self.lowerer;
         // Compile the mutable jump.
         let mut label = Label::new(None);
@@ -183,6 +184,7 @@ impl<T: Target> Engine<T> {
         // Record details in a `Case` and return its `CaseId`.
         let id = CaseId::new(self.internals.cases.len()).unwrap();
         self.internals.cases.push(Case {
+            _fetch_parent,
             label,
             junction: Retire {_counter: counter, retire_code, jump}
         });
@@ -234,7 +236,7 @@ impl<T: Target> Engine<T> {
         retire_code.extend(self.epilogue.iter().cloned());
         retire_code.push(Action::DropMany(self.num_slots >> 1));
         retire_code.push(Action::Constant(P64, RESULT, exit_value));
-        let case = self.new_case(retire_code.into(), None);
+        let case = self.new_case(None, retire_code.into(), None);
         // Return.
         self.internals.new_entry(label, case)
     }
@@ -252,6 +254,7 @@ impl<T: Target> Engine<T> {
     pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
         assert!(!self.is_defined(entry));
         let switch = switch.map(|&e: &EntryId| self.new_case(
+            Some(self.internals[entry].case),
             Box::new([]),
             Some(self.internals[e].case),
         ));
@@ -296,7 +299,7 @@ impl<T: Target> Engine<T> {
             let fetch_code = code.into_boxed_slice();
             let retire_code = Box::new([]);
             // Clone `retire_code` into every `Case` of the `Switch`.
-            let switch = switch.map(|&jump| self.new_case(retire_code.clone(), Some(jump)));
+            let switch = switch.map(|&jump| self.new_case(Some(id), retire_code.clone(), Some(jump)));
             // Replace the `Retire` with a `Fetch`.
             self.replace(id, fetch_code, switch);
         }
