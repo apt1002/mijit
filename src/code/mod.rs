@@ -81,6 +81,8 @@ pub trait Machine: Debug {
      *
      * The bits correspond to members of [`FAST_VARIABLES`].
      */
+    // TODO: Just return a `Convention`.
+    // The bitmask and `FAST_VARIABLES` are unnecessary complexity.
     fn liveness_mask(&self, state: Self::State) -> u64;
 
     /**

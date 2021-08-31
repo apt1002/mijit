@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use crate::util::{AsUsize};
 use super::{code};
 use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, RESULT};
-use code::{Precision, Global, Switch, Action};
+use code::{Precision, Global, Switch, Action, Convention};
 use Precision::*;
 
 // CaseId.
@@ -44,6 +44,7 @@ use Junction::*;
  */
 struct Case {
     _fetch_parent: Option<CaseId>,
+    convention: Convention,
     label: Label,
     junction: Junction,
 }
@@ -123,11 +124,11 @@ impl Index<EntryId> for Internals {
 pub struct Engine<T: Target> {
     /** The compilation target. */
     _target: T,
-    /** The number of [`Slot`]s at every [`Entry`]'s `Case`. */
-    num_slots: usize,
-    /** Executed on entry. */
+    /** The [`Convention`] at every [`Entry`]'s `Case`. */
+    convention: Convention,
+    /** Executed on entry. The [`Convention`] afterwards is `convention`. */
     prologue: Box<[Action]>,
-    /** Executed on exit. */
+    /** Executed on exit. The [`Convention`] beforehand is `convention`. */
     epilogue: Box<[Action]>,
     /** The code compiled so far. */
     lowerer: T::Lowerer,
@@ -140,20 +141,20 @@ impl<T: Target> Engine<T> {
      * Constructs an `Engine`, initially with no entries.
      *  - num_globals - the number of [`Global`]s needed to pass values to and
      *    from the compiled code.
-     *  - num_slots - the number of [`Slot`]s that are live at every `Entry`.
-     *    Must be even.
+     *  - convention - the [`Convention`] used after `prologue` and before
+     *    `epilogue`.
      *  - prologue - executed on every entry to the compiled code.
      *  - epilogue - executed on every exit from the compiled code.
      */
-    pub fn new(target: T, num_globals: usize, num_slots: usize, prologue: Box<[Action]>, epilogue: Box<[Action]>) -> Self {
-        assert_eq!(num_slots & 1, 0);
+    pub fn new(target: T, num_globals: usize, convention: Convention, prologue: Box<[Action]>, epilogue: Box<[Action]>) -> Self {
+        assert_eq!(convention.slots_used & 1, 0);
         let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool);
         let internals = Internals {
             cases: Vec::new(),
             entries: Vec::new(),
         };
-        Engine {_target: target, num_slots, prologue, epilogue, lowerer, internals}
+        Engine {_target: target, convention, prologue, epilogue, lowerer, internals}
     }
 
     /** Borrows the value of variable `global`. */
@@ -162,7 +163,7 @@ impl<T: Target> Engine<T> {
     }
 
     /** Construct a fresh [`Case`] which retires to `jump`. */
-    fn new_case(&mut self, _fetch_parent: Option<CaseId>, retire_code: Box<[Action]>, jump: Option<CaseId>) -> CaseId {
+    fn new_case(&mut self, _fetch_parent: Option<CaseId>, convention: Convention, retire_code: Box<[Action]>, jump: Option<CaseId>) -> CaseId {
         let lo = &mut self.lowerer;
         // Compile the mutable jump.
         let mut label = Label::new(None);
@@ -185,6 +186,7 @@ impl<T: Target> Engine<T> {
         let id = CaseId::new(self.internals.cases.len()).unwrap();
         self.internals.cases.push(Case {
             _fetch_parent,
+            convention,
             label,
             junction: Retire {_counter: counter, retire_code, jump}
         });
@@ -227,16 +229,16 @@ impl<T: Target> Engine<T> {
         // Compile the prologue.
         let label = lo.here();
         lo.prologue();
-        for _ in 0..(self.num_slots >> 1) {
+        for _ in 0..(self.convention.slots_used >> 1) {
             lo.action(Action::Push(None, None));
         }
         lo.actions(&*self.prologue);
         // Compile the epilogue.
         let mut retire_code = Vec::new();
         retire_code.extend(self.epilogue.iter().cloned());
-        retire_code.push(Action::DropMany(self.num_slots >> 1));
+        retire_code.push(Action::DropMany(self.convention.slots_used >> 1));
         retire_code.push(Action::Constant(P64, RESULT, exit_value));
-        let case = self.new_case(None, retire_code.into(), None);
+        let case = self.new_case(None, self.convention.clone(), retire_code.into(), None);
         // Return.
         self.internals.new_entry(label, case)
     }
@@ -253,11 +255,15 @@ impl<T: Target> Engine<T> {
      */
     pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
         assert!(!self.is_defined(entry));
-        let switch = switch.map(|&e: &EntryId| self.new_case(
-            Some(self.internals[entry].case),
-            Box::new([]),
-            Some(self.internals[e].case),
-        ));
+        let switch = switch.map(|&e: &EntryId| {
+            let case_id = self.internals[e].case;
+            self.new_case(
+                Some(self.internals[entry].case),
+                self.internals[case_id].convention.clone(),
+                Box::new([]),
+                Some(case_id),
+            )
+        });
         self.replace(self.internals[entry].case, actions, switch);
     }
 
@@ -280,8 +286,7 @@ impl<T: Target> Engine<T> {
                 },
                 Fetch {ref fetch_code, ref switch, ..} => {
                     code.extend(fetch_code.iter().copied());
-                    let switch: Switch<CaseId> = switch.clone();
-                    return Some((code, switch));
+                    return Some((code, switch.clone()));
                 },
             }
         }
@@ -297,9 +302,14 @@ impl<T: Target> Engine<T> {
         if let Some((code, switch)) = self.hot_path(id) {
             // TODO: Optimize.
             let fetch_code = code.into_boxed_slice();
-            let retire_code = Box::new([]);
-            // Clone `retire_code` into every `Case` of the `Switch`.
-            let switch = switch.map(|&jump| self.new_case(Some(id), retire_code.clone(), Some(jump)));
+            let switch = switch.map(|&jump| {
+                self.new_case(
+                    Some(id),
+                    self.internals[jump].convention.clone(),
+                    Box::new([]),
+                    Some(jump),
+                )
+            });
             // Replace the `Retire` with a `Fetch`.
             self.replace(id, fetch_code, switch);
         }

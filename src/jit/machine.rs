@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 use indexmap::{IndexSet};
 
 use super::{code, target, engine};
-use code::{Case, Switch, Machine, Global};
+use code::{Case, Switch, Machine, REGISTERS, Global, Slot, Variable, Convention};
 use target::{Word, Target};
 use engine::{Engine, EntryId};
 
@@ -22,10 +22,16 @@ pub struct Jit<M: Machine, T: Target> {
 impl<M: Machine, T: Target> Jit<M, T> {
     pub fn new(machine: M, target: T) -> Self {
         // Construct the `Engine`.
+        let num_globals = machine.num_globals();
+        let slots_used = machine.num_slots();
+        let mut live_values = Vec::new();
+        live_values.extend(REGISTERS.iter().map(|&r| Variable::from(r)));
+        live_values.extend((0..slots_used).map(|s| Variable::from(Slot(s))));
+        live_values.extend((0..num_globals).map(|g| Variable::from(Global(g))));
         let mut engine = Engine::new(
             target,
-            machine.num_globals(),
-            machine.num_slots(),
+            num_globals,
+            Convention {live_values, slots_used},
             machine.prologue().into(),
             machine.epilogue().into(),
         );
