@@ -124,12 +124,6 @@ impl Index<EntryId> for Internals {
 pub struct Engine<T: Target> {
     /** The compilation target. */
     _target: T,
-    /** The [`Convention`] at every [`Entry`]'s `Case`. */
-    convention: Convention,
-    /** Executed on entry. The [`Convention`] afterwards is `convention`. */
-    prologue: Box<[Action]>,
-    /** Executed on exit. The [`Convention`] beforehand is `convention`. */
-    epilogue: Box<[Action]>,
     /** The code compiled so far. */
     lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
@@ -141,20 +135,15 @@ impl<T: Target> Engine<T> {
      * Constructs an `Engine`, initially with no entries.
      *  - num_globals - the number of [`Global`]s needed to pass values to and
      *    from the compiled code.
-     *  - convention - the [`Convention`] used after `prologue` and before
-     *    `epilogue`.
-     *  - prologue - executed on every entry to the compiled code.
-     *  - epilogue - executed on every exit from the compiled code.
      */
-    pub fn new(target: T, num_globals: usize, convention: Convention, prologue: Box<[Action]>, epilogue: Box<[Action]>) -> Self {
-        assert_eq!(convention.slots_used & 1, 0);
+    pub fn new(target: T, num_globals: usize) -> Self {
         let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool);
         let internals = Internals {
             cases: Vec::new(),
             entries: Vec::new(),
         };
-        Engine {_target: target, convention, prologue, epilogue, lowerer, internals}
+        Engine {_target: target, lowerer, internals}
     }
 
     /** Borrows the value of variable `global`. */
@@ -222,23 +211,30 @@ impl<T: Target> Engine<T> {
      * Construct an entry to this [`Engine`]. Initially, the code at the
      * entry will immediately return `exit_value`. To change this behaviour,
      * use [`define()`].
+     *
+     *  - prologue - executed on every entry to the compiled code.
+     *  - convention - the [`Convention`] used after `prologue` and before
+     *    `epilogue`.
+     *  - epilogue - executed on every exit from the compiled code.
+     *  - exit_value - returned to the caller on exit. Must be non-negative.
      */
-    pub fn new_entry(&mut self, exit_value: i64) -> EntryId {
+    pub fn new_entry(&mut self, prologue: Box<[Action]>, convention: Convention, epilogue: Box<[Action]>, exit_value: i64) -> EntryId {
+        assert_eq!(convention.slots_used & 1, 0);
         assert!(exit_value >= 0);
         let lo = &mut self.lowerer;
         // Compile the prologue.
         let label = lo.here();
         lo.prologue();
-        for _ in 0..(self.convention.slots_used >> 1) {
+        for _ in 0..(convention.slots_used >> 1) {
             lo.action(Action::Push(None, None));
         }
-        lo.actions(&*self.prologue);
+        lo.actions(&prologue);
         // Compile the epilogue.
         let mut retire_code = Vec::new();
-        retire_code.extend(self.epilogue.iter().cloned());
-        retire_code.push(Action::DropMany(self.convention.slots_used >> 1));
+        retire_code.extend(epilogue.iter().cloned());
+        retire_code.push(Action::DropMany(convention.slots_used >> 1));
         retire_code.push(Action::Constant(P64, RESULT, exit_value));
-        let case = self.new_case(None, self.convention.clone(), retire_code.into(), None);
+        let case = self.new_case(None, convention, retire_code.into(), None);
         // Return.
         self.internals.new_entry(label, case)
     }
