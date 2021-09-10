@@ -44,10 +44,10 @@ impl<C> Switch<C> {
             Switch::Index {discriminant, cases, default_} => {
                 let discriminant = *discriminant;
                 let cases = cases.iter().map(&mut callback).collect();
-                let default_ = callback(&default_);
+                let default_ = callback(default_);
                 Switch::Index {discriminant, cases, default_}
             },
-            Switch::Always(case) => Switch::Always(callback(&case)),
+            Switch::Always(case) => Switch::Always(callback(case)),
         }
     }
 }

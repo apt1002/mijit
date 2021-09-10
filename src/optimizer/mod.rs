@@ -51,7 +51,7 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
     for action in actions {
         simulation.action(action);
     }
-    let (dataflow, exit_node) = simulation.finish(&after);
+    let (dataflow, exit_node) = simulation.finish(after);
     // Make an initial [`Schedule`].
     let nodes: Vec<_> = dataflow.all_nodes().collect(); // TODO.
     assert_eq!(dataflow.entry_node(), nodes[0]);
