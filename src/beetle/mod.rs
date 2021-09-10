@@ -114,7 +114,7 @@ impl<T: Target> VM<T> {
         return_cells: u32,
     ) -> Self {
         let mut vm = VM {
-            jit: jit::Jit::new(Machine, target),
+            jit: jit::Jit::new(&Machine, target),
             state: AllRegisters::default(),
             memory: vec![0; memory_cells as usize],
             free_cells: memory_cells,

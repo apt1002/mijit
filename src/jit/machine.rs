@@ -20,7 +20,7 @@ pub struct Jit<M: Machine, T: Target> {
 }
 
 impl<M: Machine, T: Target> Jit<M, T> {
-    pub fn new(machine: M, target: T) -> Self {
+    pub fn new(machine: &M, target: T) -> Self {
         // Construct the `Engine`.
         let num_globals = machine.num_globals();
         let mut engine = Engine::new(target, num_globals);
@@ -170,7 +170,7 @@ pub mod tests {
         use State::*;
         use Trap::*;
 
-        let mut jit = Jit::new(Machine, native());
+        let mut jit = Jit::new(&Machine, native());
 
         // Check the `states` list.
         assert_eq!(jit.states.len(), 2); // Start, Loop.
