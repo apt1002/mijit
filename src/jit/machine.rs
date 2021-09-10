@@ -39,7 +39,11 @@ impl<M: Machine, T: Target> Jit<M, T> {
         // Make an `EntryId` for each `Case`.
         let mut state_index = IndexSet::new();
         let mut trap_index = IndexSet::new();
-        let mut switches: Vec<Switch<(Case<Result<M::State, M::Trap>>, EntryId)>> = Vec::new();
+        struct CaseAndEntry<M: Machine> {
+            case: Case<Result<M::State, M::Trap>>,
+            entry: EntryId,
+        }
+        let mut switches: Vec<Switch<CaseAndEntry<M>>> = Vec::new();
         state_index.extend(machine.initial_states());
         while let Some(old_state) = state_index.get_index(switches.len()) {
             let liveness_mask = machine.liveness_mask(old_state.clone());
@@ -64,7 +68,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
                     epilogue.clone(),
                     NOT_IMPLEMENTED,
                 );
-                (case.clone(), entry)
+                CaseAndEntry {case: case.clone(), entry: entry}
             });
             switches.push(switch);
         }
@@ -78,7 +82,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
                 Box::new([]),
                 NOT_IMPLEMENTED,
             );
-            let switch = switch.map(|&(_, case_entry)| case_entry);
+            let switch = switch.map(|ce| ce.entry);
             engine.define(
                 entry,
                 prologue.clone(),
@@ -102,21 +106,21 @@ impl<M: Machine, T: Target> Jit<M, T> {
 
         // Fill in the code for states.
         let states = state_index.iter().enumerate().map(|(i, state)| {
-            let _ = switches[i].map(|&(ref case, case_entry)| {
-                match &case.new_state {
+            let _ = switches[i].map(|ce| {
+                match &ce.case.new_state {
                     Ok(new_state) => {
                         engine.define(
-                            case_entry,
-                            case.actions.clone().into(),
+                            ce.entry,
+                            ce.case.actions.clone().into(),
                             &state_infos[state_index.get_index_of(new_state).unwrap()].1,
                         );
                     },
                     Err(trap) => {
                         // TODO: Set dead [`Variable`]s to `0xdeaddeaddeaddead`.
                         // We get away with this because we don't optimize epilogues.
-                        let actions: Vec<_> = case.actions.iter().chain(epilogue.iter()).copied().collect();
+                        let actions: Vec<_> = ce.case.actions.iter().chain(epilogue.iter()).copied().collect();
                         engine.define(
-                            case_entry,
+                            ce.entry,
                             actions.into(),
                             &trap_infos[trap_index.get_index_of(trap).unwrap()],
                         );
