@@ -26,8 +26,8 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let mut engine = Engine::new(target, num_globals);
 
         // Used by `Entry`s for `Case`s.
-        let prologue = machine.prologue().into_boxed_slice();
-        let epilogue = machine.epilogue().into_boxed_slice();
+        let prologue = machine.prologue();
+        let epilogue = machine.epilogue();
 
         // Used by `Entry`s for `Switch`es and `Trap`s.
         let empty_convention = Convention {
@@ -61,11 +61,11 @@ impl<M: Machine, T: Target> Jit<M, T> {
                     Err(trap) => trap_index.insert(trap.clone()),
                 };
                 let entry = engine.new_entry(
-                    prologue.clone(),
-                    convention.clone(),
+                    &prologue,
+                    &convention,
                     // TODO: Set dead [`Variable`]s to `0xdeaddeaddeaddead`.
                     // We get away with this because we don't optimize epilogues.
-                    epilogue.clone(),
+                    &epilogue,
                     NOT_IMPLEMENTED,
                 );
                 CaseAndEntry {case: case.clone(), entry: entry}
@@ -77,15 +77,15 @@ impl<M: Machine, T: Target> Jit<M, T> {
         // Also, make a `Switch<EntryId>` for each `Switch`.
         let state_infos: Vec<_> = switches.iter().map(|switch| {
             let entry = engine.new_entry(
-                Box::new([]),
-                empty_convention.clone(),
-                Box::new([]),
+                &[],
+                &empty_convention,
+                &[],
                 NOT_IMPLEMENTED,
             );
             let switch = switch.map(|ce| ce.entry);
             engine.define(
                 entry,
-                prologue.clone(),
+                prologue.iter().copied().collect(),
                 &switch,
             );
             (entry, switch)
@@ -96,9 +96,9 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let trap_infos: Vec<_> = (0..trap_index.len() as i64).map(|exit_value| {
             assert!(exit_value < NOT_IMPLEMENTED);
             let entry = engine.new_entry(
-                Box::new([]),
-                empty_convention.clone(),
-                Box::new([]),
+                &[],
+                &empty_convention,
+                &[],
                 exit_value,
             );
             Switch::Always(entry)
