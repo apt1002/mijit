@@ -52,7 +52,7 @@ impl Buffer for Mmap {
         if min_length > self.len() {
             let mut new_memory = MmapMut::map_anon(min_length).expect("Out of memory");
             new_memory[..self.len()].copy_from_slice(&self.memory);
-            self.memory = new_memory
+            self.memory = new_memory;
         }
     }
 }
