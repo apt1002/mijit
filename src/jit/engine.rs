@@ -248,7 +248,7 @@ impl<T: Target> Engine<T> {
         lo.actions(prologue);
         // Compile the epilogue.
         let mut retire_code = Vec::new();
-        retire_code.extend(epilogue.iter().cloned());
+        retire_code.extend(epilogue.iter().copied());
         retire_code.push(Action::DropMany(convention.slots_used >> 1));
         retire_code.push(Action::Constant(P64, RESULT, exit_value));
         let case = self.new_case(None, convention.clone(), retire_code.into(), None);
