@@ -43,9 +43,13 @@ use Junction::*;
  * See "doc/engine/structure.md".
  */
 struct Case {
+    /** The unique [`Switch`] that can jump directly to this `Case`. */
     _fetch_parent: Option<CaseId>,
+    /** The [`Convention`] on entry (i.e. at `label`). */
     convention: Convention,
+    /** The address of the code. */
     label: Label,
+    /** The behaviour. */
     junction: Junction,
 }
 
@@ -70,6 +74,9 @@ pub struct Entry {
 
 //-----------------------------------------------------------------------------
 
+/** The convention on entry and exit from the compiled code. */
+static EMPTY: Convention = Convention {slots_used: 0, live_values: vec![]};
+
 /**
  * This only exists to keep the borrow checker happy.
  * We might need to modify these fields while generating code.
@@ -89,6 +96,10 @@ impl Internals {
         let index = self.entries.len();
         self.entries.push(Entry {label, case});
         EntryId::new(index).unwrap()
+    }
+
+    fn convention(&self, id: impl Into<Option<CaseId>>) -> &Convention {
+        id.into().map_or(&EMPTY, |id| &self[id].convention)
     }
 }
 
@@ -154,6 +165,7 @@ impl<T: Target> Engine<T> {
     /** Construct a fresh [`Case`] which retires to `jump`. */
     fn new_case(&mut self, _fetch_parent: Option<CaseId>, convention: Convention, retire_code: Box<[Action]>, jump: Option<CaseId>) -> CaseId {
         let lo = &mut self.lowerer;
+        *lo.slots_used_mut() = convention.slots_used;
         // Compile the mutable jump.
         let mut label = Label::new(None);
         lo.jump(&mut label);
@@ -164,6 +176,7 @@ impl<T: Target> Engine<T> {
         // Compile `retire_code`.
         lo.actions(&*retire_code);
         // Compile the jump to `jump`.
+        assert_eq!(*lo.slots_used_mut(), self.internals.convention(jump).slots_used);
         if let Some(jump) = jump {
             // Jump to a non-root `Case`.
             lo.jump(&mut self.internals[jump].label);
@@ -184,8 +197,9 @@ impl<T: Target> Engine<T> {
 
     /** Mutate a [`Case`] from a [`Retire`] into a [`Fetch`]. */
     fn replace(&mut self, id: CaseId, fetch_code: Box<[Action]>, switch: Switch<CaseId>) {
-        let lo = &mut self.lowerer;
         let case = &mut self.internals[id];
+        let lo = &mut self.lowerer;
+        *lo.slots_used_mut() = case.convention.slots_used;
         // Intercept all jumps to `id`.
         let mut here = lo.here();
         lo.steal(&mut case.label, &mut here);
@@ -196,11 +210,14 @@ impl<T: Target> Engine<T> {
         match switch {
             Switch::Index {discriminant, ref cases, default_} => {
                 for (index, &case) in cases.iter().enumerate() {
+                    assert_eq!(*lo.slots_used_mut(), self.internals.convention(case).slots_used);
                     lo.if_eq((discriminant, index as u64), &mut self.internals[case].label);
                 }
+                assert_eq!(*lo.slots_used_mut(), self.internals.convention(default_).slots_used);
                 lo.jump(&mut self.internals[default_].label);
             },
             Switch::Always(jump) => {
+                assert_eq!(*lo.slots_used_mut(), self.internals.convention(jump).slots_used);
                 lo.jump(&mut self.internals[jump].label);
             },
         }
