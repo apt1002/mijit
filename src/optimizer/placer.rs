@@ -123,7 +123,7 @@ impl<T: Debug + Default> Placer<T> {
      */
     pub fn add_item(&mut self, item: T, cost: Resources, cycle: &mut Time) {
         self.choose_cycle(cost, cycle);
-        let c = &mut self.at(*cycle);
+        let c = self.at(*cycle);
         assert!(c.num_items < MAX_ITEMS);
         c.items[c.num_items] = item;
         c.num_items += 1;
