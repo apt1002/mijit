@@ -150,13 +150,13 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /** Apply `op` to `src` and `constant`. */
-    fn const_add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: i64, temp: Register) {
-        if let Ok(x) = Unsigned::new(constant as u64) {
+    fn const_add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: u64, temp: Register) {
+        if let Ok(x) = Unsigned::new(constant) {
             self.a.const_add(op, prec, dest.into(), src.into(), x);
-        } else if let Ok(x) = Unsigned::new(-constant as u64) {
+        } else if let Ok(x) = Unsigned::new(constant.wrapping_neg()) {
             self.a.const_add(op.negate(), prec, dest.into(), src.into(), x);
         } else {
-            self.const_(temp, constant as u64);
+            self.const_(temp, constant);
             self.add(op, prec, dest, src, temp);
         }
     }
@@ -170,7 +170,7 @@ impl<B: Buffer> Lowerer<B> {
      * Compare `src` to `constant` and set condition flags.
      * `temp` is corrupted.
      */
-    fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: i64, temp: Register) {
+    fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: u64, temp: Register) {
         self.const_add(SUBS, prec, RZR, src, constant, temp);
     }
 
@@ -391,7 +391,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
     ) {
         let (discriminant, value) = guard;
         let discriminant = self.src_to_register(discriminant, TEMP0);
-        self.const_cmp(P64, discriminant, value as i64, TEMP1);
+        self.const_cmp(P64, discriminant, value, TEMP1);
         // We can't assume a conditional branch can jump more than 1MB.
         // Therefore, conditionally branch past an unconditional branch.
         let skip = &mut Label::new(None);
@@ -407,7 +407,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
     ) {
         let (discriminant, value) = guard;
         let discriminant = self.src_to_register(discriminant, TEMP0);
-        self.const_cmp(P64, discriminant, value as i64, TEMP1);
+        self.const_cmp(P64, discriminant, value, TEMP1);
         // We can't assume a conditional branch can jump more than 1MB.
         // Therefore, conditionally branch past an unconditional branch.
         let skip = &mut Label::new(None);
@@ -474,7 +474,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Pop(dest1, dest2) => {
                 assert!(*self.slots_used_mut() >= 2);
                 if dest1.is_none() && dest2.is_none() {
-                    self.a.const_add(ADD, P64, RSP, RSP, Unsigned::new(16).unwrap());
+                    self.const_add(ADD, P64, RSP, RSP, 16, TEMP0);
                 } else {
                     let dest1 = dest1.map_or(RZR, Register::from);
                     let dest2 = dest2.map_or(RZR, Register::from);
@@ -484,7 +484,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             },
             Action::DropMany(n) => {
                 assert!(*self.slots_used_mut() >= 2 * n);
-                self.a.const_add(ADD, P64, RSP, RSP, Unsigned::new(n as u64 * 16).expect("Dropped too many"));
+                self.const_add(ADD, P64, RSP, RSP, n as u64 * 16, TEMP0);
                 *self.slots_used_mut() -= 2 * n;
             },
             Action::Debug(x) => {
@@ -504,7 +504,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
     fn count(&mut self, counter: Counter) {
         self.mem(LDR, TEMP0, self.counter_address(counter), TEMP1);
-        self.a.const_add(ADD, P64, TEMP0, TEMP0, Unsigned::new(1_u64).unwrap());
+        self.const_add(ADD, P64, TEMP0, TEMP0, 1, TEMP1);
         self.mem(STR, TEMP0, self.counter_address(counter), TEMP1);
     }
 }
