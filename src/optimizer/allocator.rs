@@ -97,7 +97,7 @@ impl<'a> Allocator<'a> {
         let mut node_times: ArrayMap<Node, Option<Time>> = df.node_map();
         node_times[df.entry_node()] = Some(EARLY);
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
-        for (out, &value) in df.outs(df.entry_node()).zip(&before.live_values) {
+        for (out, &value) in df.outs(df.entry_node()).zip(&*before.live_values) {
             if schedule.first_use(out).is_some() {
                 if let Variable::Register(reg) = value {
                     dirty[reg] = true;

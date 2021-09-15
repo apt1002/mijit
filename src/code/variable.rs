@@ -118,31 +118,3 @@ impl TryFrom<Variable> for Register {
 pub trait IntoVariable: Copy + Into<Variable> {}
 
 impl<T: Copy + Into<Variable>> IntoVariable for T {}
-
-const fn make_reg(r: usize) -> Variable { Variable::Register(REGISTERS[r]) }
-const fn make_slot(s: usize) -> Variable { Variable::Slot(Slot(s)) }
-
-/**
- * [`Variable`]s that are likely to be efficient to access on all [`Target`]s.
- * The first 12 are guaranteed to match `REGISTERS`.
- *
- * [`Target`]: super::target::Target
- */
-pub const FAST_VARIABLES: [Variable; 64] = [
-    make_reg(0), make_reg(1), make_reg(2), make_reg(3),
-    make_reg(4), make_reg(5), make_reg(6), make_reg(7),
-    make_reg(8), make_reg(9), make_reg(10), make_reg(11),
-    make_slot(0), make_slot(1), make_slot(2), make_slot(3),
-    make_slot(4), make_slot(5), make_slot(6), make_slot(7),
-    make_slot(8), make_slot(9), make_slot(10), make_slot(11),
-    make_slot(12), make_slot(13), make_slot(14), make_slot(15),
-    make_slot(16), make_slot(17), make_slot(18), make_slot(19),
-    make_slot(20), make_slot(21), make_slot(22), make_slot(23),
-    make_slot(24), make_slot(25), make_slot(26), make_slot(27),
-    make_slot(28), make_slot(29), make_slot(30), make_slot(31),
-    make_slot(32), make_slot(33), make_slot(34), make_slot(35),
-    make_slot(36), make_slot(37), make_slot(38), make_slot(39),
-    make_slot(40), make_slot(41), make_slot(42), make_slot(43),
-    make_slot(44), make_slot(45), make_slot(46), make_slot(47),
-    make_slot(48), make_slot(49), make_slot(50), make_slot(51),
-];

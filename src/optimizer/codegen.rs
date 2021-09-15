@@ -25,7 +25,7 @@ impl<'a> CodeGen<'a> {
     pub fn new(num_globals: usize, before: &Convention, dataflow: &'a Dataflow, allocation: ArrayMap<Out, Option<Register>>) -> Self {
         let mut spills = dataflow.out_map();
         let mut regs = ArrayMap::new(NUM_REGISTERS);
-        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&before.live_values) {
+        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&*before.live_values) {
             match value {
                 Variable::Register(r) => regs[r] = Some(out),
                 Variable::Global(g) => assert!(g.0 < num_globals),
@@ -92,7 +92,7 @@ impl<'a> CodeGen<'a> {
     pub fn finish(mut self, after: &Convention, exit_node: Node) -> Box<[Action]> {
         // Work out which live values need to be moved where.
         let mut dest_to_src: HashMap<Variable, Variable> =
-            self.dataflow.ins(exit_node).iter().zip(&after.live_values)
+            self.dataflow.ins(exit_node).iter().zip(&*after.live_values)
                 .map(|(&out, &dest)| (dest, self.read(out)))
                 .collect();
         // Create spill slots if necessary to match `after`.

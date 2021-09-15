@@ -26,13 +26,13 @@ impl super::code::Machine for Machine {
 
     fn num_globals(&self) -> usize { 2 } // reg::N and reg::RESULT
 
-    fn num_slots(&self) -> usize { 0 }
-
-    fn liveness_mask(&self, _state: Self::State) -> u64 { 0 }
-
-    fn prologue(&self) -> Vec<Action> { vec![] }
-
-    fn epilogue(&self) -> Vec<Action> { vec![] }
+    fn marshal(&self, _state: Self::State) -> Marshal {
+        Marshal {
+            prologue: Box::new([]),
+            convention: empty_convention(self.num_globals()),
+            epilogue: Box::new([]),
+        }
+    }
 
     fn code(&self, state: Self::State) -> Switch<Case<Result<Self::State, Self::Trap>>> {
         match state {

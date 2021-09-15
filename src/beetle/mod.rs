@@ -6,7 +6,8 @@ use super::target::{Target, Word};
 use super::{jit};
 use super::code::{
     self, Switch, Precision, UnaryOp, BinaryOp, Width,
-    Global, Register, Variable, IntoVariable, REGISTERS, FAST_VARIABLES, Action, Case,
+    Global, Slot, Register, Variable, IntoVariable, REGISTERS,
+    Action, Case, Convention, Marshal,
 };
 use Precision::*;
 use UnaryOp::*;
@@ -232,6 +233,8 @@ impl<T: Target> VM<T> {
 
 /* Register allocation. */
 
+const NUM_SLOTS: usize = 4;
+
 const TEMP: Register = REGISTERS[0];
 const R1: Register = REGISTERS[1];
 const R2: Register = REGISTERS[2];
@@ -239,16 +242,16 @@ const R3: Register = REGISTERS[3];
 const R4: Register = REGISTERS[4];
 const R5: Register = REGISTERS[5];
 
-const BEP: Variable = FAST_VARIABLES[6];
-const BA: Variable = FAST_VARIABLES[7];
-const BSP: Variable = FAST_VARIABLES[8];
-const BRP: Variable = FAST_VARIABLES[9];
-const MEMORY: Variable = FAST_VARIABLES[10];
-const OPCODE: Variable = FAST_VARIABLES[11];
-const STACK0: Variable = FAST_VARIABLES[12];
-const STACK1: Variable = FAST_VARIABLES[13];
-const LOOP_NEW: Variable = FAST_VARIABLES[14];
-const LOOP_OLD: Variable = FAST_VARIABLES[15];
+const BEP: Variable = Variable::Register(REGISTERS[6]);
+const BA: Variable = Variable::Register(REGISTERS[7]);
+const BSP: Variable = Variable::Register(REGISTERS[8]);
+const BRP: Variable = Variable::Register(REGISTERS[9]);
+const MEMORY: Variable = Variable::Register(REGISTERS[10]);
+const OPCODE: Variable = Variable::Register(REGISTERS[11]);
+const STACK0: Variable = Variable::Slot(Slot(0));
+const STACK1: Variable = Variable::Slot(Slot(1));
+const LOOP_NEW: Variable = Variable::Slot(Slot(2));
+const LOOP_OLD: Variable = Variable::Slot(Slot(3));
 
 //-----------------------------------------------------------------------------
 
@@ -281,6 +284,18 @@ struct Builder(Vec<Action>);
 impl Builder {
     fn new() -> Self {
         Builder(Vec::new())
+    }
+
+    fn add_slots(&mut self, num_slots: usize) {
+        assert_eq!(num_slots & 1, 0);
+        for _ in 0..(num_slots >> 1) {
+            self.0.push(Push(None, None));
+        }
+    }
+
+    fn remove_slots(&mut self, num_slots: usize) {
+        assert_eq!(num_slots & 1, 0);
+        self.0.push(DropMany(num_slots >> 1));
     }
 
     fn move_(&mut self, dest: impl IntoVariable, src: impl IntoVariable) {
@@ -464,6 +479,11 @@ impl Builder {
     fn debug(&mut self, x: impl IntoVariable) {
         self.0.push(Debug(x.into()));
     }
+
+    /** Returns all the [`Action`]s that this `Builder` has accumulated. */
+    fn finish(self) -> Box<[Action]> {
+        self.0.into()
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -492,71 +512,69 @@ impl code::Machine for Machine {
 
     fn num_globals(&self) -> usize { 1 }
 
-    fn num_slots(&self) -> usize { 6 }
-
-    fn liveness_mask(&self, state: Self::State) -> u64 {
-        let ep = 1 << 6;
-        let a = 1 << 7;
-        let sp = 1 << 8;
-        let rp = 1 << 9;
-        let memory = 1 << 10;
-        let opcode = 1 << 11;
-        let stack0 = 1 << 12;
-        let stack1 = 1 << 13;
-        let loop_new = 1 << 14;
-        let loop_old = 1 << 15;
+    fn marshal(&self, state: Self::State) -> Marshal {
+        let mut live_values = vec![Global(0).into(), BEP, BSP, BRP, MEMORY];
         #[allow(clippy::match_same_arms)]
-        let ret = (ep | sp | rp | memory) | match state {
-            State::Root => a,
-            State::Next => 0,
-            State::Pick => a | stack0,
-            State::Roll => a | stack0,
-            State::Qdup => a | stack0,
-            State::Lshift => a | opcode | stack0 | stack1,
-            State::Rshift => a | opcode | stack0 | stack1,
-            State::Branch => 0,
-            State::Branchi => a,
-            State::Qbranch => a | stack0,
-            State::Qbranchi => a | stack0,
-            State::Loop => a | opcode,
-            State::Loopi => a | opcode,
-            State::PloopTest => a | opcode,
-            State::Ploop => a | opcode | loop_new | loop_old,
-            State::PloopiTest => a | opcode,
-            State::Ploopi => a | opcode | loop_new | loop_old,
-            State::Dispatch => a | opcode,
+        live_values.extend(match state {
+            State::Root => vec![BA],
+            State::Next => vec![],
+            State::Pick => vec![BA, STACK0],
+            State::Roll => vec![BA, STACK0],
+            State::Qdup => vec![BA, STACK0],
+            State::Lshift => vec![BA, OPCODE, STACK0, STACK1],
+            State::Rshift => vec![BA, OPCODE, STACK0, STACK1],
+            State::Branch => vec![],
+            State::Branchi => vec![BA],
+            State::Qbranch => vec![BA, STACK0],
+            State::Qbranchi => vec![BA, STACK0],
+            State::Loop => vec![BA, OPCODE],
+            State::Loopi => vec![BA, OPCODE],
+            State::PloopTest => vec![BA, OPCODE],
+            State::Ploop => vec![BA, OPCODE, LOOP_NEW, LOOP_OLD],
+            State::PloopiTest => vec![BA, OPCODE],
+            State::Ploopi => vec![BA, OPCODE, LOOP_NEW, LOOP_OLD],
+            State::Dispatch => vec![BA, OPCODE],
+        });
+        let prologue = {
+            let mut b = Builder::new();
+            b.add_slots(NUM_SLOTS);
+            b.load_register(BEP, public_register!(ep));
+            b.load_register(BA, public_register!(a));
+            b.load_register(BSP, public_register!(sp));
+            b.load_register(BRP, public_register!(rp));
+            b.load_register64(MEMORY, private_register!(memory));
+            b.load_register(OPCODE, private_register!(opcode));
+            b.load_register(STACK0, private_register!(stack0));
+            b.load_register(STACK1, private_register!(stack1));
+            b.load_register(LOOP_NEW, private_register!(loop_new));
+            b.load_register(LOOP_OLD, private_register!(loop_old));
+            b.finish()
         };
-        ret
-    }
-
-    fn prologue(&self) -> Vec<Action> {
-        let mut b = Builder::new();
-        b.load_register(BEP, public_register!(ep));
-        b.load_register(BA, public_register!(a));
-        b.load_register(BSP, public_register!(sp));
-        b.load_register(BRP, public_register!(rp));
-        b.load_register64(MEMORY, private_register!(memory));
-        b.load_register(OPCODE, private_register!(opcode));
-        b.load_register(STACK0, private_register!(stack0));
-        b.load_register(STACK1, private_register!(stack1));
-        b.load_register(LOOP_NEW, private_register!(loop_new));
-        b.load_register(LOOP_OLD, private_register!(loop_old));
-        b.0
-    }
-
-    fn epilogue(&self) -> Vec<Action> {
-        let mut b = Builder::new();
-        b.store_register(BEP, public_register!(ep));
-        b.store_register(BA, public_register!(a));
-        b.store_register(BSP, public_register!(sp));
-        b.store_register(BRP, public_register!(rp));
-        b.store_register64(MEMORY, private_register!(memory));
-        b.store_register(OPCODE, private_register!(opcode));
-        b.store_register(STACK0, private_register!(stack0));
-        b.store_register(STACK1, private_register!(stack1));
-        b.store_register(LOOP_NEW, private_register!(loop_new));
-        b.store_register(LOOP_OLD, private_register!(loop_old));
-        b.0
+        let epilogue = {
+            let mut b = Builder::new();
+            for v in [BA, OPCODE, STACK0, STACK1, LOOP_NEW, LOOP_OLD] {
+                if !live_values.contains(&v) {
+                    b.const64(v, 0xDEADDEADDEADDEADu64 as i64);
+                }
+            }
+            b.store_register(BEP, public_register!(ep));
+            b.store_register(BA, public_register!(a));
+            b.store_register(BSP, public_register!(sp));
+            b.store_register(BRP, public_register!(rp));
+            b.store_register64(MEMORY, private_register!(memory));
+            b.store_register(OPCODE, private_register!(opcode));
+            b.store_register(STACK0, private_register!(stack0));
+            b.store_register(STACK1, private_register!(stack1));
+            b.store_register(LOOP_NEW, private_register!(loop_new));
+            b.store_register(LOOP_OLD, private_register!(loop_old));
+            b.remove_slots(NUM_SLOTS);
+            b.finish()
+        };
+        let convention = Convention {
+            slots_used: NUM_SLOTS,
+            live_values: live_values.into(),
+        };
+        Marshal {prologue, convention, epilogue}
     }
 
     #[allow(clippy::too_many_lines)]

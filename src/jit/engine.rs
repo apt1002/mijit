@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use crate::util::{AsUsize};
 use super::{code};
 use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, RESULT};
-use code::{Precision, Global, Switch, Action, Convention};
+use code::{Precision, Global, Switch, Action, Convention, Marshal};
 use Precision::*;
 
 // CaseId.
@@ -74,14 +74,13 @@ pub struct Entry {
 
 //-----------------------------------------------------------------------------
 
-/** The convention on entry and exit from the compiled code. */
-static EMPTY: Convention = Convention {slots_used: 0, live_values: vec![]};
-
 /**
  * This only exists to keep the borrow checker happy.
- * We might need to modify these fields while generating code.
+ * We might need to borrow these fields while generating code.
  */
 struct Internals {
+    /** The [`Convention`] obeyed by the root. */
+    convention: Convention,
     /**
      * The [`Case`]s in the order they were compiled, excluding the root.
      * Indexed by [`CaseId`].
@@ -98,8 +97,9 @@ impl Internals {
         EntryId::new(index).unwrap()
     }
 
+    /** Find the [`Convention`] for a [`CaseId`] allowing for `None`. */
     fn convention(&self, id: impl Into<Option<CaseId>>) -> &Convention {
-        id.into().map_or(&EMPTY, |id| &self[id].convention)
+        id.into().map_or(&self.convention, |id| &self[id].convention)
     }
 }
 
@@ -151,6 +151,7 @@ impl<T: Target> Engine<T> {
         let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool);
         let internals = Internals {
+            convention: code::empty_convention(num_globals),
             cases: Vec::new(),
             entries: Vec::new(),
         };
@@ -235,23 +236,21 @@ impl<T: Target> Engine<T> {
      *  - epilogue - executed on every exit from the compiled code.
      *  - exit_value - returned to the caller on exit. Must be non-negative.
      */
-    pub fn new_entry(&mut self, prologue: &[Action], convention: &Convention, epilogue: &[Action], exit_value: i64) -> EntryId {
-        assert_eq!(convention.slots_used & 1, 0);
+    pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> EntryId {
+        assert_eq!(marshal.convention.slots_used & 1, 0);
         assert!(exit_value >= 0);
         let lo = &mut self.lowerer;
+        *lo.slots_used_mut() = 0;
         // Compile the prologue.
         let label = lo.here();
         lo.prologue();
-        for _ in 0..(convention.slots_used >> 1) {
-            lo.action(Action::Push(None, None));
-        }
-        lo.actions(prologue);
+        lo.actions(&marshal.prologue);
+        assert_eq!(*lo.slots_used_mut(), marshal.convention.slots_used);
         // Compile the epilogue.
         let mut retire_code = Vec::new();
-        retire_code.extend(epilogue.iter().copied());
-        retire_code.push(Action::DropMany(convention.slots_used >> 1));
+        retire_code.extend(marshal.epilogue.iter().copied());
         retire_code.push(Action::Constant(P64, RESULT, exit_value));
-        let case = self.new_case(None, convention.clone(), retire_code.into(), None);
+        let case = self.new_case(None, marshal.convention.clone(), retire_code.into(), None);
         // Return.
         self.internals.new_entry(label, case)
     }

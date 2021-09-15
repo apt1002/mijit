@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 use indexmap::{IndexSet};
 
 use super::{code, target, engine};
-use code::{Case, Switch, Machine, Global, Variable, FAST_VARIABLES, Convention};
+use code::{Case, Switch, Machine, Global, empty_convention, Marshal};
 use target::{Word, Target};
 use engine::{Engine, EntryId};
 
@@ -25,14 +25,11 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let num_globals = machine.num_globals();
         let mut engine = Engine::new(target, num_globals);
 
-        // Used by `Entry`s for `Case`s.
-        let prologue = machine.prologue();
-        let epilogue = machine.epilogue();
-
         // Used by `Entry`s for `Switch`es and `Trap`s.
-        let empty_convention = Convention {
-            slots_used: machine.num_slots(),
-            live_values: (0..num_globals).map(|g| Variable::from(Global(g))).collect(),
+        let empty_marshal = Marshal {
+            prologue: Box::new([]),
+            convention: empty_convention(num_globals),
+            epilogue: Box::new([]),
         };
 
         // Flood fill to find all reachable `M::State`s.
@@ -43,49 +40,29 @@ impl<M: Machine, T: Target> Jit<M, T> {
             case: Case<Result<M::State, M::Trap>>,
             entry: EntryId,
         }
-        let mut switches: Vec<Switch<CaseAndEntry<M>>> = Vec::new();
+        let mut switches: Vec<(Marshal, Switch<CaseAndEntry<M>>)> = Vec::new();
         state_index.extend(machine.initial_states());
         while let Some(old_state) = state_index.get_index(switches.len()) {
-            let liveness_mask = machine.liveness_mask(old_state.clone());
-            let convention = Convention {
-                slots_used: machine.num_slots(),
-                live_values: (0..FAST_VARIABLES.len())
-                    .filter(|i| liveness_mask & (1 << i) != 0)
-                    .map(|i| FAST_VARIABLES[i])
-                    .chain((0..num_globals).map(|g| Variable::from(Global(g))))
-                    .collect(),
-            };
+            let marshal = machine.marshal(old_state.clone());
             let switch = machine.code(old_state.clone()).map(|case| {
                 match &case.new_state {
                     Ok(state) => state_index.insert(state.clone()),
                     Err(trap) => trap_index.insert(trap.clone()),
                 };
-                let entry = engine.new_entry(
-                    &prologue,
-                    &convention,
-                    // TODO: Set dead [`Variable`]s to `0xdeaddeaddeaddead`.
-                    // We get away with this because we don't optimize epilogues.
-                    &epilogue,
-                    NOT_IMPLEMENTED,
-                );
+                let entry = engine.new_entry(&marshal, NOT_IMPLEMENTED);
                 CaseAndEntry {case: case.clone(), entry: entry}
             });
-            switches.push(switch);
+            switches.push((marshal, switch));
         }
 
         // Make and define an `EntryId` for each `Switch`.
         // Also, make a `Switch<EntryId>` for each `Switch`.
-        let state_infos: Vec<_> = switches.iter().map(|switch| {
-            let entry = engine.new_entry(
-                &[],
-                &empty_convention,
-                &[],
-                NOT_IMPLEMENTED,
-            );
+        let state_infos: Vec<_> = switches.iter().map(|(marshal, switch)| {
+            let entry = engine.new_entry(&empty_marshal, NOT_IMPLEMENTED);
             let switch = switch.map(|ce| ce.entry);
             engine.define(
                 entry,
-                prologue.iter().copied().collect(),
+                marshal.prologue.iter().copied().collect(),
                 &switch,
             );
             (entry, switch)
@@ -95,33 +72,26 @@ impl<M: Machine, T: Target> Jit<M, T> {
         // Also, make a `Switch<EntryId>` for each `Trap`.
         let trap_infos: Vec<_> = (0..trap_index.len() as i64).map(|exit_value| {
             assert!(exit_value < NOT_IMPLEMENTED);
-            let entry = engine.new_entry(
-                &[],
-                &empty_convention,
-                &[],
-                exit_value,
-            );
+            let entry = engine.new_entry(&empty_marshal, exit_value);
             Switch::Always(entry)
         }).collect();
 
         // Fill in the code for states.
         let states = state_index.iter().enumerate().map(|(i, state)| {
-            let _ = switches[i].map(|ce| {
+            let (ref marshal, ref switch) = switches[i];
+            let _ = switch.map(|ce| {
                 match &ce.case.new_state {
                     Ok(new_state) => {
                         engine.define(
                             ce.entry,
-                            ce.case.actions.clone().into(),
+                            ce.case.actions.iter().copied().collect(),
                             &state_infos[state_index.get_index_of(new_state).unwrap()].1,
                         );
                     },
                     Err(trap) => {
-                        // TODO: Set dead [`Variable`]s to `0xdeaddeaddeaddead`.
-                        // We get away with this because we don't optimize epilogues.
-                        let actions: Vec<_> = ce.case.actions.iter().chain(epilogue.iter()).copied().collect();
                         engine.define(
                             ce.entry,
-                            actions.into(),
+                            ce.case.actions.iter().chain(marshal.epilogue.iter()).copied().collect(),
                             &trap_infos[trap_index.get_index_of(trap).unwrap()],
                         );
                     },

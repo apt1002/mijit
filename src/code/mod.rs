@@ -22,7 +22,7 @@ use std::fmt::{Debug};
 use std::hash::{Hash};
 
 mod variable;
-pub use variable::{Register, REGISTERS, Global, Slot, Variable, IntoVariable, FAST_VARIABLES};
+pub use variable::{Register, REGISTERS, Global, Slot, Variable, IntoVariable};
 
 mod enums;
 pub use enums::{Precision, UnaryOp, BinaryOp, Width, AliasMask};
@@ -53,13 +53,38 @@ pub mod clock;
 #[derive(Debug, Clone)]
 pub struct Convention {
     /** The values that are live on entry. */
-    pub live_values: Vec<Variable>,
+    pub live_values: Box<[Variable]>,
     /** The number of spill [`Slot`]s used by the `Convention`. */
     pub slots_used: usize,
 }
 
+/**
+ * Returns a [`Convention`] with no [`Slot`]s, no live [`Register`]s, and the
+ * specified number of [`Global`]s.
+ */
+pub fn empty_convention(num_globals: usize) -> Convention {
+    Convention {
+        live_values: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
+        slots_used: 0,
+    }
+}
+
+/** Code to be run on entry and exit from a `Machine`. */
+#[derive(Debug, Clone)]
+pub struct Marshal {
+    /** Code to be run on entry, starting with only [`Global`]s live. */
+    pub prologue: Box<[Action]>,
+    /** The [`Convention`] after `prologue` and before `epilogue`. */
+    pub convention: Convention,
+    /** Code to be run on exit, ending with only [`Global`]s live. */
+    pub epilogue: Box<[Action]>,
+}
+
 //-----------------------------------------------------------------------------
 
+/**
+ * A specification of a virtual machine.
+ */
 pub trait Machine: Debug {
     /** A state of the finite state machine. */
     type State: Debug + Clone + Hash + Eq;
@@ -71,36 +96,16 @@ pub trait Machine: Debug {
     fn num_globals(&self) -> usize;
 
     /**
-     * The number of [`Slot`]s that exist on entry and exit from every
-     * [`State`].
-     */
-    fn num_slots(&self) -> usize;
-
-    /**
-     * Returns a bitmask indicating which [`Variable`]s are live in `state`.
+     * Returns a [`Marshal`] that describes how to enter and exit this
+     * `Machine` in `state`.
      *
-     * The bits correspond to members of [`FAST_VARIABLES`].
+     * Mijit requires the ability to interrupt the virtual machine in any
+     * `State`. Interrupts are used for various purposes, including:
+     *  - to suspend execution of the virtual machine in order to compile
+     *    faster code.
+     *  - for debugging.
      */
-    // TODO: Just return a `Convention`.
-    // The bitmask and `FAST_VARIABLES` are unnecessary complexity.
-    fn liveness_mask(&self, state: Self::State) -> u64;
-
-    /**
-     * Returns code to marshal data from the [`Global`]s to the live values.
-     * It is not passed anything on entry. On exit it must have initialised
-     * all [`Variable`]s that are live in any [`State`].
-     */
-    fn prologue(&self) -> Vec<Action>;
-
-    /**
-     * Returns code to marshal data from the live values back to the
-     * [`Global`]s.
-     *
-     * On entry, it gets all [`Variable`]s that are live in any [`State`];
-     * those that are dead are set to a dummy value (`0xdeaddeaddeaddead`).
-     * On exit only the `Global`s are live.
-     */
-    fn epilogue(&self) -> Vec<Action>;
+    fn marshal(&self, state: Self::State) -> Marshal;
 
     /**
      * Defines the transitions of the finite state machine.

@@ -88,12 +88,12 @@ mod tests {
     #[test]
     fn nop() {
         let before = Convention {
-            live_values: vec![],
+            live_values: Box::new([]),
             slots_used: 0,
         };
         let actions = vec![];
         let after = Convention {
-            live_values: vec![],
+            live_values: Box::new([]),
             slots_used: 0,
         };
         let observed = optimize(0, &before, &after, &actions);
@@ -106,10 +106,10 @@ mod tests {
         const V0: Register = REGISTERS[0];
         const V1: Slot = Slot(0);
         let convention = Convention {
-            live_values: vec![V0.into(), V1.into()],
+            live_values: Box::new([V0.into(), V1.into()]),
             slots_used: 1,
         };
-        let emulator = Emulator::new(convention.live_values.clone());
+        let emulator = Emulator::new(convention.live_values.iter().copied().collect());
         use Precision::*;
         for action in [
             Action::Constant(P64, V0, 924573497),
@@ -141,7 +141,7 @@ mod tests {
         const V0: Register = REGISTERS[0];
         const V1: Register = REGISTERS[1];
         let before = Convention {
-            live_values: vec![V0.into(), V1.into()],
+            live_values: Box::new([V0.into(), V1.into()]),
             slots_used: 1,
         };
         let actions = vec![
@@ -149,7 +149,7 @@ mod tests {
             Action::Constant(P64, V0, 1234),
         ];
         let after = Convention {
-            live_values: vec![V0.into()],
+            live_values: Box::new([V0.into()]),
             slots_used: 1,
         };
         let _ = optimize(0, &before, &after, &actions);
@@ -161,14 +161,14 @@ mod tests {
         const V0: Register = REGISTERS[0];
         const V1: Register = REGISTERS[1];
         let before = Convention {
-            live_values: vec![V1.into()],
+            live_values: Box::new([V1.into()]),
             slots_used: 1,
         };
         let actions = vec![
             Action::Move(V0.into(), V1.into()),
         ];
         let after = Convention {
-            live_values: vec![V0.into()],
+            live_values: Box::new([V0.into()]),
             slots_used: 1,
         };
         let _ = optimize(0, &before, &after, &actions);
