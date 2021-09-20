@@ -55,7 +55,7 @@ struct Info {
     /** What kind of operation the `Node` represents. */
     op: Op,
     /**
-     * A cache of [`Dataflow::op_cost(op)`], or `Node` if `op` is
+     * A cache of [`Dataflow::op_cost(op)`], or `None` if `op` is
      * [`Op::Convention`].
      */
     cost: Option<&'static Cost>,

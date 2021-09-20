@@ -1,4 +1,4 @@
-use super::code::{self, Register, Convention, Action};
+use super::code::{self, Register};
 
 const NUM_REGISTERS: usize = super::target::x86_64::ALLOCATABLE_REGISTERS.len();
 
@@ -7,6 +7,9 @@ fn all_registers() -> impl Iterator<Item=Register> {
 }
 
 //-----------------------------------------------------------------------------
+
+mod ebb;
+pub use ebb::{Leaf, EBB};
 
 mod op;
 pub use op::{Op};
@@ -32,6 +35,21 @@ pub use allocator::{Instruction, allocate};
 mod codegen;
 pub use codegen::{generate_code};
 
+/** Optimizes an [`EBB`]. */
+pub fn optimize(num_globals: usize, input: &EBB) -> EBB {
+    // Generate the [`Dataflow`] graph.
+    let (dataflow, exit_node) = simulation::simulate(input);
+
+    // TODO:
+    // Make an initial [`Schedule`].
+    // Choose the execution order and allocate [`Register`]s.
+    // Generate the [`Action`]s.
+    unimplemented!()
+}
+
+
+// TODO: Delete.
+/*
 /** Optimizes a basic block. */
 pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
     // Generate the [`Dataflow`] graph.
@@ -49,12 +67,13 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
     // Generate the [`Action`]s.
     generate_code(num_globals, before, after, &dataflow, &instructions, allocation, exit_node)
 }
+*/
 
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap};
+/*
     use super::*;
     use code::{Register, REGISTERS, Slot, UnaryOp, BinaryOp, AliasMask, Precision, Width};
     use code::tests::{Emulator};
@@ -148,4 +167,5 @@ mod tests {
         let _ = optimize(0, &before, &after, &actions);
         // Just don't panic!
     }
+*/
 }
