@@ -36,9 +36,8 @@ Status
 
 Early, unfinished. The specification of Mijit code
 is in flux. There is one example interpreter. It does
-not yet have C bindings. There is one back-end, for
-x86_64. Other 64-bit targets are planned, but the
-portable abstraction has not been designed yet.
+not yet have C bindings. There are two back-ends, for
+x86_64 and AArch64. Other 64-bit targets are planned.
 It can run some trivial programs, but the generated
 code is poor. The optimizer is still mostly a collection
 of ideas.
