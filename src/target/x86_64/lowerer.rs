@@ -302,6 +302,38 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
+    /**
+     * Assembles the instructions that surround a division operation.
+     * `callback` assembles the operation itself. On entry:
+     *  - The numerator is in `RA`.
+     *  - The denominator is in `TEMP`.
+     *  - `RD` is undefined.
+     * On exit:
+     *  - The result is in `RA`.
+     *  - `RD` is corrupted.
+     */
+    fn div(
+        &mut self,
+        dest: impl Into<Register>,
+        src1: impl Into<Value>,
+        src2: impl Into<Value>,
+        callback: impl FnOnce(&mut Self),
+    ) {
+        self.a.push(RA);
+        self.a.push(RD);
+        self.slots_used += 2;
+        let src2 = self.src_to_register(src2, TEMP);
+        self.move_(TEMP, src2);
+        let src1 = self.src_to_register(src1, RA);
+        self.move_(RA, src1);
+        callback(self);
+        self.move_(TEMP, RA);
+        self.a.pop(RD);
+        self.a.pop(RA);
+        self.slots_used -= 2;
+        self.move_(dest, TEMP);
+    }
+
     /** Select how to assemble a shift `BinaryOp` such as `Shl`. */
     fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Value>, src2: impl Into<Value>) {
         let dest = dest.into();
@@ -398,6 +430,19 @@ impl<B: Buffer> Lowerer<B> {
                             l.a.load_mul(prec, dest, l.slot_address(slot));
                         },
                     }
+                });
+            },
+            code::BinaryOp::UDiv => {
+                self.div(dest, src1, src2, |l| {
+                    l.const_(prec, RD, 0);
+                    l.a.udiv(prec, TEMP);
+                });
+            },
+            code::BinaryOp::SDiv => {
+                self.div(dest, src1, src2, |l| {
+                    l.move_(RD, RA);
+                    l.a.const_shift(Sar, prec, RD, (prec.bits() - 1) as u8);
+                    l.a.sdiv(prec, TEMP);
                 });
             },
             // TODO: Define what happens when you shift too far.

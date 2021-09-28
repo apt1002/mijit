@@ -295,6 +295,82 @@ mod tests {
         );
     }
 
+    #[test]
+    fn udiv() {
+        // P32.
+        let mut vm = VM::new(native(), 2, |lo| {
+            lo.action(Binary(UDiv, P32, R0, Global(0).into(), Global(1).into()));
+        });
+        for x in TEST_VALUES {
+            let x2 = x as u32;
+            for y in TEST_VALUES {
+                let y2 = y as u32;
+                if y2 == 0 {
+                    // Undefined behaviour.
+                } else {
+                    let expected = x2 / y2;
+                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u64});
+                }
+            }
+        }
+        // P64.
+        let mut vm = VM::new(native(), 2, |lo| {
+            lo.action(Binary(UDiv, P64, R0, Global(0).into(), Global(1).into()));
+        });
+        for x in TEST_VALUES {
+            let x2 = x as u64;
+            for y in TEST_VALUES {
+                let y2 = y as u64;
+                if y == 0 {
+                    // Undefined behaviour.
+                } else {
+                    let expected = x2 / y2;
+                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected});
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn sdiv() {
+        // P32.
+        let mut vm = VM::new(native(), 2, |lo| {
+            lo.action(Binary(SDiv, P32, R0, Global(0).into(), Global(1).into()));
+        });
+        for x in TEST_VALUES {
+            let x2 = x as i32;
+            for y in TEST_VALUES {
+                let y2 = y as i32;
+                if y2 == 0 {
+                    // Undefined behaviour.
+                } else if x2 == -0x80000000 && y2 == -1 {
+                    // Undefined behaviour.
+                } else {
+                    let expected = x2 / y2;
+                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u32 as u64});
+                }
+            }
+        }
+        // P64.
+        let mut vm = VM::new(native(), 2, |lo| {
+            lo.action(Binary(SDiv, P64, R0, Global(0).into(), Global(1).into()));
+        });
+        for x in TEST_VALUES {
+            let x2 = x as i64;
+            for y in TEST_VALUES {
+                let y2 = y as i64;
+                if y2 == 0 {
+                    // Undefined behaviour.
+                } else if x2 == -0x8000000000000000 && y2 == -1 {
+                    // Undefined behaviour.
+                } else {
+                    let expected = x2 / y2;
+                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u64});
+                }
+            }
+        }
+    }
+
     /**
      * Representative shift amounts.
      * Shifts < 0 or >= word size are undefined.

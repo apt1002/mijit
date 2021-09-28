@@ -60,6 +60,13 @@ pub const MUL_COST: Cost = Cost {
     resources: Resources::new(0x1100001),
 };
 
+/** The cost of a `UDiv` or `SDiv` operation. */
+pub const DIV_COST: Cost = Cost {
+    input_latencies: &[0, 0],
+    output_latencies: &[30],
+    resources: Resources::new(0x1012306),
+};
+
 /** The cost of a typical shift operation such as `Lsl`. */
 pub const SHIFT_COST: Cost = Cost {
     input_latencies: &[0, 0],
@@ -106,6 +113,7 @@ pub fn op_cost(op: Op) -> Option<&'static Cost> {
         Binary(_, op) => match op {
             Add | Sub | And| Or| Xor => &ALU_COST,
             Mul => &MUL_COST,
+            UDiv | SDiv => &DIV_COST,
             Lsl | Lsr | Asr => &SHIFT_COST,
             Lt | Ult | Eq | Max | Min => &CONDITIONAL_COST,
         },

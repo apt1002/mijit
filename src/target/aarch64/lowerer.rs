@@ -301,6 +301,12 @@ impl<B: Buffer> Lowerer<B> {
             code::BinaryOp::Mul => {
                 self.a.mul(prec, dest, src1, src2);
             },
+            code::BinaryOp::UDiv => {
+                self.a.udiv(prec, dest, src1, src2);
+            },
+            code::BinaryOp::SDiv => {
+                self.a.sdiv(prec, dest, src1, src2);
+            },
             // TODO: Define what happens when you shift too far.
             code::BinaryOp::Lsl => {
                 self.a.shift(LSL, prec, dest, src1, src2);

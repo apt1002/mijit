@@ -356,6 +356,20 @@ impl<B: Buffer> Assembler<B> {
         self.write_dnm(opcode, dest, src1, src2);
     }
 
+    /** Assembles an instruction that does `dest <- src1 / src2` (unsigned). */
+    pub fn udiv(&mut self, prec: Precision, dest: Register, src1: Register, src2: Register) {
+        let mut opcode = 0x1AC00800;
+        opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, src1, src2);
+    }
+
+    /** Assembles an instruction that does `dest <- src1 / src2` (signed). */
+    pub fn sdiv(&mut self, prec: Precision, dest: Register, src1: Register, src2: Register) {
+        let mut opcode = 0x1AC00C00;
+        opcode |= (prec as u32) << 31;
+        self.write_dnm(opcode, dest, src1, src2);
+    }
+
     /** Assembles an instruction that does `dest <- cond ? src1 : src2`. */
     pub fn csel(&mut self, prec: Precision, cond: Condition, dest: Register, src1: Register, src2: Register) {
         let mut opcode = 0x1A800000;
@@ -722,6 +736,44 @@ pub mod tests {
             "mul xzr, x0, x1",
             "mul x0, x1, xzr",
             "mul x1, xzr, x0",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn udiv() {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for prec in [P32, P64] {
+            a.udiv(prec, RZR, R0, R1);
+            a.udiv(prec, R0, R1, RZR);
+            a.udiv(prec, R1, RZR, R0);
+        }
+        disassemble(&a, 0, vec![
+            "udiv wzr, w0, w1",
+            "udiv w0, w1, wzr",
+            "udiv w1, wzr, w0",
+
+            "udiv xzr, x0, x1",
+            "udiv x0, x1, xzr",
+            "udiv x1, xzr, x0",
+        ]).unwrap();
+    }
+
+    #[test]
+    fn sdiv() {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for prec in [P32, P64] {
+            a.sdiv(prec, RZR, R0, R1);
+            a.sdiv(prec, R0, R1, RZR);
+            a.sdiv(prec, R1, RZR, R0);
+        }
+        disassemble(&a, 0, vec![
+            "sdiv wzr, w0, w1",
+            "sdiv w0, w1, wzr",
+            "sdiv w1, wzr, w0",
+
+            "sdiv xzr, x0, x1",
+            "sdiv x0, x1, xzr",
+            "sdiv x1, xzr, x0",
         ]).unwrap();
     }
 

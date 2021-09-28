@@ -33,6 +33,8 @@ pub enum BinaryOp {
     Add,
     Sub,
     Mul,
+    UDiv,
+    SDiv,
     Lsl,
     Lsr,
     Asr,

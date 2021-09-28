@@ -310,6 +310,18 @@ impl<B: Buffer> Assembler<B> {
         self.write_imm32(src.1);
     }
 
+    /** Unsigned long divide (D, A) by register. Quotient in A, remainder in D. */
+    pub fn sdiv(&mut self, prec: Precision, src: Register) {
+        self.write_rom_1(0xF8F740, prec, src);
+    }
+
+    /** Unsigned long divide (D, A) by memory. Quotient in A, remainder in D. */
+    pub fn load_sdiv(&mut self, prec: Precision, src: (Register, i32)) {
+        self.write_rom_1(0xB8F740, prec, src.0);
+        self.write_sib_fix(src.0);
+        self.write_imm32(src.1);
+    }
+
     /** Conditional move. */
     pub fn move_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: Register) {
         self.write_room_2(cc.move_if(), prec, src, dest);
@@ -766,9 +778,9 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble divisions in all the different ways. */
+    /** Test that we can assemble unsigned div in all the different ways. */
     #[test]
-    fn div() {
+    fn udiv() {
         let mut a = Assembler::<Vec<u8>>::new();
         for p in [P32, P64] {
             a.udiv(p, R8);
@@ -782,6 +794,25 @@ pub mod tests {
             "div r8",
             "div qword [r14+12345678h]",
             "div qword [r12+12345678h]",
+        ]).unwrap();
+    }
+
+    /** Test that we can assemble signed div in all the different ways. */
+    #[test]
+    fn sdiv() {
+        let mut a = Assembler::<Vec<u8>>::new();
+        for p in [P32, P64] {
+            a.sdiv(p, R8);
+            a.load_sdiv(p, (R14, DISP));
+            a.load_sdiv(p, (R12, DISP));
+        }
+        disassemble(&a, 0, vec![
+            "idiv r8d",
+            "idiv dword [r14+12345678h]",
+            "idiv dword [r12+12345678h]",
+            "idiv r8",
+            "idiv qword [r14+12345678h]",
+            "idiv qword [r12+12345678h]",
         ]).unwrap();
     }
 
