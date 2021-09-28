@@ -706,7 +706,7 @@ impl code::Machine for Machine {
                 build(|b| {
                     // Discard the loop index and limit.
                     b.const_binary(Add, BRP, BRP, cell_bytes(2));
-                }, Ok(State::Root)),
+                }, Ok(State::Next)),
                 build(|_| {}, Ok(State::Branchi)),
             ),
             State::Ploopi => Switch::if_(
