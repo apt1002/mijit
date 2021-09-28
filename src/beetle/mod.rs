@@ -21,6 +21,7 @@ use Action::*;
 pub struct Registers {
     ep: u32,
     a: u32,
+    memory: u32,
     sp: u32,
     rp: u32,
     s0: u32,
@@ -35,7 +36,7 @@ pub struct Registers {
 #[derive(Default)]
 struct AllRegisters {
     public: Registers,
-    memory: u64,
+    m0: u64,
     opcode: u32,
     stack0: u32,
     stack1: u32,
@@ -121,6 +122,10 @@ impl<T: Target> VM<T> {
             free_cells: memory_cells,
             halt_addr: 0,
         };
+        // Set memory size register.
+        vm.registers_mut().memory = u32::try_from(
+            cell_bytes(i64::from(memory_cells))
+        ).expect("Address out of range");
         // Allocate the data stack.
         let sp = vm.allocate(data_cells).1;
         vm.registers_mut().s0 = sp;
@@ -215,7 +220,7 @@ impl<T: Target> VM<T> {
     pub unsafe fn run(mut self, ep: u32) -> Self {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
-        self.state.memory = self.memory.as_mut_ptr() as u64;
+        self.state.m0 = self.memory.as_mut_ptr() as u64;
         *self.jit.global_mut(code::Global(0)) = Word {mp: (&mut self.state as *mut AllRegisters).cast()};
         let (jit, trap) = self.jit.execute(&State::Root).expect("Execute failed");
         assert_eq!(trap, Trap::Halt);
@@ -246,7 +251,7 @@ const BEP: Variable = Variable::Register(REGISTERS[6]);
 const BA: Variable = Variable::Register(REGISTERS[7]);
 const BSP: Variable = Variable::Register(REGISTERS[8]);
 const BRP: Variable = Variable::Register(REGISTERS[9]);
-const MEMORY: Variable = Variable::Register(REGISTERS[10]);
+const M0: Variable = Variable::Register(REGISTERS[10]);
 const OPCODE: Variable = Variable::Register(REGISTERS[11]);
 const STACK0: Variable = Variable::Slot(Slot(0));
 const STACK1: Variable = Variable::Slot(Slot(1));
@@ -366,7 +371,7 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     fn native_address(&mut self, dest: impl IntoVariable, addr: impl IntoVariable) {
-        self.binary64(Add, dest, MEMORY, addr);
+        self.binary64(Add, dest, M0, addr);
     }
 
     /**
@@ -513,7 +518,7 @@ impl code::Machine for Machine {
     fn num_globals(&self) -> usize { 1 }
 
     fn marshal(&self, state: Self::State) -> Marshal {
-        let mut live_values = vec![Global(0).into(), BEP, BSP, BRP, MEMORY];
+        let mut live_values = vec![Global(0).into(), BEP, BSP, BRP, M0];
         #[allow(clippy::match_same_arms)]
         live_values.extend(match state {
             State::Root => vec![BA],
@@ -542,7 +547,7 @@ impl code::Machine for Machine {
             b.load_register(BA, public_register!(a));
             b.load_register(BSP, public_register!(sp));
             b.load_register(BRP, public_register!(rp));
-            b.load_register64(MEMORY, private_register!(memory));
+            b.load_register64(M0, private_register!(m0));
             b.load_register(OPCODE, private_register!(opcode));
             b.load_register(STACK0, private_register!(stack0));
             b.load_register(STACK1, private_register!(stack1));
@@ -561,7 +566,7 @@ impl code::Machine for Machine {
             b.store_register(BA, public_register!(a));
             b.store_register(BSP, public_register!(sp));
             b.store_register(BRP, public_register!(rp));
-            b.store_register64(MEMORY, private_register!(memory));
+            b.store_register64(M0, private_register!(m0));
             b.store_register(OPCODE, private_register!(opcode));
             b.store_register(STACK0, private_register!(stack0));
             b.store_register(STACK1, private_register!(stack1));
@@ -1225,7 +1230,7 @@ impl code::Machine for Machine {
 
                     // MEMORY@
                     build(|b| {
-                        b.load_register(R1, private_register!(memory));
+                        b.load_register(R1, public_register!(memory));
                         b.push(R1, BSP);
                     }, Ok(State::Root)),
 
