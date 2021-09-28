@@ -136,7 +136,7 @@ impl<T: Target> VM<T> {
         vm.registers_mut().rp = rp;
         // Allocate a word to hold a HALT instruction.
         vm.halt_addr = vm.allocate(1).0;
-        vm.store(vm.halt_addr, 0x5F);
+        vm.store(vm.halt_addr, 0x55);
         vm
     }
 
@@ -1187,65 +1187,6 @@ impl code::Machine for Machine {
                         b.pop(BRP, BSP);
                     }, Ok(State::Root)),
 
-                    // EP@
-                    build(|b| {
-                        b.push(BEP, BSP);
-                    }, Ok(State::Root)),
-
-                    // S0@
-                    build(|b| {
-                        b.load_register(R1, public_register!(s0));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // S0!
-                    build(|b| {
-                        b.pop(R1, BSP);
-                        b.store_register(R1, public_register!(s0));
-                    }, Ok(State::Root)),
-
-                    // R0@
-                    build(|b| {
-                        b.load_register(R1, public_register!(r0));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // R0!
-                    build(|b| {
-                        b.pop(R1, BSP);
-                        b.store_register(R1, public_register!(r0));
-                    }, Ok(State::Root)),
-
-                    // 'THROW@
-                    build(|b| {
-                        b.load_register(R1, public_register!(throw));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // 'THROW!
-                    build(|b| {
-                        b.pop(R1, BSP);
-                        b.store_register(R1, public_register!(throw));
-                    }, Ok(State::Root)),
-
-                    // MEMORY@
-                    build(|b| {
-                        b.load_register(R1, public_register!(memory));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // 'BAD@
-                    build(|b| {
-                        b.load_register(R1, public_register!(bad));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // -ADDRESS@
-                    build(|b| {
-                        b.load_register(R1, public_register!(not_address));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
                     // BRANCH
                     build(|_| {}, Ok(State::Branch)),
 
@@ -1391,8 +1332,82 @@ impl code::Machine for Machine {
 
                     // HALT
                     build(|_| {}, Err(Trap::Halt)),
+
+                    // EP@
+                    build(|b| {
+                        b.push(BEP, BSP);
+                    }, Ok(State::Root)),
+
+                    // LIB
+                    build(|_| {
+                        // TODO.
+                    }, Err(Trap::NotImplemented)),
+
+                    // UNDEFINED
+                    build(|_| {
+                        // TODO.
+                    }, Err(Trap::NotImplemented)),
+
+                    // LINK
+                    build(|_| {
+                        // TODO.
+                    }, Err(Trap::NotImplemented)),
+
+                    // S0@
+                    build(|b| {
+                        b.load_register(R1, public_register!(s0));
+                        b.push(R1, BSP);
+                    }, Ok(State::Root)),
+
+                    // S0!
+                    build(|b| {
+                        b.pop(R1, BSP);
+                        b.store_register(R1, public_register!(s0));
+                    }, Ok(State::Root)),
+
+                    // R0@
+                    build(|b| {
+                        b.load_register(R1, public_register!(r0));
+                        b.push(R1, BSP);
+                    }, Ok(State::Root)),
+
+                    // R0!
+                    build(|b| {
+                        b.pop(R1, BSP);
+                        b.store_register(R1, public_register!(r0));
+                    }, Ok(State::Root)),
+
+                    // 'THROW@
+                    build(|b| {
+                        b.load_register(R1, public_register!(throw));
+                        b.push(R1, BSP);
+                    }, Ok(State::Root)),
+
+                    // 'THROW!
+                    build(|b| {
+                        b.pop(R1, BSP);
+                        b.store_register(R1, public_register!(throw));
+                    }, Ok(State::Root)),
+
+                    // MEMORY@
+                    build(|b| {
+                        b.load_register(R1, public_register!(memory));
+                        b.push(R1, BSP);
+                    }, Ok(State::Root)),
+
+                    // 'BAD@
+                    build(|b| {
+                        b.load_register(R1, public_register!(bad));
+                        b.push(R1, BSP);
+                    }, Ok(State::Root)),
+
+                    // -ADDRESS@
+                    build(|b| {
+                        b.load_register(R1, public_register!(not_address));
+                        b.push(R1, BSP);
+                    }, Ok(State::Root)),
                 ]),
-                build(|_| {}, Err(Trap::Halt)),
+                build(|_| {}, Err(Trap::NotImplemented)),
             ),
         }
     }
@@ -1450,10 +1465,10 @@ pub mod tests {
 
         // Beetle object code:
         vec![
-            0x00001504, 0x0000024F, 0x00002108, 0x0000084D,
-            0x00001501, 0x0000034F, 0x001A2202, 0xFFFFF853,
-            0x0000034D, 0x22062204, 0xFFFFF553, 0xFFFFF453,
-            0x00000054,
+            0x00001504, 0x00000245, 0x00002108, 0x00000843,
+            0x00001501, 0x00000345, 0x001A2202, 0xFFFFF849,
+            0x00000343, 0x22062204, 0xFFFFF549, 0xFFFFF449,
+            0x0000004A,
         ]
     }
 
