@@ -626,7 +626,7 @@ impl code::Machine for Machine {
             State::Lshift => Switch::if_(
                 OPCODE, // `Ult(STACK0, CELL_BITS)`
                 build(|b| {
-                    b.binary(Lsl, R2, STACK0, STACK1);
+                    b.binary(Lsl, R2, STACK1, STACK0);
                     b.store(R2, BSP);
                 }, Ok(State::Root)),
                 build(|b| {
@@ -637,7 +637,7 @@ impl code::Machine for Machine {
             State::Rshift => Switch::if_(
                 OPCODE, // `Ult(STACK0, CELL_BITS)`
                 build(|b| {
-                    b.binary(Lsr, R2, STACK0, STACK1);
+                    b.binary(Lsr, R2, STACK1, STACK0);
                     b.store(R2, BSP);
                 }, Ok(State::Root)),
                 build(|b| {
@@ -945,7 +945,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Add, R2, R2, R4);
+                        b.binary(Add, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -953,7 +953,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Sub, R2, R2, R4);
+                        b.binary(Sub, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -961,7 +961,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Sub, R2, R4, R2);
+                        b.binary(Sub, R2, R2, R4);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -997,7 +997,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Mul, R2, R2, R4);
+                        b.binary(Mul, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1058,7 +1058,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Max, R2, R2, R4);
+                        b.binary(Max, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1066,7 +1066,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Min, R2, R2, R4);
+                        b.binary(Min, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1081,7 +1081,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(And, R2, R2, R4);
+                        b.binary(And, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1089,7 +1089,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Or, R2, R2, R4);
+                        b.binary(Or, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1097,7 +1097,7 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(R2, BSP);
                         b.load(R4, BSP);
-                        b.binary(Xor, R2, R2, R4);
+                        b.binary(Xor, R2, R4, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1105,14 +1105,14 @@ impl code::Machine for Machine {
                     build(|b| {
                         b.pop(STACK0, BSP);
                         b.load(STACK1, BSP);
-                        b.const_binary(Ult, OPCODE, STACK1, CELL_BITS);
+                        b.const_binary(Ult, OPCODE, STACK0, CELL_BITS);
                     }, Ok(State::Lshift)),
 
                     // RSHIFT
                     build(|b| {
                         b.pop(STACK0, BSP);
                         b.load(STACK1, BSP);
-                        b.const_binary(Ult, OPCODE, STACK1, CELL_BITS);
+                        b.const_binary(Ult, OPCODE, STACK0, CELL_BITS);
                     }, Ok(State::Rshift)),
 
                     // 1LSHIFT
