@@ -1166,23 +1166,23 @@ impl code::Machine for Machine {
                         b.store(R3, R2);
                     }, Ok(State::Root)),
 
-                    // BSP@
+                    // SP@
                     build(|b| {
                         b.move_(R1, BSP);
                         b.push(R1, BSP);
                     }, Ok(State::Root)),
 
-                    // BSP!
+                    // SP!
                     build(|b| {
                         b.load(BSP, BSP);
                     }, Ok(State::Root)),
 
-                    // BRP@
+                    // RP@
                     build(|b| {
                         b.push(BRP, BSP);
                     }, Ok(State::Root)),
 
-                    // BRP!
+                    // RP!
                     build(|b| {
                         b.pop(BRP, BSP);
                     }, Ok(State::Root)),
@@ -1192,25 +1192,25 @@ impl code::Machine for Machine {
                         b.push(BEP, BSP);
                     }, Ok(State::Root)),
 
-                    // BS0@
+                    // S0@
                     build(|b| {
                         b.load_register(R1, public_register!(s0));
                         b.push(R1, BSP);
                     }, Ok(State::Root)),
 
-                    // BS0!
+                    // S0!
                     build(|b| {
                         b.pop(R1, BSP);
                         b.store_register(R1, public_register!(s0));
                     }, Ok(State::Root)),
 
-                    // BR0@
+                    // R0@
                     build(|b| {
                         b.load_register(R1, public_register!(r0));
                         b.push(R1, BSP);
                     }, Ok(State::Root)),
 
-                    // BR0!
+                    // R0!
                     build(|b| {
                         b.pop(R1, BSP);
                         b.store_register(R1, public_register!(r0));
