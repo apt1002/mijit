@@ -1,23 +1,6 @@
-Command history:
+Source the following files in gdb so that, when execution stops, it prints the
+next 10 instructions, the first global, the struct AllRegisters, and the bottom
+8 words of the Beetle data stack.
 
-    set history save on
-
-Assembly syntax that matches what Mijit uses:
-
-    set disassembly-flavor intel
-
-When execution stops, print the next 10 instructions, the first global, 
-the struct AllRegisters, and the bottom 8 words of the Beetle data 
-stack:
-
-    display/10i $pc
-    display/2xg $r8
-    display/17xw *($r8 as *const u64)
-    display/8xw *(*($r8 as *const u64) as *const u64 + 5) + 0x00000000003fffe0
-
-ARM equivalent:
-
-    display/10i $pc
-    display/2xg $x30
-    display/17xw *($x30 as *const u64)
-    display/8xw *(*($x30 as *const u64) as *const u64 + 5) + 0x00000000003fffe0
+- x86-gdb.txt
+- arm-gdb.txt
