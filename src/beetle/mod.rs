@@ -1,12 +1,10 @@
-use std::convert::{TryFrom};
-use std::num::{Wrapping};
 use memoffset::{offset_of};
 
 use super::target::{Target, Word};
 use super::{jit};
 use super::code::{
     self, Switch, Precision, UnaryOp, BinaryOp, Width,
-    Global, Slot, Register, Variable, IntoVariable, REGISTERS,
+    Global, Register, Variable, IntoVariable, REGISTERS,
     Action, Case, Convention, Marshal,
 };
 use Precision::*;
@@ -21,14 +19,8 @@ use Action::*;
 pub struct Registers {
     ep: u32,
     a: u32,
-    memory: u32,
     sp: u32,
     rp: u32,
-    s0: u32,
-    r0: u32,
-    throw: u32,
-    bad: u32,
-    not_address: u32,
 }
 
 /** Beetle's registers, including those live in all `State`s. */
@@ -38,38 +30,18 @@ struct AllRegisters {
     public: Registers,
     m0: u64,
     opcode: u32,
-    stack0: u32,
-    stack1: u32,
-    loop_new: u32,
-    loop_old: u32,
 }
 
-/** Computes the number of bytes in `n` cells. */
-pub const fn cell_bytes(n: i64) -> i64 { Wrapping(4 * n).0 }
-
-/** The number of bits in a word. */
-pub const CELL_BITS: i64 = cell_bytes(8);
+/** The number of bytes in a cell. */
+pub const CELL: u32 = 4;
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
 pub enum State {
     Root,
     Dispatch,
     Next,
-    Pick,
-    Roll,
-    Qdup,
-    Lshift,
-    Rshift,
-    Branch,
     Branchi,
-    Qbranch,
     Qbranchi,
-    Loop,
-    Loopi,
-    PloopTest,
-    Ploop,
-    PloopiTest,
-    Ploopi,
 }
 
 #[derive(Debug, Clone, Hash, PartialEq, Eq)]
@@ -122,17 +94,11 @@ impl<T: Target> VM<T> {
             free_cells: memory_cells,
             halt_addr: 0,
         };
-        // Set memory size register.
-        vm.registers_mut().memory = u32::try_from(
-            cell_bytes(i64::from(memory_cells))
-        ).expect("Address out of range");
         // Allocate the data stack.
         let sp = vm.allocate(data_cells).1;
-        vm.registers_mut().s0 = sp;
         vm.registers_mut().sp = sp;
         // Allocate the return stack.
         let rp = vm.allocate(return_cells).1;
-        vm.registers_mut().r0 = rp;
         vm.registers_mut().rp = rp;
         // Allocate a word to hold a HALT instruction.
         vm.halt_addr = vm.allocate(1).0;
@@ -151,14 +117,12 @@ impl<T: Target> VM<T> {
      * Allocation starts at the top of memory and is permanent.
      */
     pub fn allocate(&mut self, cells: u32) -> (u32, u32) {
-        assert!(cells <= self.free_cells);
-        let end = u32::try_from(
-            cell_bytes(i64::from(self.free_cells))
-        ).expect("Address out of range");
-        self.free_cells -= cells;
-        let start = u32::try_from(
-            cell_bytes(i64::from(self.free_cells))
-        ).expect("Address out of range");
+        let end = self.free_cells.checked_mul(CELL)
+            .expect("Address out of range");
+        self.free_cells = self.free_cells.checked_sub(cells)
+            .expect("Out of memory");
+        let start = self.free_cells.checked_mul(CELL)
+            .expect("Address out of range");
         (start, end)
     }
 
@@ -186,27 +150,27 @@ impl<T: Target> VM<T> {
 
     /** Push `item` onto the data stack. */
     pub fn push(&mut self, item: u32) {
-        self.registers_mut().sp -= cell_bytes(1) as u32;
+        self.registers_mut().sp -= CELL;
         self.store(self.registers().sp, item);
     }
 
     /** Pop an item from the data stack. */
     pub fn pop(&mut self) -> u32 {
         let item = self.load(self.registers().sp);
-        self.registers_mut().sp += cell_bytes(1) as u32;
+        self.registers_mut().sp += CELL;
         item
     }
 
     /** Push `item` onto the return stack. */
     pub fn rpush(&mut self, item: u32) {
-        self.registers_mut().rp -= cell_bytes(1) as u32;
+        self.registers_mut().rp -= CELL;
         self.store(self.registers().rp, item);
     }
 
     /** Pop an item from the return stack. */
     pub fn rpop(&mut self) -> u32 {
         let item = self.load(self.registers().rp);
-        self.registers_mut().rp += cell_bytes(1) as u32;
+        self.registers_mut().rp += CELL;
         item
     }
 
@@ -238,14 +202,10 @@ impl<T: Target> VM<T> {
 
 /* Register allocation. */
 
-const NUM_SLOTS: usize = 4;
-
 const TEMP: Register = REGISTERS[0];
 const R1: Register = REGISTERS[1];
 const R2: Register = REGISTERS[2];
 const R3: Register = REGISTERS[3];
-const R4: Register = REGISTERS[4];
-const R5: Register = REGISTERS[5];
 
 const BEP: Variable = Variable::Register(REGISTERS[6]);
 const BA: Variable = Variable::Register(REGISTERS[7]);
@@ -253,10 +213,6 @@ const BSP: Variable = Variable::Register(REGISTERS[8]);
 const BRP: Variable = Variable::Register(REGISTERS[9]);
 const M0: Variable = Variable::Register(REGISTERS[10]);
 const OPCODE: Variable = Variable::Register(REGISTERS[11]);
-const STACK0: Variable = Variable::Slot(Slot(0));
-const STACK1: Variable = Variable::Slot(Slot(1));
-const LOOP_NEW: Variable = Variable::Slot(Slot(2));
-const LOOP_OLD: Variable = Variable::Slot(Slot(3));
 
 //-----------------------------------------------------------------------------
 
@@ -291,31 +247,19 @@ impl Builder {
         Builder(Vec::new())
     }
 
-    fn add_slots(&mut self, num_slots: usize) {
-        assert_eq!(num_slots & 1, 0);
-        for _ in 0..(num_slots >> 1) {
-            self.0.push(Push(None, None));
-        }
-    }
-
-    fn remove_slots(&mut self, num_slots: usize) {
-        assert_eq!(num_slots & 1, 0);
-        self.0.push(DropMany(num_slots >> 1));
-    }
-
     fn move_(&mut self, dest: impl IntoVariable, src: impl IntoVariable) {
         if dest.into() != src.into() {
             self.0.push(Move(dest.into(), src.into()));
         }
     }
 
-    fn const_(&mut self, dest: impl IntoVariable, constant: i64) {
-        self.0.push(Constant(P32, TEMP, constant));
+    fn const_(&mut self, dest: impl IntoVariable, constant: u32) {
+        self.0.push(Constant(P32, TEMP, constant as i64));
         self.move_(dest, TEMP);
     }
 
-    fn const64(&mut self, dest: impl IntoVariable, constant: i64) {
-        self.0.push(Constant(P64, TEMP, constant));
+    fn const64(&mut self, dest: impl IntoVariable, constant: u64) {
+        self.0.push(Constant(P64, TEMP, constant as i64));
         self.move_(dest, TEMP);
     }
 
@@ -350,7 +294,7 @@ impl Builder {
      * Apply 32-bit `op` to `src` and `constant`, writing `dest`.
      * `TEMP` is corrupted.
      */
-    fn const_binary(&mut self, op: BinaryOp, dest: impl IntoVariable, src: impl IntoVariable, constant: i64) {
+    fn const_binary(&mut self, op: BinaryOp, dest: impl IntoVariable, src: impl IntoVariable, constant: u32) {
         assert_ne!(src.into(), TEMP.into());
         self.const_(TEMP, constant);
         self.binary(op, dest, src, TEMP);
@@ -360,7 +304,7 @@ impl Builder {
      * Apply 64-bit `op` to `src` and `constant`, writing `dest`.
      * `TEMP` is corrupted.
      */
-    fn const_binary64(&mut self, op: BinaryOp, dest: impl IntoVariable, src: impl IntoVariable, constant: i64) {
+    fn const_binary64(&mut self, op: BinaryOp, dest: impl IntoVariable, src: impl IntoVariable, constant: u64) {
         assert_ne!(src.into(), TEMP.into());
         self.const64(TEMP, constant);
         self.binary64(op, dest, src, TEMP);
@@ -397,33 +341,11 @@ impl Builder {
     }
 
     /**
-     * Compute the native address corresponding to `addr`, and load 8 bits.
-     * `TEMP` is corrupted.
-     */
-    // TODO: Bounds checking.
-    fn load_byte(&mut self, dest: impl IntoVariable, addr: impl IntoVariable) {
-        self.native_address(TEMP, addr);
-        self.0.push(Load(TEMP, (TEMP.into(), One), AM_MEMORY));
-        self.move_(dest, TEMP);
-    }
-
-    /**
-     * Compute the native address corresponding to `addr`, and store 8 bits.
-     * `TEMP` is corrupted.
-     */
-    // TODO: Bounds checking.
-    fn store_byte(&mut self, src: impl IntoVariable, addr: impl IntoVariable) {
-        assert_ne!(src.into(), TEMP.into());
-        self.native_address(TEMP, addr);
-        self.0.push(Store(TEMP, src.into(), (TEMP.into(), One), AM_MEMORY));
-    }
-
-    /**
      * Load 32 bits from host address `Global(0) + offset`.
      * `TEMP` is corrupted.
      */
     fn load_register(&mut self, dest: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as i64);
+        self.const_binary64(Add, TEMP, Global(0), offset as u64);
         self.0.push(Load(TEMP, (TEMP.into(), Four), AM_REGISTER));
         self.move_(dest, TEMP);
     }
@@ -433,7 +355,7 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     fn load_register64(&mut self, dest: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as i64);
+        self.const_binary64(Add, TEMP, Global(0), offset as u64);
         self.0.push(Load(TEMP, (TEMP.into(), Eight), AM_REGISTER));
         self.move_(dest, TEMP);
     }
@@ -443,7 +365,7 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     fn store_register(&mut self, src: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as i64);
+        self.const_binary64(Add, TEMP, Global(0), offset as u64);
         self.0.push(Store(TEMP, src.into(), (TEMP.into(), Four), AM_REGISTER));
     }
 
@@ -452,7 +374,7 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     fn store_register64(&mut self, src: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as i64);
+        self.const_binary64(Add, TEMP, Global(0), offset as u64);
         self.0.push(Store(TEMP, src.into(), (TEMP.into(), Eight), AM_REGISTER));
     }
 
@@ -464,18 +386,18 @@ impl Builder {
         assert_ne!(dest.into(), addr.into());
         assert_ne!(dest.into(), TEMP.into());
         self.load(dest, addr);
-        self.const_binary(Add, TEMP, addr, cell_bytes(1));
+        self.const_binary(Add, TEMP, addr, CELL);
         self.move_(addr, TEMP);
     }
 
     /**
-     * Decrement `addr` by `cell_bytes(1)`, then `store()` `src` at `addr`.
+     * Decrement `addr` by `CELL`, then `store()` `src` at `addr`.
      * `TEMP` is corrupted.
      */
     fn push(&mut self, src: impl IntoVariable, addr: impl IntoVariable) {
         assert_ne!(src.into(), TEMP.into());
         assert_ne!(src.into(), addr.into());
-        self.const_binary(Sub, TEMP, addr, cell_bytes(1));
+        self.const_binary(Sub, TEMP, addr, CELL);
         self.move_(addr, TEMP);
         self.store(src, TEMP);
     }
@@ -523,43 +445,25 @@ impl code::Machine for Machine {
         live_values.extend(match state {
             State::Root => vec![BA],
             State::Next => vec![],
-            State::Pick => vec![BA, STACK0],
-            State::Roll => vec![BA, STACK0],
-            State::Qdup => vec![BA, STACK0],
-            State::Lshift => vec![BA, OPCODE, STACK0, STACK1],
-            State::Rshift => vec![BA, OPCODE, STACK0, STACK1],
-            State::Branch => vec![],
             State::Branchi => vec![BA],
-            State::Qbranch => vec![BA, STACK0],
-            State::Qbranchi => vec![BA, STACK0],
-            State::Loop => vec![BA, OPCODE],
-            State::Loopi => vec![BA, OPCODE],
-            State::PloopTest => vec![BA, OPCODE],
-            State::Ploop => vec![BA, OPCODE, LOOP_NEW, LOOP_OLD],
-            State::PloopiTest => vec![BA, OPCODE],
-            State::Ploopi => vec![BA, OPCODE, LOOP_NEW, LOOP_OLD],
+            State::Qbranchi => vec![BA, OPCODE],
             State::Dispatch => vec![BA, OPCODE],
         });
         let prologue = {
             let mut b = Builder::new();
-            b.add_slots(NUM_SLOTS);
             b.load_register(BEP, public_register!(ep));
             b.load_register(BA, public_register!(a));
             b.load_register(BSP, public_register!(sp));
             b.load_register(BRP, public_register!(rp));
             b.load_register64(M0, private_register!(m0));
             b.load_register(OPCODE, private_register!(opcode));
-            b.load_register(STACK0, private_register!(stack0));
-            b.load_register(STACK1, private_register!(stack1));
-            b.load_register(LOOP_NEW, private_register!(loop_new));
-            b.load_register(LOOP_OLD, private_register!(loop_old));
             b.finish()
         };
         let epilogue = {
             let mut b = Builder::new();
-            for v in [BA, OPCODE, STACK0, STACK1, LOOP_NEW, LOOP_OLD] {
+            for v in [BA, OPCODE] {
                 if !live_values.contains(&v) {
-                    b.const64(v, 0xDEADDEADDEADDEADu64 as i64);
+                    b.const64(v, 0xDEADDEADDEADDEADu64);
                 }
             }
             b.store_register(BEP, public_register!(ep));
@@ -568,15 +472,10 @@ impl code::Machine for Machine {
             b.store_register(BRP, public_register!(rp));
             b.store_register64(M0, private_register!(m0));
             b.store_register(OPCODE, private_register!(opcode));
-            b.store_register(STACK0, private_register!(stack0));
-            b.store_register(STACK1, private_register!(stack1));
-            b.store_register(LOOP_NEW, private_register!(loop_new));
-            b.store_register(LOOP_OLD, private_register!(loop_old));
-            b.remove_slots(NUM_SLOTS);
             b.finish()
         };
         let convention = Convention {
-            slots_used: NUM_SLOTS,
+            slots_used: 0,
             live_values: live_values.into(),
         };
         Marshal {prologue, convention, epilogue}
@@ -592,140 +491,14 @@ impl code::Machine for Machine {
             State::Next => Switch::always(build(|b| {
                 b.pop(BA, BEP);
             }, Ok(State::Root))),
-            State::Pick => Switch::new(
-                STACK0,
-                (0..4).map(|u| build(|b| {
-                    b.const_binary(Add, R2, BSP, cell_bytes(i64::from(u) + 1));
-                    b.load(R2, R2);
-                    b.store(R2, BSP);
-                }, Ok(State::Root))).collect(),
-                build(|_| {}, Err(Trap::Halt)),
-            ),
-            State::Roll => Switch::new(
-                STACK0,
-                (0..4).map(|u| build(|b| {
-                    b.const_binary(Add, R5, BSP, cell_bytes(u));
-                    b.load(R3, R5);
-                    for v in 0..u {
-                        b.const_binary(Add, R4, BSP, cell_bytes(v));
-                        b.load(R2, R4);
-                        b.store(R3, R4);
-                        b.move_(R3, R2);
-                    }
-                    b.store(R3, R5);
-                }, Ok(State::Root))).collect(),
-                build(|_| {}, Err(Trap::Halt)),
-            ),
-            State::Qdup => Switch::if_(
-                STACK0,
-                build(|b| {
-                    b.push(STACK0, BSP);
-                }, Ok(State::Root)),
-                build(|_| {}, Ok(State::Root)),
-            ),
-            State::Lshift => Switch::if_(
-                OPCODE, // `Ult(STACK0, CELL_BITS)`
-                build(|b| {
-                    b.binary(Lsl, R2, STACK1, STACK0);
-                    b.store(R2, BSP);
-                }, Ok(State::Root)),
-                build(|b| {
-                    b.const_(R2, 0);
-                    b.store(R2, BSP);
-                }, Ok(State::Root)),
-            ),
-            State::Rshift => Switch::if_(
-                OPCODE, // `Ult(STACK0, CELL_BITS)`
-                build(|b| {
-                    b.binary(Lsr, R2, STACK1, STACK0);
-                    b.store(R2, BSP);
-                }, Ok(State::Root)),
-                build(|b| {
-                    b.const_(R2, 0);
-                    b.store(R2, BSP);
-                }, Ok(State::Root)),
-            ),
-            State::Branch => Switch::always(build(|b| {
-                // Load EP from the cell it points to.
-                b.load(BEP, BEP); // FIXME: Add check that EP is valid.
-            }, Ok(State::Next))),
             State::Branchi => Switch::always(build(|b| {
-                b.const_binary(Mul, R2, BA, cell_bytes(1));
+                b.const_binary(Mul, R2, BA, CELL);
                 b.binary(Add, BEP, BEP, R2); // FIXME: Add check that EP is valid.
             }, Ok(State::Next))),
-            State::Qbranch => Switch::if_(
-                STACK0,
-                build(|b| {
-                    b.const_binary(Add, BEP, BEP, cell_bytes(1));
-                }, Ok(State::Root)),
-                build(|_| {}, Ok(State::Branch)),
-            ),
             State::Qbranchi => Switch::if_(
-                STACK0,
+                OPCODE, // Top of stack.
                 build(|_| {}, Ok(State::Next)),
                 build(|_| {}, Ok(State::Branchi)),
-            ),
-            State::Loop => Switch::if_(
-                OPCODE, // zero to exit the loop
-                build(|_| {}, Ok(State::Branch)),
-                build(|b| {
-                    // Discard the loop index and limit.
-                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
-                    // Add 4 to EP.
-                    b.const_binary(Add, BEP, BEP, cell_bytes(1)); // FIXME: Add check that EP is valid.
-                }, Ok(State::Root)),
-            ),
-            State::Loopi => Switch::if_(
-                OPCODE, // zero to exit the loop
-                build(|_| {}, Ok(State::Branchi)),
-                build(|b| {
-                    // Discard the loop index and limit.
-                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
-                }, Ok(State::Next)),
-            ),
-            State::PloopTest => Switch::if_(
-                OPCODE, // non-zero to exit the loop
-                build(|b| {
-                    // Discard the loop index and limit.
-                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
-                    // Add 4 to EP.
-                    b.const_binary(Add, BEP, BEP, cell_bytes(1)); // FIXME: Add check that EP is valid.
-                }, Ok(State::Root)),
-                build(|_| {}, Ok(State::Branch)),
-            ),
-            State::Ploop => Switch::if_(
-                OPCODE, // Lt(step, 0)
-                build(|b| {
-                    b.unary(Not, LOOP_OLD, LOOP_OLD);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
-                    b.const_binary(Lt, OPCODE, LOOP_NEW, 0);
-                }, Ok(State::PloopTest)),
-                build(|b| {
-                    b.unary(Not, LOOP_NEW, LOOP_NEW);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
-                    b.const_binary(Lt, OPCODE, LOOP_NEW, 0);
-                }, Ok(State::PloopTest)),
-            ),
-            State::PloopiTest => Switch::if_(
-                OPCODE, // non-zero to exit the loop
-                build(|b| {
-                    // Discard the loop index and limit.
-                    b.const_binary(Add, BRP, BRP, cell_bytes(2));
-                }, Ok(State::Next)),
-                build(|_| {}, Ok(State::Branchi)),
-            ),
-            State::Ploopi => Switch::if_(
-                OPCODE, // Lt(step, 0)
-                build(|b| {
-                    b.unary(Not, LOOP_OLD, LOOP_OLD);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
-                    b.const_binary(Lt, OPCODE, LOOP_NEW, 0);
-                }, Ok(State::PloopiTest)),
-                build(|b| {
-                    b.unary(Not, LOOP_NEW, LOOP_NEW);
-                    b.binary(And, LOOP_NEW, LOOP_NEW, LOOP_OLD);
-                    b.const_binary(Lt, OPCODE, LOOP_NEW, 0);
-                }, Ok(State::PloopiTest)),
             ),
             State::Dispatch => Switch::new(
                 OPCODE,
@@ -741,20 +514,20 @@ impl code::Machine for Machine {
 
                     // DROP
                     build(|b| {
-                        b.const_binary(Add, BSP, BSP, cell_bytes(1));
+                        b.const_binary(Add, BSP, BSP, CELL);
                     }, Ok(State::Root)),
 
                     // SWAP
                     build(|b| {
-                        b.pop(R4, BSP);
+                        b.pop(R2, BSP);
                         b.load(R3, BSP);
-                        b.store(R4, BSP);
+                        b.store(R2, BSP);
                         b.push(R3, BSP);
                     }, Ok(State::Root)),
 
                     // OVER
                     build(|b| {
-                        b.const_binary(Add, R2, BSP, cell_bytes(1));
+                        b.const_binary(Add, R2, BSP, CELL);
                         b.load(R3, R2);
                         b.push(R3, BSP);
                     }, Ok(State::Root)),
@@ -762,33 +535,33 @@ impl code::Machine for Machine {
                     // ROT
                     build(|b| {
                         b.load(R2, BSP);
-                        b.const_binary(Add, R5, BSP, cell_bytes(1));
-                        b.load(R3, R5);
-                        b.store(R2, R5);
-                        b.const_binary(Add, R5, BSP, cell_bytes(2));
-                        b.load(R2, R5);
-                        b.store(R3, R5);
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R3, R1);
+                        b.store(R2, R1);
+                        b.const_binary(Add, R1, BSP, 2 * CELL);
+                        b.load(R2, R1);
+                        b.store(R3, R1);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // -ROT
                     build(|b| {
                         b.load(R2, BSP);
-                        b.const_binary(Add, R5, BSP, cell_bytes(2));
-                        b.load(R3, R5);
-                        b.store(R2, R5);
-                        b.const_binary(Add, R5, BSP, cell_bytes(1));
-                        b.load(R2, R5);
-                        b.store(R3, R5);
+                        b.const_binary(Add, R1, BSP, 2 * CELL);
+                        b.load(R3, R1);
+                        b.store(R2, R1);
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R2, R1);
+                        b.store(R3, R1);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // TUCK
                     build(|b| {
                         b.load(R2, BSP);
-                        b.const_binary(Add, R5, BSP, cell_bytes(1));
-                        b.load(R3, R5);
-                        b.store(R2, R5);
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R3, R1);
+                        b.store(R2, R1);
                         b.store(R3, BSP);
                         b.push(R2, BSP);
                     }, Ok(State::Root)),
@@ -800,67 +573,52 @@ impl code::Machine for Machine {
                     }, Ok(State::Root)),
 
                     // PICK
-                    build(|b| {
-                        b.load(STACK0, BSP);
-                    }, Ok(State::Pick)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // ROLL
-                    build(|b| {
-                        b.pop(STACK0, BSP);
-                    }, Ok(State::Roll)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // ?DUP
-                    build(|b| {
-                        b.load(STACK0, BSP);
-                    }, Ok(State::Qdup)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // >R
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.push(R2, BRP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // R>
-                    build(|b| {
-                        b.pop(R2, BRP);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // R@
-                    build(|b| {
-                        b.load(R2, BRP);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // <
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Lt, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Lt, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // >
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Lt, R2, R2, R4);
+                        b.load(R3, BSP);
+                        b.binary(Lt, R2, R2, R3);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // =
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Eq, R2, R2, R4);
+                        b.load(R3, BSP);
+                        b.binary(Eq, R2, R2, R3);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // <>
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Eq, R2, R2, R4);
+                        b.load(R3, BSP);
+                        b.binary(Eq, R2, R2, R3);
                         b.unary(Not, R2, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
@@ -875,8 +633,8 @@ impl code::Machine for Machine {
                     // 0>
                     build(|b| {
                         b.load(R2, BSP);
-                        b.const_(R4, 0);
-                        b.binary(Lt, R2, R4, R2);
+                        b.const_(R3, 0);
+                        b.binary(Lt, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -898,70 +656,64 @@ impl code::Machine for Machine {
                     // U<
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Ult, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Ult, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // U>
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Ult, R2, R2, R4);
+                        b.load(R3, BSP);
+                        b.binary(Ult, R2, R2, R3);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // 0
                     build(|b| {
-                        b.const_(R4, 0);
-                        b.push(R4, BSP);
+                        b.const_(R2, 0);
+                        b.push(R2, BSP);
                     }, Ok(State::Root)),
 
                     // 1
                     build(|b| {
-                        b.const_(R4, 1);
-                        b.push(R4, BSP);
+                        b.const_(R2, 1);
+                        b.push(R2, BSP);
                     }, Ok(State::Root)),
 
                     // -1
                     build(|b| {
-                        b.const_(R4, -1);
-                        b.push(R4, BSP);
+                        b.const_(R2, !0);
+                        b.push(R2, BSP);
                     }, Ok(State::Root)),
 
                     // CELL
-                    build(|b| {
-                        b.const_(R4, cell_bytes(1));
-                        b.push(R4, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // -CELL
-                    build(|b| {
-                        b.const_(R4, (-Wrapping(cell_bytes(1))).0);
-                        b.push(R4, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // +
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Add, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Add, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // -
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Sub, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Sub, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // >-<
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Sub, R2, R2, R4);
+                        b.load(R3, BSP);
+                        b.binary(Sub, R2, R2, R3);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -980,65 +732,39 @@ impl code::Machine for Machine {
                     }, Ok(State::Root)),
 
                     // CELL+
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Add, R2, R2, cell_bytes(1));
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // CELL-
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Sub, R2, R2, cell_bytes(1));
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // *
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Mul, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Mul, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // /
-                    build(|_| {
-                        // TODO
-                    }, Err(Trap::NotImplemented)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // MOD
-                    build(|_| {
-                        // TODO
-                    }, Err(Trap::NotImplemented)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // /MOD
-                    build(|_| {
-                        // TODO
-                    }, Err(Trap::NotImplemented)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // U/MOD
-                    build(|_| {
-                        // TODO
-                    }, Err(Trap::NotImplemented)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // S/REM
-                    build(|_| {
-                        // TODO
-                    }, Err(Trap::NotImplemented)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // 2/
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Asr, R2, R2, 1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // CELLS
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Mul, R2, R2, cell_bytes(1));
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // ABS
                     build(|b| {
@@ -1057,16 +783,16 @@ impl code::Machine for Machine {
                     // MAX
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Max, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Max, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
                     // MIN
                     build(|b| {
                         b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Min, R2, R4, R2);
+                        b.load(R3, BSP);
+                        b.binary(Min, R2, R3, R2);
                         b.store(R2, BSP);
                     }, Ok(State::Root)),
 
@@ -1078,56 +804,25 @@ impl code::Machine for Machine {
                     }, Ok(State::Root)),
 
                     // AND
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(And, R2, R4, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // OR
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Or, R2, R4, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // XOR
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R4, BSP);
-                        b.binary(Xor, R2, R4, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // LSHIFT
-                    build(|b| {
-                        b.pop(STACK0, BSP);
-                        b.load(STACK1, BSP);
-                        b.const_binary(Ult, OPCODE, STACK0, CELL_BITS);
-                    }, Ok(State::Lshift)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // RSHIFT
-                    build(|b| {
-                        b.pop(STACK0, BSP);
-                        b.load(STACK1, BSP);
-                        b.const_binary(Ult, OPCODE, STACK0, CELL_BITS);
-                    }, Ok(State::Rshift)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // 1LSHIFT
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Lsl, R2, R2, 1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // 1RSHIFT
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Lsr, R2, R2, 1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // @
                     build(|b| {
@@ -1144,83 +839,54 @@ impl code::Machine for Machine {
                     }, Ok(State::Root)),
 
                     // C@
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.load_byte(R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // C!
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.pop(R3, BSP);
-                        b.store_byte(R3, R2);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // +!
                     build(|b| {
                         b.pop(R2, BSP);
                         b.pop(R3, BSP);
-                        b.load(R5, R2);
-                        b.binary(Add, R3, R5, R3);
+                        b.load(R1, R2);
+                        b.binary(Add, R3, R1, R3);
                         b.store(R3, R2);
                     }, Ok(State::Root)),
 
                     // SP@
-                    build(|b| {
-                        b.move_(R1, BSP);
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // SP!
-                    build(|b| {
-                        b.load(BSP, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // RP@
-                    build(|b| {
-                        b.push(BRP, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // RP!
-                    build(|b| {
-                        b.pop(BRP, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // BRANCH
-                    build(|_| {}, Ok(State::Branch)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // BRANCHI
                     build(|_| {}, Ok(State::Branchi)),
 
                     // ?BRANCH
-                    build(|b| {
-                        b.pop(STACK0, BSP);
-                    }, Ok(State::Qbranch)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // ?BRANCHI
                     build(|b| {
-                        b.pop(STACK0, BSP);
+                        b.pop(OPCODE, BSP);
                     }, Ok(State::Qbranchi)),
 
                     // EXECUTE
-                    build(|b| {
-                        b.push(BEP, BRP);
-                        b.pop(BEP, BSP); // FIXME: Add check that EP is valid.
-                    }, Ok(State::Next)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // @EXECUTE
-                    build(|b| {
-                        b.push(BEP, BRP);
-                        b.pop(R1, BSP);
-                        b.load(BEP, R1); // FIXME: Add check that EP is valid.
-                    }, Ok(State::Next)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // CALL
-                    build(|b| {
-                        b.const_binary(Add, R1, BEP, cell_bytes(1));
-                        b.push(R1, BRP);
-                    }, Ok(State::Branch)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // CALLI
                     build(|b| {
@@ -1233,91 +899,28 @@ impl code::Machine for Machine {
                     }, Ok(State::Next)),
 
                     // (DO)
-                    build(|b| {
-                        // Pop two items from SP.
-                        b.pop(R4, BSP);
-                        b.pop(R3, BSP);
-                        // Push two items to RP.
-                        b.push(R3, BRP);
-                        b.push(R4, BRP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // (LOOP)
-                    build(|b| {
-                        // Load the index and limit from RP.
-                        b.pop(R3, BRP);
-                        b.load(R4, BRP);
-                        // Update the index.
-                        b.const_binary(Add, R3, R3, 1);
-                        b.push(R3, BRP);
-                        b.binary(Sub, OPCODE, R3, R4);
-                    }, Ok(State::Loop)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // (LOOP)I
-                    build(|b| {
-                        // Load the index and limit from RP.
-                        b.pop(R3, BRP);
-                        b.load(R4, BRP);
-                        // Update the index.
-                        b.const_binary(Add, R3, R3, 1);
-                        b.push(R3, BRP);
-                        b.binary(Sub, OPCODE, R3, R4);
-                    }, Ok(State::Loopi)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // (+LOOP)
-                    build(|b| {
-                        // Pop the step from SP.
-                        b.pop(R1, BSP);
-                        // Load the index and limit from RP.
-                        b.pop(R3, BRP);
-                        b.load(R4, BRP);
-                        // Update the index.
-                        b.binary(Add, R5, R3, R1);
-                        b.push(R5, BRP);
-                        // Compute the differences between old and new indexes and limit.
-                        b.binary(Sub, LOOP_OLD, R3, R4);
-                        b.binary(Sub, LOOP_NEW, R5, R4);
-                        // Is the step negative?
-                        b.const_binary(Lt, OPCODE, R1, 0);
-                    }, Ok(State::Ploop)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // (+LOOP)I
-                    build(|b| {
-                        // Pop the step from SP.
-                        b.pop(R1, BSP);
-                        // Load the index and limit from RP.
-                        b.pop(R3, BRP);
-                        b.load(R4, BRP);
-                        // Update the index.
-                        b.binary(Add, R5, R3, R1);
-                        b.push(R5, BRP);
-                        // Compute the differences between old and new indexes and limit.
-                        b.binary(Sub, LOOP_OLD, R3, R4);
-                        b.binary(Sub, LOOP_NEW, R5, R4);
-                        // Is the step negative?
-                        b.const_binary(Lt, OPCODE, R1, 0);
-                    }, Ok(State::Ploopi)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // UNLOOP
-                    build(|b| {
-                        // Discard two items from RP.
-                        b.const_binary(Add, BRP, BRP, cell_bytes(2));
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // J
-                    build(|b| {
-                        // Push the third item of RP to SP.
-                        b.const_binary(Add, R1, BRP, cell_bytes(2));
-                        b.load(R4, R1);
-                        b.push(R4, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // (LITERAL)
-                    build(|b| {
-                        // Load R2 from cell pointed to by BEP, and add 4 to EP.
-                        b.pop(R2, BEP); // FIXME: Add check that EP is now valid.
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // (LITERAL)I
                     build(|b| {
@@ -1325,87 +928,10 @@ impl code::Machine for Machine {
                     }, Ok(State::Next)),
 
                     // THROW
-                    build(|b| {
-                        b.store_register(BEP, public_register!(bad));
-                        b.load_register(BEP, public_register!(throw)); // FIXME: Add check that EP is valid.
-                    }, Ok(State::Next)),
+                    build(|_| {}, Err(Trap::NotImplemented)),
 
                     // HALT
                     build(|_| {}, Err(Trap::Halt)),
-
-                    // EP@
-                    build(|b| {
-                        b.push(BEP, BSP);
-                    }, Ok(State::Root)),
-
-                    // LIB
-                    build(|_| {
-                        // TODO.
-                    }, Err(Trap::NotImplemented)),
-
-                    // UNDEFINED
-                    build(|_| {
-                        // TODO.
-                    }, Err(Trap::NotImplemented)),
-
-                    // LINK
-                    build(|_| {
-                        // TODO.
-                    }, Err(Trap::NotImplemented)),
-
-                    // S0@
-                    build(|b| {
-                        b.load_register(R1, public_register!(s0));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // S0!
-                    build(|b| {
-                        b.pop(R1, BSP);
-                        b.store_register(R1, public_register!(s0));
-                    }, Ok(State::Root)),
-
-                    // R0@
-                    build(|b| {
-                        b.load_register(R1, public_register!(r0));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // R0!
-                    build(|b| {
-                        b.pop(R1, BSP);
-                        b.store_register(R1, public_register!(r0));
-                    }, Ok(State::Root)),
-
-                    // 'THROW@
-                    build(|b| {
-                        b.load_register(R1, public_register!(throw));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // 'THROW!
-                    build(|b| {
-                        b.pop(R1, BSP);
-                        b.store_register(R1, public_register!(throw));
-                    }, Ok(State::Root)),
-
-                    // MEMORY@
-                    build(|b| {
-                        b.load_register(R1, public_register!(memory));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // 'BAD@
-                    build(|b| {
-                        b.load_register(R1, public_register!(bad));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
-
-                    // -ADDRESS@
-                    build(|b| {
-                        b.load_register(R1, public_register!(not_address));
-                        b.push(R1, BSP);
-                    }, Ok(State::Root)),
                 ]),
                 build(|_| {}, Err(Trap::NotImplemented)),
             ),
@@ -1475,23 +1001,27 @@ pub mod tests {
     #[test]
     pub fn halt() {
         let mut vm = VM::new(native(), MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
+        let initial_sp = vm.registers().sp;
+        let initial_rp = vm.registers().rp;
         let entry_address = vm.halt_addr;
         vm = unsafe { vm.run(entry_address) };
-        assert_eq!(vm.registers().s0, vm.registers().sp);
-        assert_eq!(vm.registers().r0, vm.registers().rp);
+        assert_eq!(vm.registers().sp, initial_sp);
+        assert_eq!(vm.registers().rp, initial_rp);
     }
 
     #[test]
     pub fn ackermann() {
         let mut vm = VM::new(native(), MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
         vm.load_object(ackermann_object().as_ref());
+        let initial_sp = vm.registers().sp;
+        let initial_rp = vm.registers().rp;
         vm.push(3);
         vm.push(5);
         vm.rpush(vm.halt_addr);
         vm = unsafe { vm.run(0) };
         let result = vm.pop();
-        assert_eq!(vm.registers().s0, vm.registers().sp);
-        assert_eq!(vm.registers().r0, vm.registers().rp);
+        assert_eq!(vm.registers().sp, initial_sp);
+        assert_eq!(vm.registers().rp, initial_rp);
         assert_eq!(result, 253);
     }
 
