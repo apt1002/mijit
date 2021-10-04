@@ -118,7 +118,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
     pub unsafe fn execute(mut self, state: &M::State) -> std::io::Result<(Self, M::Trap)> {
         let entry = *self.states.get(state).expect("invalid state");
         let (engine, exit_value) = self.engine.run(entry)?;
-        let trap = self.trap_index.get_index(exit_value.s as usize).unwrap().clone();
+        let trap = self.trap_index[exit_value.s as usize].clone();
         self.engine = engine;
         Ok((self, trap))
     }

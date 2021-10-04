@@ -17,20 +17,15 @@ name = "mijit"
 crate_type = ["rlib", "cdylib"]
 
 [dependencies]
-memmap = "0.6.2"
-memoffset = "0.6"
-indexmap = "1.4.0"
+memmap = "0.7.0"
+memoffset = "0.6.4"
+indexmap = "1.7.0"
 
 [dev-dependencies]
-rand = "0.7"
-bad64 = "0.3.0"
+bad64 = "0.4.0"
 
 [dev-dependencies.iced-x86]
-version = "1.2.0"
+version = "1.14.0"
 default-features = false
 # See below for all features
 features = ["std", "decoder", "nasm"]
-
-[patch.crates-io]
-# Pull request not yet released: https://github.com/yrp604/bad64/pull/4
-bad64 = {git='https://github.com/yrp604/bad64', rev='8a8ebcc'}
