@@ -339,12 +339,13 @@ impl<B: Buffer> Lowerer<B> {
         let mut dest = dest.into();
         let mut src1 = src1.into();
         let src2 = src2.into();
-        let save_rc = dest == RC || src2 != Value::Register(RC);
+        let save_rc = src2 != Value::Register(RC) || (dest == RC && src1 != Value::Register(RC));
         if save_rc {
+            if dest != RC || src1 == Value::Register(RC) {
+                self.move_(TEMP, RC);
+            }
             if dest == RC {
                 dest = TEMP;
-            } else {
-                self.move_(TEMP, RC);
             }
             if src1 == Value::Register(RC) {
                 src1 = Value::Register(TEMP);
@@ -769,38 +770,38 @@ pub mod tests {
         let mut lo = Lowerer::<Vec<u8>>::new(pool);
         let start = lo.here().target().unwrap();
         for (dest, src1, src2) in [
-            (RC, RA, RC),
-            (RC, RA, RD),
-            (RD, RA, RC),
-            (RD, RA, RD),
+            (RA, RA, RD),
+            (RA, RA, RC),
             (RA, RC, RD),
+            (RA, RC, RC),
+
+            (RD, RA, RD),
+            (RD, RA, RC),
+            (RD, RC, RD),
+            (RD, RC, RC),
+
+            (RC, RA, RD),
+            (RC, RA, RC),
+            (RC, RC, RD),
+            (RC, RC, RC),
         ] {
             lo.shift_binary(Shl, P32, dest, src1, src2);
         }
         disassemble(&lo.a, start, vec![
-            "mov r12,rax",
-            "shl r12d,cl",
-            "mov rcx,r12",
-
-            "mov rcx,rdx",
-            "mov r12,rax",
-            "shl r12d,cl",
-            "mov rcx,r12",
-
-            "mov rdx,rax",
-            "shl edx,cl",
-
-            "mov r12,rcx",
-            "mov rcx,rdx",
-            "mov rdx,rax",
-            "shl edx,cl",
-            "mov rcx,r12",
-
-            "mov r12,rcx",
-            "mov rcx,rdx",
-            "mov rax,r12",
+            "mov r12,rcx", "mov rcx,rdx", "shl eax,cl", "mov rcx,r12",
             "shl eax,cl",
-            "mov rcx,r12",
+            "mov r12,rcx", "mov rcx,rdx", "mov rax,r12", "shl eax,cl", "mov rcx,r12",
+            "mov rax,rcx", "shl eax,cl",
+
+            "mov r12,rcx", "mov rcx,rdx", "mov rdx,rax", "shl edx,cl", "mov rcx,r12",
+            "mov rdx,rax", "shl edx,cl",
+            "mov r12,rcx", "mov rcx,rdx", "mov rdx,r12", "shl edx,cl", "mov rcx,r12",
+            "mov rdx,rcx", "shl edx,cl",
+
+            "mov rcx,rdx", "mov r12,rax", "shl r12d,cl", "mov rcx,r12",
+            "mov r12,rax", "shl r12d,cl", "mov rcx,r12",
+            "mov r12,rcx", "mov rcx,rdx", "shl r12d,cl", "mov rcx,r12",
+            "shl ecx,cl",
         ]).unwrap();
     }
 }
