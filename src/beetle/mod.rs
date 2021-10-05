@@ -1,10 +1,17 @@
+/*!
+ * A partial implementation of the [Beetle] virtual machine in Mijit.
+ * This serves as an illustrative example as an integration test.
+ *
+ * [Beetle]: https://github.com/rrthomas/beetle
+ */
+
 use memoffset::{offset_of};
 
 use super::target::{Target, Word};
 use super::{jit};
 use super::code::{
     self, Switch, Precision, UnaryOp, BinaryOp, Width,
-    Global, Register, Variable, IntoVariable, REGISTERS,
+    Global, Register, Variable, REGISTERS,
     Action, Case, Convention, Marshal,
 };
 use Precision::*;
@@ -206,13 +213,12 @@ const TEMP: Register = REGISTERS[0];
 const R1: Register = REGISTERS[1];
 const R2: Register = REGISTERS[2];
 const R3: Register = REGISTERS[3];
-
-const BEP: Variable = Variable::Register(REGISTERS[6]);
-const BA: Variable = Variable::Register(REGISTERS[7]);
-const BSP: Variable = Variable::Register(REGISTERS[8]);
-const BRP: Variable = Variable::Register(REGISTERS[9]);
-const M0: Variable = Variable::Register(REGISTERS[10]);
-const OPCODE: Variable = Variable::Register(REGISTERS[11]);
+const BEP: Register = REGISTERS[4];
+const BA: Register = REGISTERS[5];
+const BSP: Register = REGISTERS[6];
+const BRP: Register = REGISTERS[7];
+const M0: Register = REGISTERS[8];
+const OPCODE: Register = REGISTERS[9];
 
 //-----------------------------------------------------------------------------
 
@@ -247,86 +253,45 @@ impl Builder {
         Builder(Vec::new())
     }
 
-    fn move_(&mut self, dest: impl IntoVariable, src: impl IntoVariable) {
-        if dest.into() != src.into() {
-            self.0.push(Move(dest.into(), src.into()));
-        }
+    fn const_(&mut self, dest: Register, constant: u32) {
+        self.0.push(Constant(P32, dest, constant as i64));
     }
 
-    fn const_(&mut self, dest: impl IntoVariable, constant: u32) {
-        self.0.push(Constant(P32, TEMP, constant as i64));
-        self.move_(dest, TEMP);
+    fn const64(&mut self, dest: Register, constant: u64) {
+        self.0.push(Constant(P64, dest, constant as i64));
     }
 
-    fn const64(&mut self, dest: impl IntoVariable, constant: u64) {
-        self.0.push(Constant(P64, TEMP, constant as i64));
-        self.move_(dest, TEMP);
+    /** Apply 32-bit `op` to `src`, writing `dest`. */
+    fn unary(&mut self, op: UnaryOp, dest: Register, src: Register) {
+        self.0.push(Unary(op, P32, dest, src.into()));
     }
 
-    /**
-     * Apply 32-bit `op` to `src`, writing `dest`.
-     * `TEMP` is corrupted.
-     */
-    fn unary(&mut self, op: UnaryOp, dest: impl IntoVariable, src: impl IntoVariable) {
-        self.0.push(Unary(op, P32, TEMP, src.into()));
-        self.move_(dest, TEMP);
-    }
-
-    /**
-     * Apply 32-bit `op` to `src1` and `src2`, writing `dest`.
-     * `TEMP` is corrupted.
-     */
-    fn binary(&mut self, op: BinaryOp, dest: impl IntoVariable, src1: impl IntoVariable, src2: impl IntoVariable) {
-        self.0.push(Binary(op, P32, TEMP, src1.into(), src2.into()));
-        self.move_(dest, TEMP);
-    }
-
-    /**
-     * Apply 64-bit `op` to `src1` and `src2`, writing `dest`.
-     * `TEMP` is corrupted.
-     */
-    fn binary64(&mut self, op: BinaryOp, dest: impl IntoVariable, src1: impl IntoVariable, src2: impl IntoVariable) {
-        self.0.push(Binary(op, P64, TEMP, src1.into(), src2.into()));
-        self.move_(dest, TEMP);
+    /** Apply 32-bit `op` to `src1` and `src2`, writing `dest`. */
+    fn binary(&mut self, op: BinaryOp, dest: Register, src1: Register, src2: Register) {
+        self.0.push(Binary(op, P32, dest, src1.into(), src2.into()));
     }
 
     /**
      * Apply 32-bit `op` to `src` and `constant`, writing `dest`.
      * `TEMP` is corrupted.
      */
-    fn const_binary(&mut self, op: BinaryOp, dest: impl IntoVariable, src: impl IntoVariable, constant: u32) {
-        assert_ne!(src.into(), TEMP.into());
+    fn const_binary(&mut self, op: BinaryOp, dest: Register, src: Register, constant: u32) {
+        assert_ne!(src, TEMP);
         self.const_(TEMP, constant);
         self.binary(op, dest, src, TEMP);
     }
 
-    /**
-     * Apply 64-bit `op` to `src` and `constant`, writing `dest`.
-     * `TEMP` is corrupted.
-     */
-    fn const_binary64(&mut self, op: BinaryOp, dest: impl IntoVariable, src: impl IntoVariable, constant: u64) {
-        assert_ne!(src.into(), TEMP.into());
-        self.const64(TEMP, constant);
-        self.binary64(op, dest, src, TEMP);
-    }
-
-    /**
-     * Compute the native address corresponding to `addr`.
-     * `TEMP` is corrupted.
-     */
-    fn native_address(&mut self, dest: impl IntoVariable, addr: impl IntoVariable) {
-        self.binary64(Add, dest, M0, addr);
+    /** Compute the native address corresponding to `addr`. */
+    pub fn native_address(&mut self, dest: Register, addr: Register) {
+        self.0.push(Binary(Add, P64, dest, M0.into(), addr.into()));
     }
 
     /**
      * Compute the native address corresponding to `addr`, and load 32 bits.
-     * `TEMP` is corrupted.
      */
-    // TODO: Bounds checking.
-    fn load(&mut self, dest: impl IntoVariable, addr: impl IntoVariable) {
-        self.native_address(TEMP, addr);
-        self.0.push(Load(TEMP, (TEMP.into(), Four), AM_MEMORY));
-        self.move_(dest, TEMP);
+    fn load(&mut self, dest: Register, addr: Register) {
+        self.native_address(dest, addr);
+        self.0.push(Load(dest, (dest.into(), Four), AM_MEMORY));
     }
 
     /**
@@ -334,38 +299,42 @@ impl Builder {
      * `TEMP` is corrupted.
      */
     // TODO: Bounds checking.
-    fn store(&mut self, src: impl IntoVariable, addr: impl IntoVariable) {
-        assert_ne!(src.into(), TEMP.into());
+    fn store(&mut self, src: Register, addr: Register) {
+        assert_ne!(src, TEMP);
         self.native_address(TEMP, addr);
         self.0.push(Store(TEMP, src.into(), (TEMP.into(), Four), AM_MEMORY));
+    }
+
+    /** Compute the native address `Global(0) + offset`. */
+    pub fn register_address(&mut self, dest: Register, offset: usize) {
+        self.const64(dest, offset as u64);
+        self.0.push(Binary(Add, P64, dest, Global(0).into(), dest.into()));
     }
 
     /**
      * Load 32 bits from host address `Global(0) + offset`.
      * `TEMP` is corrupted.
      */
-    fn load_register(&mut self, dest: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as u64);
-        self.0.push(Load(TEMP, (TEMP.into(), Four), AM_REGISTER));
-        self.move_(dest, TEMP);
+    fn load_register(&mut self, dest: Register, offset: usize) {
+        self.register_address(TEMP, offset);
+        self.0.push(Load(dest, (TEMP.into(), Four), AM_REGISTER));
     }
 
     /**
      * Load 64 bits from host address `Global(0) + offset`.
      * `TEMP` is corrupted.
      */
-    fn load_register64(&mut self, dest: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as u64);
-        self.0.push(Load(TEMP, (TEMP.into(), Eight), AM_REGISTER));
-        self.move_(dest, TEMP);
+    fn load_register64(&mut self, dest: Register, offset: usize) {
+        self.register_address(TEMP, offset);
+        self.0.push(Load(dest, (TEMP.into(), Eight), AM_REGISTER));
     }
 
     /**
      * Store 32 bits to host address `Global(0) + offset`.
      * `TEMP` is corrupted.
      */
-    fn store_register(&mut self, src: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as u64);
+    fn store_register(&mut self, src: Register, offset: usize) {
+        self.register_address(TEMP, offset);
         self.0.push(Store(TEMP, src.into(), (TEMP.into(), Four), AM_REGISTER));
     }
 
@@ -373,8 +342,8 @@ impl Builder {
      * Store 64 bits to host address `Global(0) + offset`.
      * `TEMP` is corrupted.
      */
-    fn store_register64(&mut self, src: impl IntoVariable, offset: usize) {
-        self.const_binary64(Add, TEMP, Global(0), offset as u64);
+    fn store_register64(&mut self, src: Register, offset: usize) {
+        self.register_address(TEMP, offset);
         self.0.push(Store(TEMP, src.into(), (TEMP.into(), Eight), AM_REGISTER));
     }
 
@@ -382,29 +351,22 @@ impl Builder {
      * `load()` `dest` from `addr`, then increment `addr`.
      * `TEMP` is corrupted.
      */
-    fn pop(&mut self, dest: impl IntoVariable, addr: impl IntoVariable) {
-        assert_ne!(dest.into(), addr.into());
-        assert_ne!(dest.into(), TEMP.into());
+    fn pop(&mut self, dest: Register, addr: Register) {
+        assert_ne!(dest, addr);
+        assert_ne!(dest, TEMP);
         self.load(dest, addr);
-        self.const_binary(Add, TEMP, addr, CELL);
-        self.move_(addr, TEMP);
+        self.const_binary(Add, addr, addr, CELL);
     }
 
     /**
      * Decrement `addr` by `CELL`, then `store()` `src` at `addr`.
      * `TEMP` is corrupted.
      */
-    fn push(&mut self, src: impl IntoVariable, addr: impl IntoVariable) {
-        assert_ne!(src.into(), TEMP.into());
-        assert_ne!(src.into(), addr.into());
-        self.const_binary(Sub, TEMP, addr, CELL);
-        self.move_(addr, TEMP);
-        self.store(src, TEMP);
-    }
-
-    #[allow(dead_code)]
-    fn debug(&mut self, x: impl IntoVariable) {
-        self.0.push(Debug(x.into()));
+    fn push(&mut self, src: Register, addr: Register) {
+        assert_ne!(src, TEMP);
+        assert_ne!(src, addr);
+        self.const_binary(Sub, addr, addr, CELL);
+        self.store(src, addr);
     }
 
     /** Returns all the [`Action`]s that this `Builder` has accumulated. */
@@ -440,7 +402,7 @@ impl code::Machine for Machine {
     fn num_globals(&self) -> usize { 1 }
 
     fn marshal(&self, state: Self::State) -> Marshal {
-        let mut live_values = vec![Global(0).into(), BEP, BSP, BRP, M0];
+        let mut live_values = vec![Global(0).into(), BEP.into(), BSP.into(), BRP.into(), M0.into()];
         #[allow(clippy::match_same_arms)]
         live_values.extend(match state {
             State::Root => vec![BA],
@@ -448,7 +410,7 @@ impl code::Machine for Machine {
             State::Branchi => vec![BA],
             State::Qbranchi => vec![BA, OPCODE],
             State::Dispatch => vec![BA, OPCODE],
-        });
+        }.into_iter().map(Variable::Register));
         let prologue = {
             let mut b = Builder::new();
             b.load_register(BEP, public_register!(ep));
@@ -462,7 +424,7 @@ impl code::Machine for Machine {
         let epilogue = {
             let mut b = Builder::new();
             for v in [BA, OPCODE] {
-                if !live_values.contains(&v) {
+                if !live_values.contains(&v.into()) {
                     b.const64(v, 0xDEADDEADDEADDEADu64);
                 }
             }
@@ -496,12 +458,12 @@ impl code::Machine for Machine {
                 b.binary(Add, BEP, BEP, R2); // FIXME: Add check that EP is valid.
             }, Ok(State::Next))),
             State::Qbranchi => Switch::if_(
-                OPCODE, // Top of stack.
+                OPCODE.into(), // Top of stack.
                 build(|_| {}, Ok(State::Next)),
                 build(|_| {}, Ok(State::Branchi)),
             ),
             State::Dispatch => Switch::new(
-                OPCODE,
+                OPCODE.into(),
                 Box::new([
                     // NEXT
                     build(|_| {}, Ok(State::Next)),
