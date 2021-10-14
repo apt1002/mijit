@@ -18,8 +18,12 @@ pub mod aarch64;
  */
 pub const RESULT: code::Register = code::REGISTERS[0];
 
-/** A [`Target`] that generates code which can be executed. */
-pub fn native() -> impl Target {
+#[cfg(target_arch="x86_64")]
+pub type Native = x86_64::Target;
+#[cfg(target_arch="aarch64")]
+pub type Native = aarch64::Target;
+
+pub fn native() -> Native {
     #[cfg(target_arch="x86_64")]
     return x86_64::Target;
     #[cfg(target_arch="aarch64")]
@@ -42,16 +46,16 @@ mod tests {
     use Width::*;
     use Action::*;
 
-    /** A test harness for a `T::Lowerer`. */
-    pub struct VM<T: Target> {
-        pub lowerer: T::Lowerer,
+    /** A test harness for a `Native::Lowerer`. */
+    pub struct VM {
+        pub lowerer: <Native as Target>::Lowerer,
         pub entry: Label,
     }
 
-    impl<T: Target> VM<T> {
-        /** Constructs a `T::Lowerer` and passes it to `compile()`. */
-        pub fn new(target: T, num_globals: usize, compile: impl FnOnce(&mut T::Lowerer)) -> Self {
-            let mut lowerer = target.lowerer(Pool::new(num_globals));
+    impl VM {
+        /** Constructs a `Native::Lowerer` and passes it to `compile()`. */
+        pub fn new(num_globals: usize, compile: impl FnOnce(&mut dyn Lower)) -> Self {
+            let mut lowerer = native().lowerer(Pool::new(num_globals));
             let entry = lowerer.here();
             lowerer.prologue();
             compile(&mut lowerer);
@@ -113,7 +117,7 @@ mod tests {
 
     /** Constructs a [`VM`], then calls it passing example values. */
     pub fn test_unary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64) -> u64) {
-        let mut vm = VM::new(native(), 1, |lo| compile(lo));
+        let mut vm = VM::new(1, |lo| compile(lo));
         for x in TEST_VALUES {
             vm = vm.run(&[Word {u: x}], Word {u: expected(x)});
         }
@@ -121,7 +125,7 @@ mod tests {
 
     /** Constructs a [`VM`], then calls it passing example pairs of values. */
     pub fn test_binary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, u64) -> u64) {
-        let mut vm = VM::new(native(), 2, |lo| compile(lo));
+        let mut vm = VM::new(2, |lo| compile(lo));
         for x in TEST_VALUES {
             for y in TEST_VALUES {
                 vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected(x, y)});
@@ -131,7 +135,7 @@ mod tests {
 
     /** Constructs a [`VM`], then calls it passing a pointer. */
     pub fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 1]) -> u64) {
-        let mut vm = VM::new(native(), 1, |lo| compile(lo));
+        let mut vm = VM::new(1, |lo| compile(lo));
         for x in TEST_VALUES {
             let mut memory = [x];
             vm = vm.run(&[Word {mp: memory.as_mut_ptr() as *mut ()}], Word {u: expected(x, &mut memory)});
@@ -208,11 +212,11 @@ mod tests {
     #[test]
     fn constant() {
         for x in TEST_VALUES {
-            let vm = VM::new(native(), 0, |lo| {
+            let vm = VM::new(0, |lo| {
                 lo.action(Constant(P32, R0, x as i64));
             });
             vm.run(&[], Word {u: x as u32 as u64});
-            let vm = VM::new(native(), 0, |lo| {
+            let vm = VM::new(0, |lo| {
                 lo.action(Constant(P64, R0, x as i64));
             });
             vm.run(&[], Word {u: x});
@@ -298,7 +302,7 @@ mod tests {
     #[test]
     fn udiv() {
         // P32.
-        let mut vm = VM::new(native(), 2, |lo| {
+        let mut vm = VM::new(2, |lo| {
             lo.action(Binary(UDiv, P32, R0, Global(0).into(), Global(1).into()));
         });
         for x in TEST_VALUES {
@@ -314,7 +318,7 @@ mod tests {
             }
         }
         // P64.
-        let mut vm = VM::new(native(), 2, |lo| {
+        let mut vm = VM::new(2, |lo| {
             lo.action(Binary(UDiv, P64, R0, Global(0).into(), Global(1).into()));
         });
         for x in TEST_VALUES {
@@ -334,7 +338,7 @@ mod tests {
     #[test]
     fn sdiv() {
         // P32.
-        let mut vm = VM::new(native(), 2, |lo| {
+        let mut vm = VM::new(2, |lo| {
             lo.action(Binary(SDiv, P32, R0, Global(0).into(), Global(1).into()));
         });
         for x in TEST_VALUES {
@@ -352,7 +356,7 @@ mod tests {
             }
         }
         // P64.
-        let mut vm = VM::new(native(), 2, |lo| {
+        let mut vm = VM::new(2, |lo| {
             lo.action(Binary(SDiv, P64, R0, Global(0).into(), Global(1).into()));
         });
         for x in TEST_VALUES {
@@ -626,7 +630,7 @@ mod tests {
     #[test]
     fn if_eq() {
         for y in TEST_VALUES {
-            let mut vm = VM::new(native(), 1, |lo| {
+            let mut vm = VM::new(1, |lo| {
                 let mut else_ = Label::new(None);
                 let mut endif = Label::new(None);
                 lo.if_eq((Global(0).into(), y), &mut else_);
@@ -645,7 +649,7 @@ mod tests {
     #[test]
     fn if_ne() {
         for y in TEST_VALUES {
-            let mut vm = VM::new(native(), 1, |lo| {
+            let mut vm = VM::new(1, |lo| {
                 let mut else_ = Label::new(None);
                 let mut endif = Label::new(None);
                 lo.if_ne((Global(0).into(), y), &mut else_);
@@ -680,7 +684,7 @@ mod tests {
             (p as u64).wrapping_mul(39564853453457569)
         ).collect();
         // Compile all the blocks.
-        let vm = VM::new(native(), 0, |lo| {
+        let vm = VM::new(0, |lo| {
             let mut labels: Vec<Label> = permutation.iter().map(|_| Label::new(None)).collect();
             let mut exit = Label::new(None);
             lo.action(Constant(P64, R0, 0));

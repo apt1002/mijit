@@ -7,7 +7,7 @@
 
 use memoffset::{offset_of};
 
-use super::target::{Target, Word};
+use super::target::{Native, native, Word};
 use super::{jit};
 use super::code::{
     self, Switch, Precision, UnaryOp, BinaryOp, Width,
@@ -66,9 +66,9 @@ pub const DATA_CELLS: u32 = 1 << 18;
 /** The suggested size of the Beetle return stack, in cells. */
 pub const RETURN_CELLS: u32 = 1 << 18;
 
-pub struct VM<T: Target> {
+pub struct VM {
     /** The compiled code, registers, and other compiler state. */
-    jit: jit::Jit<Machine, T>,
+    jit: jit::Jit<Machine, Native>,
     /** The Beetle state (other than the memory). */
     state: AllRegisters,
     /** The Beetle memory. */
@@ -79,7 +79,7 @@ pub struct VM<T: Target> {
     halt_addr: u32,
 }
 
-impl<T: Target> VM<T> {
+impl VM {
     /**
      * Constructs a Beetle virtual machine with the specified parameters.
      *
@@ -89,13 +89,12 @@ impl<T: Target> VM<T> {
      * are free for the program's use.
      */
     pub fn new(
-        target: T,
         memory_cells: u32,
         data_cells: u32,
         return_cells: u32,
     ) -> Self {
         let mut vm = VM {
-            jit: jit::Jit::new(&Machine, target),
+            jit: jit::Jit::new(&Machine, native()),
             state: AllRegisters::default(),
             memory: vec![0; memory_cells as usize],
             free_cells: memory_cells,
@@ -911,8 +910,6 @@ impl code::Machine for Machine {
 pub mod tests {
     use super::*;
 
-    use super::super::target::{native};
-
     pub fn ackermann_object() -> Vec<u32> {
         // Forth source:
         // : ACKERMANN   ( m n -- result )
@@ -962,7 +959,7 @@ pub mod tests {
 
     #[test]
     pub fn halt() {
-        let mut vm = VM::new(native(), MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
+        let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
         let initial_sp = vm.registers().sp;
         let initial_rp = vm.registers().rp;
         let entry_address = vm.halt_addr;
@@ -973,7 +970,7 @@ pub mod tests {
 
     #[test]
     pub fn ackermann() {
-        let mut vm = VM::new(native(), MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
+        let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
         vm.load_object(ackermann_object().as_ref());
         let initial_sp = vm.registers().sp;
         let initial_rp = vm.registers().rp;
