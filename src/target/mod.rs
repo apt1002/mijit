@@ -62,7 +62,7 @@ mod tests {
          * Calls the compiled code after setting the `Global`s to the specified
          * values, and checks that the return value is `expected_result`.
          */
-        pub fn run(mut self, globals: &[Word], expected_result: Word) -> Self {
+        pub unsafe fn run(mut self, globals: &[Word], expected_result: Word) -> Self {
             assert_eq!(globals.len(), self.lowerer.pool().num_globals());
             for (i, &global) in globals.iter().enumerate() {
                 self.lowerer.pool_mut()[Global(i)] = global;
@@ -111,7 +111,7 @@ mod tests {
     ];
 
     /** Constructs a [`VM`], then calls it passing example values. */
-    pub fn test_unary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64) -> u64) {
+    pub unsafe fn test_unary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64) -> u64) {
         let mut vm = VM::new(1, |lo| compile(lo));
         for x in TEST_VALUES {
             vm = vm.run(&[Word {u: x}], Word {u: expected(x)});
@@ -119,7 +119,7 @@ mod tests {
     }
 
     /** Constructs a [`VM`], then calls it passing example pairs of values. */
-    pub fn test_binary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, u64) -> u64) {
+    pub unsafe fn test_binary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, u64) -> u64) {
         let mut vm = VM::new(2, |lo| compile(lo));
         for x in TEST_VALUES {
             for y in TEST_VALUES {
@@ -129,7 +129,7 @@ mod tests {
     }
 
     /** Constructs a [`VM`], then calls it passing a pointer. */
-    pub fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 1]) -> u64) {
+    pub unsafe fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 1]) -> u64) {
         let mut vm = VM::new(1, |lo| compile(lo));
         for x in TEST_VALUES {
             let mut memory = [x];
@@ -141,7 +141,7 @@ mod tests {
 
     #[test]
     fn push_pop() {
-        test_unary(
+        unsafe {test_unary(
             |lo| {
                 assert_eq!(*lo.slots_used_mut(), 0);
                 lo.action(Push(None, Some(Global(0).into())));
@@ -150,8 +150,8 @@ mod tests {
                 assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
-        );
-        test_unary(
+        )};
+        unsafe {test_unary(
             |lo| {
                 assert_eq!(*lo.slots_used_mut(), 0);
                 lo.action(Push(Some(Global(0).into()), None));
@@ -160,12 +160,12 @@ mod tests {
                 assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
-        );
+        )};
     }
 
     #[test]
     fn drop_many() {
-        test_unary(
+        unsafe {test_unary(
             |lo| {
                 assert_eq!(*lo.slots_used_mut(), 0);
                 lo.action(Push(None, None));
@@ -184,13 +184,13 @@ mod tests {
                 assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
-        );
+        )};
     }
 
     #[test]
     fn move_() {
         for variable in [R0.into(), Slot(0).into(), Global(0).into()] {
-            test_unary(
+            unsafe {test_unary(
                 |lo| {
                     lo.action(Push(None, None));
                     lo.action(Constant(P64, R0, 42));
@@ -200,7 +200,7 @@ mod tests {
                     lo.action(Pop(None, None));
                 },
                 |x| x,
-            );
+            )};
         }
     }
 
@@ -210,11 +210,11 @@ mod tests {
             let vm = VM::new(0, |lo| {
                 lo.action(Constant(P32, R0, x as i64));
             });
-            vm.run(&[], Word {u: x as u32 as u64});
+            unsafe {vm.run(&[], Word {u: x as u32 as u64})};
             let vm = VM::new(0, |lo| {
                 lo.action(Constant(P64, R0, x as i64));
             });
-            vm.run(&[], Word {u: x});
+            unsafe {vm.run(&[], Word {u: x})};
         }
     }
 
@@ -222,76 +222,76 @@ mod tests {
 
     #[test]
     fn abs() {
-        test_unary(
+        unsafe {test_unary(
             |lo| { lo.action(Unary(Abs, P32, R0, Global(0).into())); },
             |x| (if x as i32 == i32::MIN { x as i32 } else { (x as i32).abs() }) as u32 as u64,
-        );
-        test_unary(
+        )};
+        unsafe {test_unary(
             |lo| { lo.action(Unary(Abs, P64, R0, Global(0).into())); },
             |x| (if x as i64 == i64::MIN {x as i64 } else { (x as i64).abs() }) as u64,
-        );
+        )};
     }
 
     #[test]
     fn negate() {
-        test_unary(
+        unsafe {test_unary(
             |lo| { lo.action(Unary(Negate, P32, R0, Global(0).into())); },
             |x| (if x as i32 == i32::MIN { x as i32 } else { -(x as i32) }) as u32 as u64,
-        );
-        test_unary(
+        )};
+        unsafe {test_unary(
             |lo| { lo.action(Unary(Negate, P64, R0, Global(0).into())); },
             |x| (if x as i64 == i64::MIN {x as i64 } else { -(x as i64) }) as u64,
-        );
+        )};
     }
 
     #[test]
     fn not() {
-        test_unary(
+        unsafe {test_unary(
             |lo| { lo.action(Unary(Not, P32, R0, Global(0).into())); },
             |x| !(x as u32) as u64,
-        );
-        test_unary(
+        )};
+        unsafe {test_unary(
             |lo| { lo.action(Unary(Not, P64, R0, Global(0).into())); },
             |x| !x,
-        );
+        )};
     }
 
     // BinaryOps.
 
     #[test]
     fn add() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Add, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| (x as u32).wrapping_add(y as u32) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Add, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| x.wrapping_add(y),
-        );
+        )};
     }
 
     #[test]
     fn sub() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Sub, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| (x as u32).wrapping_sub(y as u32) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Sub, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| x.wrapping_sub(y),
-        );
+        )};
     }
 
     #[test]
     fn mul() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Mul, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| (x as u32).wrapping_mul(y as u32) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Mul, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| x.wrapping_mul(y),
-        );
+        )};
     }
 
     #[test]
@@ -308,7 +308,7 @@ mod tests {
                     // Undefined behaviour.
                 } else {
                     let expected = x2 / y2;
-                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u64});
+                    vm = unsafe {vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u64})};
                 }
             }
         }
@@ -324,7 +324,7 @@ mod tests {
                     // Undefined behaviour.
                 } else {
                     let expected = x2 / y2;
-                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected});
+                    vm = unsafe {vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected})};
                 }
             }
         }
@@ -346,7 +346,7 @@ mod tests {
                     // Undefined behaviour.
                 } else {
                     let expected = x2 / y2;
-                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u32 as u64});
+                    vm = unsafe {vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u32 as u64})};
                 }
             }
         }
@@ -364,7 +364,7 @@ mod tests {
                     // Undefined behaviour.
                 } else {
                     let expected = x2 / y2;
-                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u64});
+                    vm = unsafe {vm.run(&[Word {u: x}, Word {u: y}], Word {u: expected as u64})};
                 }
             }
         }
@@ -380,21 +380,21 @@ mod tests {
     fn lsl() {
         for shift in SHIFTS {
             if shift < 32 {
-                test_unary(
+                unsafe {test_unary(
                     |lo| {
                         lo.action(Constant(P64, R0, shift as i64));
                         lo.action(Binary(Lsl, P32, R0, Global(0).into(), R0.into()));
                     },
                     |x| ((x as u32) << shift) as u64,
-                );
+                )};
             }
-            test_unary(
+            unsafe {test_unary(
                 |lo| {
                     lo.action(Constant(P64, R0, shift as i64));
                     lo.action(Binary(Lsl, P64, R0, Global(0).into(), R0.into()));
                 },
                 |x| x << shift,
-            );
+            )};
         }
     }
 
@@ -402,21 +402,21 @@ mod tests {
     fn lsr() {
         for shift in SHIFTS {
             if shift < 32 {
-                test_unary(
+                unsafe {test_unary(
                     |lo| {
                         lo.action(Constant(P64, R0, shift as i64));
                         lo.action(Binary(Lsr, P32, R0, Global(0).into(), R0.into()));
                     },
                     |x| ((x as u32) >> shift) as u64,
-                );
+                )};
             }
-            test_unary(
+            unsafe {test_unary(
                 |lo| {
                     lo.action(Constant(P64, R0, shift as i64));
                     lo.action(Binary(Lsr, P64, R0, Global(0).into(), R0.into()));
                 },
                 |x| x >> shift,
-            );
+            )};
         }
     }
 
@@ -424,164 +424,164 @@ mod tests {
     fn asr() {
         for shift in SHIFTS {
             if shift < 32 {
-                test_unary(
+                unsafe {test_unary(
                     |lo| {
                         lo.action(Constant(P64, R0, shift as i64));
                         lo.action(Binary(Asr, P32, R0, Global(0).into(), R0.into()));
                     },
                     |x| ((x as i32) >> shift) as u32 as u64,
-                );
+                )};
             }
-            test_unary(
+            unsafe {test_unary(
                 |lo| {
                     lo.action(Constant(P64, R0, shift as i64));
                     lo.action(Binary(Asr, P64, R0, Global(0).into(), R0.into()));
                 },
                 |x| ((x as i64) >> shift) as u64,
-            );
+            )};
         }
     }
 
     #[test]
     fn and() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(And, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| ((x as u32) & (y as u32)) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(And, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| x & y,
-        );
+        )};
     }
 
     #[test]
     fn or() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Or, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| ((x as u32) | (y as u32)) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Or, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| x | y,
-        );
+        )};
     }
 
     #[test]
     fn xor() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Xor, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| ((x as u32) ^ (y as u32)) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Xor, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| x ^ y,
-        );
+        )};
     }
 
     #[test]
     fn lt() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Lt, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| (if (x as i32) < (y as i32) { !0 as u32 } else { 0 }) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Lt, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| if (x as i64) < (y as i64) { !0 } else { 0 },
-        );
+        )};
     }
 
     #[test]
     fn ult() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Ult, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| (if (x as u32) < (y as u32) { !0 as u32 } else { 0 }) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Ult, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| if x < y { !0 } else { 0 },
-        );
+        )};
     }
 
     #[test]
     fn eq() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Eq, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| (if (x as u32) == (y as u32) { !0 as u32 } else { 0 }) as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Eq, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| if x == y { !0 } else { 0 },
-        );
+        )};
     }
 
     #[test]
     fn max() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Max, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| std::cmp::max(x as i32, y as i32) as u32 as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Max, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| std::cmp::max(x as i64, y as i64) as u64,
-        );
+        )};
     }
 
     #[test]
     fn min() {
-        test_binary(
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Min, P32, R0, Global(0).into(), Global(1).into())); },
             |x, y| std::cmp::min(x as i32, y as i32) as u32 as u64,
-        );
-        test_binary(
+        )};
+        unsafe {test_binary(
             |lo| { lo.action(Binary(Min, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| std::cmp::min(x as i64, y as i64) as u64,
-        );
+        )};
     }
 
     // Load and Store.
 
     #[test]
     fn load() {
-        test_mem(
+        unsafe {test_mem(
             |lo| { lo.action(Load(R0, (Global(0).into(), One), AliasMask(1))); },
             |x, _| x as u8 as u64,
-        );
-        test_mem(
+        )};
+        unsafe {test_mem(
             |lo| { lo.action(Load(R0, (Global(0).into(), Two), AliasMask(1))); },
             |x, _| x as u16 as u64,
-        );
-        test_mem(
+        )};
+        unsafe {test_mem(
             |lo| { lo.action(Load(R0, (Global(0).into(), Four), AliasMask(1))); },
             |x, _| x as u32 as u64,
-        );
-        test_mem(
+        )};
+        unsafe {test_mem(
             |lo| { lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1))); },
             |x, _| x,
-        );
+        )};
     }
 
     #[test]
     fn store() {
         const DATA: u64 = 0x5555555555555555;
         // Check returned address.
-        test_mem(
+        unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R1, DATA as i64));
                 lo.action(Store(R0, R1.into(), (Global(0).into(), Eight), AliasMask(1)));
             },
             |_, p| p.as_mut_ptr() as u64,
-        );
+        )};
         // Check returned address gets stored.
-        test_mem(
+        unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
                 lo.action(Store(R0, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
                 lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
             },
             |_, p| p.as_mut_ptr() as u64,
-        );
+        )};
         // Check all `Width`s.
-        test_mem(
+        unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
                 lo.action(Store(R1, R0.into(), (Global(0).into(), One), AliasMask(1)));
@@ -590,31 +590,31 @@ mod tests {
             |x, _| {
                 (x ^ DATA) as u8 as u64 ^ x
             },
-        );
-        test_mem(
+        )};
+        unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
                 lo.action(Store(R1, R0.into(), (Global(0).into(), Two), AliasMask(1)));
                 lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
             },
             |x, _| (x ^ DATA) as u16 as u64 ^ x,
-        );
-        test_mem(
+        )};
+        unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
                 lo.action(Store(R1, R0.into(), (Global(0).into(), Four), AliasMask(1)));
                 lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
             },
             |x, _| (x ^ DATA) as u32 as u64 ^ x,
-        );
-        test_mem(
+        )};
+        unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
                 lo.action(Store(R1, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
                 lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
             },
             |_, _| DATA,
-        );
+        )};
     }
 
     // TestOps.
@@ -636,7 +636,7 @@ mod tests {
                 lo.define(&mut endif);
             });
             for x in TEST_VALUES {
-                vm = vm.run(&[Word {u: x}], Word {u: if x == y { TRUE } else { FALSE }});
+                vm = unsafe {vm.run(&[Word {u: x}], Word {u: if x == y { TRUE } else { FALSE }})};
             }
         }
     }
@@ -655,7 +655,7 @@ mod tests {
                 lo.define(&mut endif);
             });
             for x in TEST_VALUES {
-                vm = vm.run(&[Word {u: x}], Word {u: if x != y { TRUE } else { FALSE }});
+                vm = unsafe {vm.run(&[Word {u: x}], Word {u: if x != y { TRUE } else { FALSE }})};
             }
         }
     }
@@ -709,6 +709,6 @@ mod tests {
         for p in permutation {
             expected = crate::util::rotate_right(expected, 21).wrapping_add(constants[p]);
         }
-        vm.run(&[], Word {u: expected});
+        unsafe {vm.run(&[], Word {u: expected})};
     }
 }

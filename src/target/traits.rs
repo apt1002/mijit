@@ -115,7 +115,7 @@ pub trait Lower {
 //-----------------------------------------------------------------------------
 
 /** The type of the generated code. */
-pub type ExecuteFn = extern "C" fn(
+pub type ExecuteFn = unsafe extern "C" fn(
     /* pool */ *mut Word,
 ) -> /* result */ Word;
 
