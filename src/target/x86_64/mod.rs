@@ -36,6 +36,7 @@ pub const ARGUMENTS: [Register; 6] = [RDI, RSI, RD, RC, R8, R9];
 pub const RESULTS: [Register; 2] = [RA, RD];
 
 /** The x86_64/libc compilation target. */
+#[derive(Default)]
 pub struct Target;
 
 impl super::Target for Target {

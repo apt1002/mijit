@@ -39,6 +39,7 @@ pub const ARGUMENTS: [Register; 8] = [R0, R1, R2, R3, R4, R5, R6, R7];
 pub const RESULTS: [Register; 8] = [R0, R1, R2, R3, R4, R5, R6, R7];
 
 /** The aarch64/libc compilation target. */
+#[derive(Default)]
 pub struct Target;
 
 impl super::Target for Target {

@@ -141,7 +141,16 @@ pub trait Execute: Sized + Lower {
 
 //-----------------------------------------------------------------------------
 
-pub trait Target {
+/**
+ * Represents a compilation target. Most importantly, this defines the CPU
+ * architecture that Mijit will generate code for. It also defines how Mijit
+ * will allocate and make executable the memory for the code.
+ *
+ * A type that implements `Target` is usually a zero-sized struct, but it can
+ * contain flags and other configuration data. `Default::default()` recommends
+ * the best configuation for the machine Mijit is running on.
+ */
+pub trait Target: Default {
     type Lowerer: Lower + Execute;
 
     /** The number of registers available for allocation. */

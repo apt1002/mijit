@@ -23,14 +23,9 @@ pub type Native = x86_64::Target;
 #[cfg(target_arch="aarch64")]
 pub type Native = aarch64::Target;
 
+/** Returns the current [`Target`]. Equivalent to [`Default::default()`]. */
 pub fn native() -> Native {
-    #[cfg(target_arch="x86_64")]
-    return x86_64::Target;
-    #[cfg(target_arch="aarch64")]
-    return aarch64::Target;
-    #[allow(unreachable_code)] {
-        panic!("Unknown target");
-    }
+    Default::default()
 }
 
 //-----------------------------------------------------------------------------
