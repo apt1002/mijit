@@ -32,6 +32,20 @@ pub struct Cost {
     pub resources: Resources,
 }
 
+/** The cost of a no-op. */
+pub const ZERO_COST: Cost = Cost {
+    input_latencies: &[],
+    output_latencies: &[],
+    resources: Resources::new(0x0000000),
+};
+
+/** The cost of a compare and branch. */
+pub const GUARD_COST: Cost = Cost {
+    input_latencies: &[0],
+    output_latencies: &[],
+    resources: Resources::new(0x0100012),
+};
+
 /** The resources needed to move a value from one `Register` to another. */
 pub const MOVE_COST: Cost = Cost {
     input_latencies: &[0],
@@ -104,6 +118,8 @@ pub fn op_cost(op: Op) -> Option<&'static Cost> {
     use super::code::{UnaryOp::*, BinaryOp::*};
     if op == Op::Convention { return None; }
     Some(match op {
+        Guard => &GUARD_COST,
+        Sequence => &ZERO_COST,
         Convention => panic!("Cannot execute Op::Convention"),
         Constant(n) => if n == 0 { &MOVE_COST } else { &ALU_COST },
         Unary(_, op) => match op {
