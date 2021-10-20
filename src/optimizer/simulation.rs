@@ -14,9 +14,14 @@ pub struct Simulation {
     slots_used: usize,
     /** Maps each [`Variable`] to the corresponding [`Out`]. */
     bindings: HashMap<Variable, Out>,
+    /**
+     * An instruction whose execution represents successfully passing all
+     * preceding [`Op::Guard`] instructions.
+     */
+    sequence: Node,
     /** The most recent [`Op::Store`] instruction, or the entry node. */
     store: Node,
-    /** All memory accesses instructions since `store`, including `store`. */
+    /** All [`Op::Load`] instructions since `store`. */
     loads: Vec<Node>,
     /** The most recent debug operation, or the entry node. */
     debug: Node,
@@ -37,8 +42,9 @@ impl Simulation {
         Simulation {
             slots_used: before.slots_used,
             bindings: bindings,
+            sequence: entry_node,
             store: entry_node,
-            loads: vec![entry_node],
+            loads: vec![],
             debug: entry_node,
         }
     }
@@ -101,17 +107,18 @@ impl Simulation {
             },
             Action::Load(dest, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
-                let node = self.op(dataflow, Op::Load(width, alias_mask), &[self.store], &[addr], &[dest]);
+                let node = self.op(dataflow, Op::Load(width, alias_mask), &[self.sequence, self.store], &[addr], &[dest]);
                 self.loads.push(node);
             },
             Action::Store(dest, src, (addr, width), alias_mask) => {
                 // TODO: Use AliasMask.
                 let mut deps = Vec::new();
                 std::mem::swap(&mut deps, &mut self.loads);
+                deps.push(self.sequence);
+                deps.push(self.store);
                 let node = self.op(dataflow, Op::Store(width, alias_mask), &deps, &[src, addr], &[dest]);
                 self.move_(dest.into(), src);
                 self.store = node;
-                self.loads.push(node);
             },
             Action::Push(src1, src2) => {
                 for src in [src2, src1] {
@@ -137,7 +144,7 @@ impl Simulation {
                 }
             },
             Action::Debug(src) => {
-                let node = self.op(dataflow, Op::Debug, &[self.debug], &[src], &[]);
+                let node = self.op(dataflow, Op::Debug, &[self.sequence, self.debug], &[src], &[]);
                 self.debug = node;
             },
         };
@@ -149,8 +156,11 @@ impl Simulation {
      *  - discriminant - the [`Variable`] tested by the guard.
      */
     pub fn guard(&mut self, dataflow: &mut Dataflow, discriminant: Variable) -> Node {
-        // TODO.
-        unimplemented!()
+        let discriminant = self.lookup(discriminant);
+        let guard = dataflow.add_node(Op::Guard, &[], &[discriminant], 0);
+        let sequence = self.op(dataflow, Op::Sequence, &[guard, self.sequence], &[], &[]);
+        self.sequence = sequence;
+        guard
     }
 
     /**
@@ -160,7 +170,7 @@ impl Simulation {
      */
     pub fn exit(mut self, dataflow: &mut Dataflow, after: &Convention) -> Node {
         assert_eq!(self.slots_used, after.slots_used);
-        let deps = [self.store, self.debug];
+        let deps = [self.sequence, self.store, self.debug];
         self.op(dataflow, Op::Convention, &deps, &after.live_values, &[])
     }
 
