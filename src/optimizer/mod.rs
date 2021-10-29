@@ -27,7 +27,10 @@ mod switch;
 pub use switch::{CFT};
 
 mod simulation;
-pub use simulation::{Simulation};
+pub use simulation::{Simulation, simulate};
+
+mod keep_alive;
+pub use keep_alive::{keep_alive_sets};
 
 mod moves;
 pub use moves::{moves};
@@ -39,9 +42,11 @@ mod codegen;
 pub use codegen::{generate_code};
 
 /** Optimizes an [`EBB`]. */
-pub fn optimize(num_globals: usize, input: &EBB) -> EBB {
+pub fn optimize(_num_globals: usize, input: &EBB) -> EBB {
     // Generate the [`Dataflow`] graph.
-    let (dataflow, cft) = simulation::simulate(input);
+    let (dataflow, cft) = simulate(input);
+    // Compute the keep-alive sets.
+    let _kas = keep_alive_sets(&dataflow, &cft);
 
     // TODO:
     // Make an initial [`Schedule`].
