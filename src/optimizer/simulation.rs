@@ -1,6 +1,6 @@
 use std::collections::{HashMap};
 use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch};
-use super::{Dataflow, Node, Op, Out, EBB};
+use super::{CFT, Op, Dataflow, Node, Out, EBB};
 
 /**
  * Represents the state of an abstract execution of some code which builds a
@@ -178,10 +178,11 @@ impl Simulation {
      * Simulate every control-flow path in `ebb`, adding to `dataflow` as
      * necessary.
      */
-    fn walk<'a>(mut self, dataflow: &mut Dataflow, ebb: &'a EBB) -> Node {
+    fn walk<'a>(mut self, dataflow: &mut Dataflow, ebb: &'a EBB) -> CFT {
         match ebb.block {
             None => {
-                self.exit(dataflow, &ebb.convention)
+                let exit = self.exit(dataflow, &ebb.convention);
+                CFT::Merge {exit, leaf: ebb.leaf}
             },
             Some(ref block) => {
                 for ref action in &block.actions {
@@ -191,13 +192,21 @@ impl Simulation {
                     Switch::Always(ref ebb) => self.walk(dataflow, ebb),
                     Switch::Index {discriminant, ref cases, ref default_} => {
                         let guard = self.guard(dataflow, discriminant);
+                        // Find the hottest case
+                        let mut hot_index = usize::MAX;
+                        let mut hot_weight = default_.weight;
+                        for (i, case) in cases.iter().enumerate() {
+                            if case.weight > hot_weight {
+                                hot_index = i;
+                                hot_weight = case.weight;
+                            }
+                        }
                         // Recurse on all branches.
                         let cases: Box<[_]> = cases.iter().map(
                             |ebb| self.clone().walk(dataflow, ebb)
                         ).collect();
                         let default_ = Box::new(self.walk(dataflow, default_));
-                        // TODO.
-                        guard
+                        CFT::Switch {guard, hot_index, cases, default_}
                     }
                 }
             }
@@ -206,12 +215,12 @@ impl Simulation {
 }
 
 /**
- * Construct a [`Dataflow`] that includes all the operations in `input`.
- * Return the graph and its hottest exit [`Node`].
+ * Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
+ * `input`.
  */
-pub fn simulate(input: &EBB) -> (Dataflow, Node) {
+pub fn simulate(input: &EBB) -> (Dataflow, CFT) {
     let mut dataflow = Dataflow::new(input.convention.live_values.len());
     let simulation = Simulation::new(&dataflow, &input.convention);
-    let exit_node = simulation.walk(&mut dataflow, &input);
-    (dataflow, exit_node)
+    let cft = simulation.walk(&mut dataflow, &input);
+    (dataflow, cft)
 }

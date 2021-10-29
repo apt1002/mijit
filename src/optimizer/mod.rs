@@ -23,6 +23,9 @@ pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
 mod dataflow;
 pub use dataflow::{Dataflow, Node, Out};
 
+mod switch;
+pub use switch::{CFT};
+
 mod simulation;
 pub use simulation::{Simulation};
 
@@ -38,7 +41,7 @@ pub use codegen::{generate_code};
 /** Optimizes an [`EBB`]. */
 pub fn optimize(num_globals: usize, input: &EBB) -> EBB {
     // Generate the [`Dataflow`] graph.
-    let (dataflow, exit_node) = simulation::simulate(input);
+    let (dataflow, cft) = simulation::simulate(input);
 
     // TODO:
     // Make an initial [`Schedule`].

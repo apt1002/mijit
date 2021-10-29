@@ -27,7 +27,7 @@ pub struct BasicBlock {
  */
 #[derive(Debug, Clone)]
 pub struct EBB {
-    pub _leaf: Leaf,
+    pub leaf: Leaf,
     pub convention: Convention,
     pub weight: usize,
     pub block: Option<Box<BasicBlock>>,
