@@ -1,44 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::util::{ArrayMap};
+use crate::util::{ArrayMap, Fifo};
 use super::{Dataflow, Node, Out, CFT};
-
-//-----------------------------------------------------------------------------
-
-/** A first-in-first-out queue. */
-#[derive(Debug)]
-pub struct Fifo<T: Clone> {
-    items: Vec<T>,
-    done: usize,
-}
-
-impl<T: Clone> Fifo<T> {
-    fn new() -> Self {
-        Fifo {
-            items: Vec::new(),
-            done: 0,
-        }
-    }
-
-    fn enqueue(&mut self, item: T) {
-        self.items.push(item);
-    }
-
-    fn dequeue(&mut self) -> Option<T> {
-        if self.done >= self.items.len() {
-            None
-        } else {
-            let item = self.items[self.done].clone();
-            self.done += 1;
-            Some(item)
-        }
-    }
-
-    /** Returns all items that have ever been in the queue. */
-    fn finish(self) -> Vec<T> {
-        self.items
-    }
-}
 
 //-----------------------------------------------------------------------------
 
@@ -69,7 +32,7 @@ impl<'a> KeepAlive<'a> {
         self.mark[exit] = temperature;
         fifo.enqueue(exit);
         // Breadth-first flood fill.
-        while let Some(node) = fifo.dequeue() {
+        while let Some(&node) = fifo.dequeue() {
             for &node in self.dataflow.deps(node) {
                 if self.mark[node] == 0 {
                     self.mark[node] = temperature;

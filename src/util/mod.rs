@@ -5,6 +5,9 @@ pub use rceq::{RcEq};
 mod array_map;
 pub use array_map::{ArrayMap, AsUsize};
 
+mod fifo;
+pub use fifo::{Fifo};
+
 mod iter;
 pub use iter::{map_filter_max};
 
