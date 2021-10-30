@@ -42,34 +42,6 @@ impl<T: Clone> Fifo<T> {
 
 //-----------------------------------------------------------------------------
 
-/** The hot and cold branches from a [`Op::Guard`]. */
-struct Switch<'a> {
-    guard: Node,
-    hot: &'a CFT,
-    colds: Vec<&'a CFT>,
-}
-
-impl<'a> Switch<'a> {
-    /** Separates the hot and cold paths of a [`CFT::Switch`]. */
-    fn new(guard: Node, hot_index: usize, cases: &'a [CFT], default_: &'a CFT) -> Self {
-        let mut hot = default_;
-        let mut colds = Vec::new();
-        for (i, case) in cases.iter().enumerate() {
-            if i == hot_index {
-                hot = case;
-            } else {
-                colds.push(case);
-            }
-        }
-        if hot_index != usize::MAX {
-            colds.push(default_);
-        }
-        Switch {guard, hot, colds}
-    }
-}
-
-//-----------------------------------------------------------------------------
-
 struct KeepAlive<'a> {
     dataflow: &'a Dataflow,
     mark: ArrayMap<Node, usize>,
@@ -82,26 +54,6 @@ impl<'a> KeepAlive<'a> {
         mark[dataflow.entry_node()] = 1;
         let keep_alives = HashMap::new();
         KeepAlive {dataflow, mark, keep_alives}
-    }
-
-    /**
-     * Follows the hot path through `cft`.
-     * Returns the [`Switch`]es and the exit [`Node`].
-     */
-    fn hot_path(mut cft: &'a CFT) -> (Vec<Switch>, Node) {
-        let mut switches = Vec::new();
-        loop {
-            match cft {
-                &CFT::Merge {exit, ..} => {
-                    return (switches, exit);
-                },
-                &CFT::Switch {guard, hot_index, ref cases, ref default_} => {
-                    let switch = Switch::new(guard, hot_index, cases, default_);
-                    cft = switch.hot;
-                    switches.push(switch);
-                },
-            }
-        }
     }
 
     /**
@@ -151,14 +103,14 @@ impl<'a> KeepAlive<'a> {
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
      */
     fn walk(&mut self, cft: &'a CFT, inputs: &mut HashSet<Out>, temperature: usize) {
-        let (switches, exit) = Self::hot_path(cft);
+        let (hot_colds, exit) = cft.hot_path();
         // Mark everything that `exit` depends on.
         let nodes = self.flood(exit, temperature, inputs);
         // For each guard we passed...
-        for switch in switches {
+        for hot_cold in hot_colds {
             // Recurse to find all the inputs of any cold path.
             let mut keep_alives = HashSet::new();
-            for cold in switch.colds {
+            for cold in hot_cold.colds {
                 self.walk(cold, &mut keep_alives, temperature + 1);
             }
             let keep_alives: Box<[_]> = keep_alives.into_iter().collect();
@@ -172,7 +124,7 @@ impl<'a> KeepAlive<'a> {
                 }
             }
             // Record them in `self.keep_alives`.
-            self.keep_alives.insert(switch.guard, keep_alives);
+            self.keep_alives.insert(hot_cold.guard, keep_alives);
         }
         // Unark everything that we marked.
         for node in nodes {
