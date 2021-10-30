@@ -23,8 +23,8 @@ pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
 mod dataflow;
 pub use dataflow::{Dataflow, Node, Out};
 
-mod switch;
-pub use switch::{HotCold, CFT};
+mod cft;
+pub use cft::{HotCold, CFT};
 
 mod simulation;
 pub use simulation::{Simulation, simulate};
