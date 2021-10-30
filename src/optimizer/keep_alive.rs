@@ -192,3 +192,72 @@ pub fn keep_alive_sets(dataflow: &Dataflow, cft: &CFT) -> HashMap<Node, Box<[Out
     ka.walk(cft, &mut HashSet::new(), 2);
     ka.keep_alives
 }
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{Leaf, CFT, Dataflow, Op};
+    use crate::util::{AsUsize};
+
+    /**
+     * ```
+     * if a { // guard1, switch1. kas: [c, r, s]
+     *     if b { // guard2, switch2. kas: [q]
+     *         return p; // hot_hot, merge4
+     *     } else {
+     *         return q; // hot_cold, merge5
+     *     }
+     * } else {
+     *     if c { // guard3, switch3. kas: [s]
+     *         return r; // cold_hot, merge6
+     *     } else {
+     *         return s; // cold_cold, merge7
+     *     }
+     * }
+     * ```
+     */
+    #[test]
+    fn binary_tree() {
+        // Dataflow
+        let mut dataflow = Dataflow::new(7);
+        let ins: Box<[_]> = dataflow.outs(dataflow.entry_node()).collect();
+        let a = ins[0];
+        let b = ins[1];
+        let c = ins[2];
+        let p = ins[3];
+        let q = ins[4];
+        let r = ins[5];
+        let s = ins[6];
+        let guard1 = dataflow.add_node(Op::Guard, &[], &[a], 0);
+        let guard2 = dataflow.add_node(Op::Guard, &[], &[b], 0);
+        let guard3 = dataflow.add_node(Op::Guard, &[], &[c], 0);
+        let hot_hot = dataflow.add_node(Op::Convention, &[guard1, guard2], &[p], 0);
+        let hot_cold = dataflow.add_node(Op::Convention, &[guard1, guard2], &[q], 0);
+        let cold_hot = dataflow.add_node(Op::Convention, &[guard1, guard3], &[r], 0);
+        let cold_cold = dataflow.add_node(Op::Convention, &[guard1, guard3], &[s], 0);
+        // CFT
+        let merge4 = CFT::Merge {exit: hot_hot, leaf: Leaf};
+        let merge5 = CFT::Merge {exit: hot_cold, leaf: Leaf};
+        let merge6 = CFT::Merge {exit: cold_hot, leaf: Leaf};
+        let merge7 = CFT::Merge {exit: cold_cold, leaf: Leaf};
+        let switch2 = CFT::Switch {guard: guard2, hot_index: 0, cases: Box::new([merge4]), default_: Box::new(merge5)};
+        let switch3 = CFT::Switch {guard: guard3, hot_index: 0, cases: Box::new([merge6]), default_: Box::new(merge7)};
+        let switch1 = CFT::Switch {guard: guard1, hot_index: 0, cases: Box::new([switch2]), default_: Box::new(switch3)};
+        // Test
+        let expected = {
+            let mut ret: HashMap<Node, Box<[Out]>> = HashMap::new();
+            ret.insert(guard1, Box::new([c, r, s]));
+            ret.insert(guard2, Box::new([q]));
+            ret.insert(guard3, Box::new([s]));
+            ret
+        };
+        let mut observed = keep_alive_sets(&dataflow, &switch1);
+        // Sort for comparison.
+        for set in observed.values_mut() {
+            set.sort_by_key(|out| out.as_usize());
+        }
+        assert_eq!(observed, expected);
+    }
+}
