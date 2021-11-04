@@ -130,8 +130,6 @@ impl<M: Machine, T: Target> Jit<M, T> {
 pub mod tests {
     use super::*;
 
-    use std::convert::{TryFrom};
-
     use target::{Word, native};
 
     #[test]

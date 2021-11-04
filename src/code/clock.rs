@@ -1,7 +1,6 @@
 //! Ranges of values using clock arithmetic.
 
 use std::cmp::{Ord};
-use std::convert::{TryFrom};
 
 /// Describes a reason why a Range cannot be constructed.
 pub enum Error {

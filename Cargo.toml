@@ -2,13 +2,13 @@
 name = "mijit"
 version = "0.1.6"
 authors = ["apt1002"]
-edition = "2018"
+edition = "2021"
 description = "Experimental JIT compiler generator"
 readme = "README.md"
 homepage = "https://github.com/apt1002/mijit/"
 repository = "https://github.com/apt1002/mijit/"
 license = "BSD-2-Clause-Patent"
-rust-version = "1.53"
+rust-version = "1.56"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

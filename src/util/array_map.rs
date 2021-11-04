@@ -1,6 +1,5 @@
 use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
-use std::iter::{FromIterator};
 use std::marker::{PhantomData};
 
 /**
