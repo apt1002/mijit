@@ -15,6 +15,8 @@ fi
 # One of these paths is probably right.
 touch -c src/lib.rs lib.rs ../lib.rs ../../lib.rs
 
+# FIXME: Warn about "missing_safety_doc" when clippy bug is fixed:
+# https://github.com/rust-lang/rust-clippy/issues/5593
 cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::unreadable_literal \
   -A clippy::redundant_field_names \
@@ -28,4 +30,5 @@ cargo clippy --color=always $FIX_OPTIONS -- $PEDANTIC_OPTIONS \
   -A clippy::doc_markdown \
   -A clippy::unused_self \
   -A clippy::verbose_bit_mask \
+  -A clippy::missing_safety_doc \
   "$@"
