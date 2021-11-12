@@ -5,6 +5,38 @@ use super::{Dataflow, Node, Out, CFT};
 
 //-----------------------------------------------------------------------------
 
+/** Represents what happens when a particular [`Op::Guard`] fails. */
+#[derive(Debug)]
+pub struct GuardFailure {
+    /**
+     * The HotPathTrees that could be entered as a result of this
+     * `GuardFailure`.
+     */
+    pub cases: Box<[HotPathTree]>,
+    /**
+     * The set of `Out`s that any of `cases` depends on. On the hot path, the
+     * `Out`s must be kept alive at least until the [`Op::Guard`] is executed.
+     */
+    pub keep_alives: HashSet<Out>,
+}
+
+/**
+ * Represents a tree of (acyclic) hot paths. A hot path is defined to be the
+ * set of [`Node`]s that will be executed if all [`Op::Guard`]s have their
+ * expected outcomes. If a `Guard` fails, then we end up on a new hot path,
+ * which we consider to be a child of the original. This gives a tree
+ * structure.
+ */
+#[derive(Debug)]
+pub struct HotPathTree {
+    /** The `Node`s that comprise the root hot path, topologically sorted. */
+    pub nodes: Box<[Node]>,
+    /** A [`GuardFailure`] for each [`Op::Guard`] on the root hot path. */
+    pub children: HashMap<Node, GuardFailure>,
+}
+
+//-----------------------------------------------------------------------------
+
 /** The state of a LIFO flood fill through a [`Dataflow`] graph. */
 struct Flood<'a> {
     /** The graph to flood fill. */
@@ -66,20 +98,17 @@ impl <'a> Flood<'a> {
 struct KeepAlive<'a> {
     dataflow: &'a Dataflow,
     marks: ArrayMap<Node, usize>,
-    keep_alives: HashMap<Node, Box<[Out]>>,
 }
 
 impl<'a> KeepAlive<'a> {
     fn new(dataflow: &'a Dataflow) -> Self {
         let mut marks = dataflow.node_map();
         marks[dataflow.entry_node()] = 1;
-        let keep_alives = HashMap::new();
-        KeepAlive {dataflow, marks, keep_alives}
+        KeepAlive {dataflow, marks}
     }
 
     /**
-     * Add to `self.keep_alives` the keep-alive set for every [`Op::Guard`] in
-     * `cft`. Add to `inputs` the live inputs of `cft`.
+     * Convert `cft` into a [`HotPathTree`].
      *
      * On entry and on exit, `marks[node]` must be in `1..temperature` if
      * `node` is on the hotter path from which `cft` diverges, and `0`
@@ -88,22 +117,22 @@ impl<'a> KeepAlive<'a> {
      * - temperature - the number of cold branches needed to reach `cft` + 2.
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
      */
-    fn walk(&mut self, cft: &'a CFT, inputs: &mut HashSet<Out>, temperature: usize) {
+    fn walk(&mut self, cft: &'a CFT, inputs: &mut HashSet<Out>, temperature: usize)
+    -> HotPathTree {
         let (hot_colds, exit) = cft.hot_path();
         // Mark everything that `exit` depends on.
         let mut flood = Flood::new(&self.dataflow, &mut self.marks, temperature, inputs);
         flood.flood(exit);
-        let nodes = flood.nodes;
+        let nodes: Box<[_]> = flood.nodes.into();
         // For each guard we passed...
-        for hot_cold in hot_colds {
+        let children: HashMap<Node, _> = hot_colds.iter().map(|hot_cold| {
             // Recurse to find all the inputs of any cold path.
             let mut keep_alives = HashSet::new();
-            for cold in hot_cold.colds {
-                self.walk(cold, &mut keep_alives, temperature + 1);
-            }
-            let keep_alives: Box<[_]> = keep_alives.into_iter().collect();
+            let cases: Box<[_]> = hot_cold.colds.iter().map(
+                |&cold| self.walk(cold, &mut keep_alives, temperature + 1)
+            ).collect();
             // Add them to our own inputs if necessary.
-            for &out in &*keep_alives {
+            for &out in &keep_alives {
                 let (node, _) = self.dataflow.out(out);
                 assert_ne!(self.marks[node], 0);
                 if self.marks[node] < temperature {
@@ -111,14 +140,15 @@ impl<'a> KeepAlive<'a> {
                     inputs.insert(out);
                 }
             }
-            // Record them in `self.keep_alives`.
-            self.keep_alives.insert(hot_cold.guard, keep_alives);
-        }
-        // Unark everything that we marked.
-        for node in nodes {
+            (hot_cold.guard, GuardFailure {cases, keep_alives})
+        }).collect();
+        // Unmark everything that we marked.
+        for &node in &*nodes {
             assert_eq!(self.marks[node], temperature);
             self.marks[node] = 0;
         }
+        // Construct and return a HotPathTree.
+        HotPathTree {nodes, children}
     }
 }
 
@@ -127,19 +157,40 @@ impl<'a> KeepAlive<'a> {
  * are computed on the hot path but which must outlive the `Guard` because they
  * are also needed on at least one cold path.
  */
-pub fn keep_alive_sets(dataflow: &Dataflow, cft: &CFT) -> HashMap<Node, Box<[Out]>> {
+pub fn keep_alive_sets(dataflow: &Dataflow, cft: &CFT) -> HotPathTree {
     let mut ka = KeepAlive::new(dataflow);
-    ka.walk(cft, &mut HashSet::new(), 2);
-    ka.keep_alives
+    ka.walk(cft, &mut HashSet::new(), 2)
 }
 
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
+    use std::hash::{Hash};
+
     use super::*;
     use super::super::{Leaf, CFT, Dataflow, Op};
-    use crate::util::{AsUsize};
+
+    /** Returns a duplicate-free slice as a [`HashSet`]. */
+    fn as_set<T: Copy + Hash + Eq>(slice: &[T]) -> HashSet<T> {
+        let set: HashSet<_> = slice.iter().copied().collect();
+        assert_eq!(set.len(), slice.len());
+        set
+    }
+
+    impl PartialEq<Self> for GuardFailure {
+        fn eq(&self, other: &Self) -> bool {
+            self.cases == other.cases &&
+            self.keep_alives == other.keep_alives
+        }
+    }
+
+    impl PartialEq<Self> for HotPathTree {
+        fn eq(&self, other: &Self) -> bool {
+            as_set(&*self.nodes) == as_set(&*other.nodes) &&
+            self.children == other.children
+        }
+    }
 
     /**
      * ```
@@ -186,18 +237,40 @@ mod tests {
         let switch3 = CFT::Switch {guard: guard3, hot_index: 0, cases: Box::new([merge6]), default_: Box::new(merge7)};
         let switch1 = CFT::Switch {guard: guard1, hot_index: 0, cases: Box::new([switch2]), default_: Box::new(switch3)};
         // Test
-        let expected = {
-            let mut ret: HashMap<Node, Box<[Out]>> = HashMap::new();
-            ret.insert(guard1, Box::new([c, r, s]));
-            ret.insert(guard2, Box::new([q]));
-            ret.insert(guard3, Box::new([s]));
-            ret
+        let expected = HotPathTree {
+            nodes: Box::new([guard1, guard2, hot_hot]),
+            children: HashMap::from_iter([
+                (guard1, GuardFailure {
+                    cases: Box::new([
+                        HotPathTree {
+                            nodes: Box::new([guard3, cold_hot]),
+                            children: HashMap::from_iter([
+                                (guard3, GuardFailure {
+                                    cases: Box::new([
+                                        HotPathTree {
+                                            nodes: Box::new([cold_cold]),
+                                            children: HashMap::new(),
+                                        },
+                                    ]),
+                                    keep_alives: HashSet::from_iter([s]),
+                                }),
+                            ]),
+                        },
+                    ]),
+                    keep_alives: HashSet::from_iter([c, r, s]),
+                }),
+                (guard2, GuardFailure {
+                    cases: Box::new([
+                        HotPathTree {
+                            nodes: Box::new([hot_cold]),
+                            children: HashMap::new(),
+                        },
+                    ]),
+                    keep_alives: HashSet::from_iter([q]),
+                }),
+            ]),
         };
-        let mut observed = keep_alive_sets(&dataflow, &switch1);
-        // Sort for comparison.
-        for set in observed.values_mut() {
-            set.sort_by_key(|out| out.as_usize());
-        }
+        let  observed = keep_alive_sets(&dataflow, &switch1);
         assert_eq!(observed, expected);
     }
 }
