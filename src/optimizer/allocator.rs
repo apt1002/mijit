@@ -11,7 +11,6 @@ use crate::util::{ArrayMap, map_filter_max};
 
 #[derive(Copy, Clone)]
 pub enum Instruction {
-    Absent, // TODO: Remove, and use an Option<Instruction> where necessary.
     Spill(Out, Out),
     Node(Node),
 }
@@ -21,16 +20,9 @@ use Instruction::*;
 impl Debug for Instruction {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         match *self {
-            Absent => write!(f, "Absent"),
             Spill(out_x, out_y) => write!(f, "({:?}, {:?})", out_x, out_y),
             Node(node) => node.fmt(f),
         }
-    }
-}
-
-impl Default for Instruction {
-    fn default() -> Self {
-        Absent
     }
 }
 
@@ -51,10 +43,10 @@ impl Debug for OutInfo {
     }
 }
 
-/** The information that a [`Allocator`] stores about each [`Register`]. */
+/** The information that an [`Allocator`] stores about each [`Register`]. */
 #[derive(Default)]
 struct RegInfo {
-    /** The last `Time` at which each [`Register`] is used, or zero. */
+    /** The last `Time` at which the [`Register`] is used, or zero. */
     time: Time,
     /** The contents of the `Register` at the current time. */
     out: Option<Out>,

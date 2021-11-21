@@ -48,22 +48,22 @@ impl AddAssign<usize> for Time {
 //-----------------------------------------------------------------------------
 
 /** The maximum number of items to place per cycle. */
-pub const MAX_ITEMS: usize = 8;
+const MAX_ITEMS: usize = 8;
 
 /**
- * Represents a list of items that have been placed in the same cycle.
+ * Represents a list of items that have been placed in the same clock cycle.
  */
 #[derive(Debug)]
-struct Cycle<T: Default> {
+struct Cycle<T> {
     /** The CPU resources unused in this `Cycle`. */
     remaining: Resources,
     /** The number of items in `items`. */
     num_items: usize,
     /** The items to place in this `Cycle`. */
-    items: [T; MAX_ITEMS],
+    items: [Option<T>; MAX_ITEMS],
 }
 
-impl<T: Default> Cycle<T> {
+impl<T> Cycle<T> {
     /** Constructs an empty `Cycle` with [`BUDGET`] remaining. */
     pub fn new() -> Self {
         Cycle {
@@ -72,24 +72,38 @@ impl<T: Default> Cycle<T> {
             items: Default::default(),
         }
     }
+
+    /**
+     * Append `item` to this `Cycle`.
+     * Panics if `num_items` exceeds `MAX_ITEMS`.
+     */
+    pub fn push(&mut self, item: T) {
+        self.items[self.num_items] = Some(item);
+        self.num_items += 1;
+    }
+
+    /** Yields the items in this `Cycle` in the order they were pushed. */
+    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T> {
+        self.items[0..self.num_items].iter().map(Option::as_ref).map(Option::unwrap)
+    }
 }
 
 //-----------------------------------------------------------------------------
 
 /** Represents an allocation of items to clock cycles. */
 #[derive(Debug)]
-pub struct Placer<T: Debug + Default> {
+pub struct Placer<T: Debug> {
     /** The Cycles in which we're placing things. */
     cycles: Vec<Cycle<T>>,
 }
 
-impl<T: Debug + Default> Default for Placer<T> {
+impl<T: Debug> Default for Placer<T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Debug + Default> Placer<T> {
+impl<T: Debug> Placer<T> {
     pub fn new() -> Self {
         Placer {
             cycles: Vec::new(),
@@ -100,39 +114,29 @@ impl<T: Debug + Default> Placer<T> {
         Time::new(self.cycles.len()).expect("Overflow")
     }
 
-    fn at(&mut self, cycle: Time) -> &mut Cycle<T> {
-        &mut self.cycles[cycle.as_usize()]
-    }
-
-    /** Find a cycle that can afford `cost`, and subtract `cost` from it. */
-    fn choose_cycle(&mut self, cost: Resources, cycle: &mut Time) {
-        #[allow(clippy::neg_cmp_op_on_partial_ord)]
-        while *cycle < self.len() && !(cost <= self.at(*cycle).remaining) {
-            *cycle += 1;
-        }
-        while self.len() <= *cycle {
-            self.cycles.push(Cycle::new());
-        }
-        self.at(*cycle).remaining -= cost;
+    fn at(&mut self, time: Time) -> &mut Cycle<T> {
+        &mut self.cycles[time.as_usize()]
     }
 
     /**
-     * Decide when to place `item`. On entry, `*cycle` is the least time
-     * that is acceptable. `*cycle` is increased as necessary to find a cycle
-     * that can afford `cost`.
+     * Decide when to place `item`. On entry, `*time` is the least time
+     * that is acceptable. `*time` is increased as necessary to find a clock
+     * cycle that can afford `cost`.
      */
-    pub fn add_item(&mut self, item: T, cost: Resources, cycle: &mut Time) {
-        self.choose_cycle(cost, cycle);
-        let c = self.at(*cycle);
-        assert!(c.num_items < MAX_ITEMS);
-        c.items[c.num_items] = item;
-        c.num_items += 1;
+    pub fn add_item(&mut self, item: T, cost: Resources, time: &mut Time) {
+        while self.len() <= *time {
+            self.cycles.push(Cycle::new());
+        }
+        #[allow(clippy::neg_cmp_op_on_partial_ord)]
+        while !(cost <= self.at(*time).remaining) {
+            *time += 1;
+        }
+        self.at(*time).remaining -= cost;
+        self.at(*time).push(item);
     }
 
     /** Yields all the items in the chosen order. */
     pub fn iter(&self) -> impl Iterator<Item=&T> {
-        self.cycles.iter().flat_map(|c: &Cycle<T>| {
-            c.items[0..c.num_items].iter()
-        })
+        self.cycles.iter().flat_map(|c| c.iter())
     }
 }

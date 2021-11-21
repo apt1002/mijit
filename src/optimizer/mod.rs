@@ -68,7 +68,6 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
     let mut codegen = CodeGen::new(num_globals, before, &dataflow, allocation);
     for i in instructions {
         match i {
-            Instruction::Absent => panic!("Absent instruction"),
             Instruction::Spill(out1, out2) => codegen.add_spill(out1, out2),
             Instruction::Node(n) => codegen.add_node(n),
         }
