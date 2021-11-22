@@ -24,7 +24,7 @@ mod dataflow;
 pub use dataflow::{Dataflow, Node, Out};
 
 mod cft;
-pub use cft::{Cold, CFT};
+pub use cft::{Switch, Cold, CFT};
 
 mod simulation;
 pub use simulation::{Simulation, simulate};

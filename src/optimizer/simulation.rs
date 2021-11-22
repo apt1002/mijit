@@ -205,8 +205,8 @@ impl Simulation {
                         let cases: Box<[_]> = cases.iter().map(
                             |ebb| self.clone().walk(dataflow, ebb)
                         ).collect();
-                        let default_ = Box::new(self.walk(dataflow, default_));
-                        CFT::Switch {guard, hot_index, cases, default_}
+                        let default_ = self.walk(dataflow, default_);
+                        CFT::switch(guard, cases, default_, hot_index)
                     }
                 }
             }

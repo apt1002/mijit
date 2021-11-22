@@ -3,28 +3,33 @@ use super::{Node, Leaf};
 //-----------------------------------------------------------------------------
 
 /**
- * The cold branches from a [`Op::Guard`], along with the information needed
- * to combine them with the hot branch to reconstruct the whole `Switch`.
+ * Represents a control flow decision. Analogous to [`code::Switch`].
  *
- * This is used in the return type of [`CFT::hot_path()`].
+ * `code::Switch`: super::code::Switch
  */
-pub struct Cold<T> {
-    /** The [`Op::Guard`] that separates these `Colds` from the hot path. */
+#[derive(Debug, Clone)]
+pub struct Switch<C> {
+    /** The [`Op::Guard`] that discriminates the cases. */
     pub guard: Node,
-    /** The index of the most probable case, or `usize::MAX`. */
-    pub hot_index: usize,
-    /** A `T` for each cold branch (omitting the hot branch). */
-    pub colds: Box<[T]>,
+    /** The numbered cases. */
+    pub cases: Box<[C]>,
+    /** The default case. */
+    pub default_: Box<C>,
 }
 
-impl<T> Cold<T> {
-    /** Separates the hot and cold paths of a [`CFT::Switch`]. */
-    pub fn new(
-        guard: Node,
-        hot_index: usize,
-        mut cases: Vec<T>,
-        default_: T,
-    ) -> (T, Self) {
+impl<C> Switch<C> {
+    /** Apply `callback` to every `C` and return a fresh `Switch`. */
+    pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Switch<D> {
+        let Switch {guard, ref cases, ref default_} = *self;
+        let cases = cases.iter().map(&mut callback).collect();
+        let default_ = Box::new(callback(default_));
+        Switch {guard, cases, default_}
+    }
+
+    /** Separates the hot and cold branches. */
+    pub fn remove_hot(&self, hot_index: usize) -> (&C, Cold<&C>) {
+        let Switch {guard, ref cases, ref default_} = *self;
+        let mut cases: Vec<&C> = cases.iter().collect();
         let hot = if hot_index == usize::MAX {
             default_
         } else {
@@ -39,6 +44,50 @@ impl<T> Cold<T> {
 
 //-----------------------------------------------------------------------------
 
+/**
+ * The cold (less common) branches of a control-flow decision, along with the
+ * information needed to combine them with the hot branch to reconstruct the
+ * whole [`Switch`].
+ *
+ * This is used in the return types of [`Switch::remove_hot()`] and
+ * [`CFT::hot_path()`].
+ */
+#[derive(Debug, Clone)]
+pub struct Cold<C> {
+    /** The [`Op::Guard`] that separates these `Colds` from the hot path. */
+    pub guard: Node,
+    /** The index of the most probable case, or `usize::MAX`. */
+    pub hot_index: usize,
+    /** A `C` for each cold branch (omitting the hot branch). */
+    pub colds: Box<[C]>,
+}
+
+impl<C> Cold<C> {
+    /** Apply `callback` to every `C` and return a fresh `Cold`. */
+    pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Cold<D> {
+        let Cold {guard, hot_index, ref colds} = *self;
+        let colds = colds.iter().map(&mut callback).collect();
+        Cold {guard, hot_index, colds}
+    }
+
+    /** Recombines the hot and cold branches. */
+    pub fn insert_hot<'a>(&'a self, hot: &'a C) -> Switch<&'a C> {
+        let Cold {guard, hot_index, ref colds} = *self;
+        let mut colds: Vec<&C> = colds.iter().collect();
+        let default_ = Box::new(if hot_index == usize::MAX {
+            hot
+        } else {
+            let default_ = colds.pop().unwrap();
+            colds.insert(hot_index, hot);
+            default_
+        });
+        let cases = colds.into_boxed_slice();
+        Switch {guard, cases, default_}
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 /** Represents a control-flow tree. */
 pub enum CFT {
     Merge {
@@ -48,18 +97,26 @@ pub enum CFT {
         leaf: Leaf,
     },
     Switch {
-        /** The [`Op::Guard`] [`Node`] for this `Switch`. */
-        guard: Node,
+        /** The control-flow decision. */
+        switch: Switch<CFT>,
         /** The index of the most probable case, or `usize::MAX`. */
         hot_index: usize,
-        /** The `CFT`s of the numbered cases. */
-        cases: Box<[CFT]>,
-        /** The `CFT` of the default case. */
-        default_: Box<CFT>,
     },
 }
 
 impl CFT {
+    /** Constructs a `CFT::Switch`. */
+    pub fn switch(
+        guard: Node,
+        cases: impl Into<Box<[CFT]>>,
+        default_: CFT,
+        hot_index: usize,
+    ) -> Self {
+        let cases = cases.into();
+        let default_ = Box::new(default_);
+        CFT::Switch {switch: Switch {guard, cases, default_}, hot_index}
+    }
+
     /**
      * Follows the hot path through `cft`.
      * Returns the [`Colds`]es and the exit [`Node`].
@@ -72,9 +129,8 @@ impl CFT {
                 &CFT::Merge {exit, ..} => {
                     return (colds, exit);
                 },
-                &CFT::Switch {guard, hot_index, ref cases, ref default_} => {
-                    let cases: Vec<&Self> = cases.iter().collect();
-                    let (hot, cold) = Cold::new(guard, hot_index, cases, default_);
+                &CFT::Switch {ref switch, hot_index} => {
+                    let (hot, cold) = switch.remove_hot(hot_index);
                     cft = hot;
                     colds.push(cold);
                 },
