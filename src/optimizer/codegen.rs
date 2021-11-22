@@ -1,12 +1,12 @@
 use std::collections::{HashMap};
 
-use super::{NUM_REGISTERS, all_registers, Op, moves};
+use super::{NUM_REGISTERS, all_registers, Op, moves, Instruction};
 use super::dataflow::{Dataflow, Node, Out};
 use super::code::{Register, Slot, Variable, Convention, Action};
 use crate::util::{ArrayMap};
 
 /** The state of an algorithm that builds a list of [`Action`]s. */
-pub struct CodeGen<'a> {
+struct CodeGen<'a> {
     /** The [`Dataflow`] graph of the code. */
     dataflow: &'a Dataflow,
     /** For each `out`, the [`Register`] it should be computed into. */
@@ -140,4 +140,24 @@ impl<'a> CodeGen<'a> {
         // Return.
         self.actions.into()
     }
+}
+
+/** Turn a list of [`Instruction`]s into [`Action`]s. */
+pub fn generate_code(
+    num_globals: usize,
+    before: &Convention,
+    after: &Convention,
+    dataflow: &Dataflow,
+    instructions: &[Instruction],
+    allocation: ArrayMap<Out, Option<Register>>,
+    exit_node: Node,
+) -> Box<[Action]> {
+    let mut cg = CodeGen::new(num_globals, before, &dataflow, allocation);
+    for i in instructions {
+        match i {
+            &Instruction::Spill(out1, out2) => cg.add_spill(out1, out2),
+            &Instruction::Node(n) => cg.add_node(n),
+        }
+    }
+    cg.finish(after, exit_node)
 }

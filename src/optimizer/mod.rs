@@ -39,10 +39,10 @@ mod moves;
 pub use moves::{moves};
 
 mod allocator;
-pub use allocator::{Instruction, Allocator};
+pub use allocator::{Instruction, allocate};
 
 mod codegen;
-pub use codegen::{CodeGen};
+pub use codegen::{generate_code};
 
 /** Optimizes a basic block. */
 pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
@@ -58,21 +58,10 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
     assert_eq!(exit_node, nodes[nodes.len()-1]);
     let nodes = &nodes[1..nodes.len()-1];
     let schedule = Schedule::new(&dataflow, nodes, exit_node);
-    // Choose the execution order and allocate [`Register`]s.
-    let mut allocator = Allocator::new(before, schedule);
-    while let Some(node) = allocator.next() {
-        allocator.add_node(node);
-    }
-    let (instructions, allocation) = allocator.finish();
+    // Refine the schedule and allocate registers.
+    let (instructions, allocation) = allocate(before, schedule);
     // Generate the [`Action`]s.
-    let mut codegen = CodeGen::new(num_globals, before, &dataflow, allocation);
-    for i in instructions {
-        match i {
-            Instruction::Spill(out1, out2) => codegen.add_spill(out1, out2),
-            Instruction::Node(n) => codegen.add_node(n),
-        }
-    }
-    codegen.finish(after, exit_node)
+    generate_code(num_globals, before, after, &dataflow, &instructions, allocation, exit_node)
 }
 
 //-----------------------------------------------------------------------------

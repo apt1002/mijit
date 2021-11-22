@@ -65,7 +65,7 @@ impl Debug for RegInfo {
  * [`Instruction`]s are added, in the order specified by a [`Schedule`].
  */
 #[derive(Debug)]
-pub struct Allocator<'a> {
+struct Allocator<'a> {
     /** The [`Node`]s remaining to be processed. */
     schedule: Schedule<'a>,
     /** The [`Instruction`]s processed so far. */
@@ -216,4 +216,16 @@ impl<'a> std::iter::Iterator for Allocator<'a> {
     fn next(&mut self) -> Option<Self::Item> { self.schedule.next() }
 
     fn size_hint(&self) -> (usize, Option<usize>) { self.schedule.size_hint() }
+}
+
+/** Choose the execution order and allocate [`Register`]s. */
+pub fn allocate(before: &Convention, schedule: Schedule) -> (
+    Vec<Instruction>,
+    ArrayMap<Out, Option<Register>>
+) {
+    let mut a = Allocator::new(before, schedule);
+    while let Some(node) = a.next() {
+        a.add_node(node);
+    }
+    a.finish()
 }
