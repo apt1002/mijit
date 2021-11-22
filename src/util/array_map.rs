@@ -131,13 +131,15 @@ macro_rules! array_index {
              * because it is not less than the maximum length.
              */
             #[allow(clippy::missing_safety_doc)] // Work around bug in clippy.
+            #[allow(dead_code)]
             pub const unsafe fn new_unchecked(index: $UInt) -> Self {
                 Self(<$NonZeroUInt>::new_unchecked(index + 1))
             }
 
+            #[allow(dead_code)]
             pub const fn new(index: $UInt) -> Option<Self> {
                 #[allow(clippy::manual_map)] // Work around bug in clippy.
-                match <$NonZeroUInt>::new(index + 1) {
+                match <$NonZeroUInt>::new(index.wrapping_add(1)) {
                     Some(index) => Some(Self(index)),
                     None => None,
                 }
