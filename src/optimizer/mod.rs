@@ -23,9 +23,6 @@ pub use dataflow::{Dataflow, Node, Out};
 mod simulation;
 pub use simulation::{Simulation};
 
-mod pressure;
-pub use pressure::{Pressure}; // Unused so far.
-
 mod moves;
 pub use moves::{moves};
 

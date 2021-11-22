@@ -33,9 +33,6 @@ pub use action::{Action, debug_word};
 mod switch;
 pub use switch::{Case, Switch};
 
-// Not currently used. Planned for #11.
-pub mod clock;
-
 //-----------------------------------------------------------------------------
 
 /**
