@@ -1,11 +1,19 @@
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers, Schedule, RegisterPool};
+use super::{NUM_REGISTERS, all_registers};
 use super::dataflow::{Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
-use super::placer::{Time, LEAST as EARLY, Placer};
 use super::code::{Register, Variable, Convention};
 use crate::util::{ArrayMap, map_filter_max};
+
+mod schedule;
+use schedule::{Schedule};
+
+mod pool;
+use pool::{RegisterPool};
+
+mod placer;
+use placer::{Time, LEAST as EARLY, Placer};
 
 //-----------------------------------------------------------------------------
 
@@ -219,10 +227,16 @@ impl<'a> std::iter::Iterator for Allocator<'a> {
 }
 
 /** Choose the execution order and allocate [`Register`]s. */
-pub fn allocate(before: &Convention, schedule: Schedule) -> (
+pub fn allocate(
+    before: &Convention,
+    dataflow: &Dataflow,
+    nodes: &[Node],
+    exit_node: Node,
+) -> (
     Vec<Instruction>,
     ArrayMap<Out, Option<Register>>
 ) {
+    let schedule = Schedule::new(dataflow, nodes, exit_node);
     let mut a = Allocator::new(before, schedule);
     while let Some(node) = a.next() {
         a.add_node(node);

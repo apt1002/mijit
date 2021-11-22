@@ -1,6 +1,6 @@
 use crate::util::{ArrayMap};
 use super::{NUM_REGISTERS, all_registers};
-use super::code::{Register};
+use super::{Register};
 
 /**
  * A pool of allocatable [`Register`]s.

@@ -82,6 +82,7 @@ impl<'a> Schedule<'a> {
         self.firsts[out]
     }
 
+    #[allow(dead_code)]
     pub fn next_use(&self, use_: Use) -> Option<Use> {
         self.nexts[use_.as_usize()]
     }
@@ -114,7 +115,7 @@ impl<'a> Iterator for Schedule<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{Op};
+    use super::super::super::{Op};
 
     fn all_uses(schedule: &Schedule, out: Out) -> Vec<usize> {
         let mut ret = Vec::new();

@@ -23,17 +23,8 @@ pub use dataflow::{Dataflow, Node, Out};
 mod simulation;
 pub use simulation::{Simulation};
 
-mod pool;
-pub use pool::{RegisterPool};
-
 mod pressure;
 pub use pressure::{Pressure}; // Unused so far.
-
-mod placer;
-pub use placer::{Placer};
-
-mod schedule;
-pub use schedule::{Schedule};
 
 mod moves;
 pub use moves::{moves};
@@ -52,14 +43,13 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
         simulation.action(action);
     }
     let (dataflow, exit_node) = simulation.finish(after);
-    // Make an initial [`Schedule`].
-    let nodes: Vec<_> = dataflow.all_nodes().collect(); // TODO.
+    // TODO: enumerate the live [`Node`]s. For now, keep them all.
+    let nodes: Vec<_> = dataflow.all_nodes().collect();
     assert_eq!(dataflow.entry_node(), nodes[0]);
     assert_eq!(exit_node, nodes[nodes.len()-1]);
     let nodes = &nodes[1..nodes.len()-1];
-    let schedule = Schedule::new(&dataflow, nodes, exit_node);
     // Refine the schedule and allocate registers.
-    let (instructions, allocation) = allocate(before, schedule);
+    let (instructions, allocation) = allocate(before, &dataflow, nodes, exit_node);
     // Generate the [`Action`]s.
     generate_code(num_globals, before, after, &dataflow, &instructions, allocation, exit_node)
 }
