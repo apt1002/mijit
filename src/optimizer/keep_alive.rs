@@ -119,17 +119,17 @@ impl<'a> KeepAlive<'a> {
      */
     fn walk(&mut self, cft: &'a CFT, inputs: &mut HashSet<Out>, temperature: usize)
     -> HotPathTree {
-        let (hot_colds, exit) = cft.hot_path();
+        let (colds, exit) = cft.hot_path();
         // Mark everything that `exit` depends on.
         let mut flood = Flood::new(&self.dataflow, &mut self.marks, temperature, inputs);
         flood.flood(exit);
         let nodes: Box<[_]> = flood.nodes.into();
         // For each guard we passed...
-        let children: HashMap<Node, _> = hot_colds.iter().map(|hot_cold| {
+        let children: HashMap<Node, _> = colds.iter().map(|cold| {
             // Recurse to find all the inputs of any cold path.
             let mut keep_alives = HashSet::new();
-            let cases: Box<[_]> = hot_cold.colds.iter().map(
-                |&cold| self.walk(cold, &mut keep_alives, temperature + 1)
+            let cases: Box<[_]> = cold.colds.iter().map(
+                |&c| self.walk(c, &mut keep_alives, temperature + 1)
             ).collect();
             // Add them to our own inputs if necessary.
             for &out in &keep_alives {
@@ -140,7 +140,7 @@ impl<'a> KeepAlive<'a> {
                     inputs.insert(out);
                 }
             }
-            (hot_cold.guard, GuardFailure {cases, keep_alives})
+            (cold.guard, GuardFailure {cases, keep_alives}) // TODO: Preserve `cold.hot_index`.
         }).collect();
         // Unmark everything that we marked.
         for &node in &*nodes {

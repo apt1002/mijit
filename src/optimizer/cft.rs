@@ -3,32 +3,37 @@ use super::{Node, Leaf};
 //-----------------------------------------------------------------------------
 
 /**
- * The hot and cold branches from a [`Op::Guard`].
+ * The cold branches from a [`Op::Guard`], along with the information needed
+ * to combine them with the hot branch to reconstruct the whole `Switch`.
  *
- * This is the return type of [`CFT::hot_path()`].
+ * This is used in the return type of [`CFT::hot_path()`].
  */
-pub struct HotCold<'a> {
+pub struct Cold<T> {
+    /** The [`Op::Guard`] that separates these `Colds` from the hot path. */
     pub guard: Node,
-    pub hot: &'a CFT,
-    pub colds: Vec<&'a CFT>,
+    /** The index of the most probable case, or `usize::MAX`. */
+    pub hot_index: usize,
+    /** A `T` for each cold branch (omitting the hot branch). */
+    pub colds: Box<[T]>,
 }
 
-impl<'a> HotCold<'a> {
+impl<T> Cold<T> {
     /** Separates the hot and cold paths of a [`CFT::Switch`]. */
-    pub fn new(guard: Node, hot_index: usize, cases: &'a [CFT], default_: &'a CFT) -> Self {
-        let mut hot = default_;
-        let mut colds = Vec::new();
-        for (i, case) in cases.iter().enumerate() {
-            if i == hot_index {
-                hot = case;
-            } else {
-                colds.push(case);
-            }
-        }
-        if hot_index != usize::MAX {
-            colds.push(default_);
-        }
-        HotCold {guard, hot, colds}
+    pub fn new(
+        guard: Node,
+        hot_index: usize,
+        mut cases: Vec<T>,
+        default_: T,
+    ) -> (T, Self) {
+        let hot = if hot_index == usize::MAX {
+            default_
+        } else {
+            let hot = cases.remove(hot_index);
+            cases.push(default_);
+            hot
+        };
+        let colds = cases.into_boxed_slice();
+        (hot, Cold {guard, hot_index, colds})
     }
 }
 
@@ -57,20 +62,21 @@ pub enum CFT {
 impl CFT {
     /**
      * Follows the hot path through `cft`.
-     * Returns the [`HotCold`]s and the exit [`Node`].
+     * Returns the [`Colds`]es and the exit [`Node`].
      */
-    pub fn hot_path(&self) -> (Vec<HotCold>, Node) {
+    pub fn hot_path(&self) -> (Vec<Cold<&Self>>, Node) {
         let mut cft = self;
-        let mut hot_colds = Vec::new();
+        let mut colds = Vec::new();
         loop {
             match cft {
                 &CFT::Merge {exit, ..} => {
-                    return (hot_colds, exit);
+                    return (colds, exit);
                 },
                 &CFT::Switch {guard, hot_index, ref cases, ref default_} => {
-                    let hot_cold = HotCold::new(guard, hot_index, cases, default_);
-                    cft = hot_cold.hot;
-                    hot_colds.push(hot_cold);
+                    let cases: Vec<&Self> = cases.iter().collect();
+                    let (hot, cold) = Cold::new(guard, hot_index, cases, default_);
+                    cft = hot;
+                    colds.push(cold);
                 },
             }
         }
