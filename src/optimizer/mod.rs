@@ -43,10 +43,9 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
     // TODO: enumerate the live [`Node`]s. For now, keep them all.
     let nodes: Vec<_> = dataflow.all_nodes().collect();
     assert_eq!(dataflow.entry_node(), nodes[0]);
-    assert_eq!(exit_node, nodes[nodes.len()-1]);
-    let nodes = &nodes[1..nodes.len()-1];
+    let nodes = &nodes[1..];
     // Refine the schedule and allocate registers.
-    let (instructions, allocation) = allocate(before, &dataflow, nodes, exit_node);
+    let (instructions, allocation) = allocate(before, &dataflow, nodes);
     // Generate the [`Action`]s.
     generate_code(num_globals, before, after, &dataflow, &instructions, allocation, exit_node)
 }

@@ -1,13 +1,12 @@
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers};
-use super::dataflow::{Dataflow, Node, Out};
+use super::{NUM_REGISTERS, all_registers, Op, Dataflow, Node, Out};
 use super::cost::{SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable, Convention};
 use crate::util::{ArrayMap, map_filter_max};
 
-mod schedule;
-use schedule::{Schedule};
+mod usage;
+use usage::{Usage};
 
 mod pool;
 use pool::{RegisterPool};
@@ -74,8 +73,10 @@ impl Debug for RegInfo {
  */
 #[derive(Debug)]
 struct Allocator<'a> {
+    /** The dataflow graph. */
+    dataflow: &'a Dataflow,
     /** The [`Node`]s remaining to be processed. */
-    schedule: Schedule<'a>,
+    usage: Usage<Node, Out>,
     /** The [`Instruction`]s processed so far. */
     placer: Placer<Instruction>,
     /** An `OutInfo` for each `Out`. */
@@ -89,16 +90,15 @@ struct Allocator<'a> {
 }
 
 impl<'a> Allocator<'a> {
-    pub fn new(before: &'a Convention, schedule: Schedule<'a>) -> Self {
-        let df: &'a Dataflow = schedule.dataflow;
+    pub fn new(before: &'a Convention, dataflow: &'a Dataflow, usage: Usage<Node, Out>) -> Self {
         // Initialize the data structures with the live registers of `before`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
-        let mut outs: ArrayMap<Out, OutInfo> = df.out_map();
-        let mut node_times: ArrayMap<Node, Option<Time>> = df.node_map();
-        node_times[df.entry_node()] = Some(EARLY);
+        let mut outs: ArrayMap<Out, OutInfo> = dataflow.out_map();
+        let mut node_times: ArrayMap<Node, Option<Time>> = dataflow.node_map();
+        node_times[dataflow.entry_node()] = Some(EARLY);
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
-        for (out, &value) in df.outs(df.entry_node()).zip(&*before.live_values) {
-            if schedule.first_use(out).is_some() {
+        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&*before.live_values) {
+            if usage.first(out).is_some() {
                 if let Variable::Register(reg) = value {
                     dirty[reg] = true;
                     regs[reg].out = Some(out);
@@ -109,7 +109,8 @@ impl<'a> Allocator<'a> {
         }
         // Construct and return.
         Allocator {
-            schedule: schedule,
+            dataflow: dataflow,
+            usage: usage,
             placer: Placer::new(),
             outs: outs,
             node_times: node_times,
@@ -133,7 +134,7 @@ impl<'a> Allocator<'a> {
         let i = map_filter_max(all_registers(), |reg| {
             self.regs[reg].out
                 .filter(|_| !self.pool.is_clean(reg))
-                .map(|out| self.schedule.first_use(out))
+                .map(|out| self.usage.first(out))
                 .map(std::cmp::Reverse)
         });
         let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
@@ -157,13 +158,13 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /** Called for each [`Node`] in the [`Schedule`] in forwards order. */
+    /** Called for each [`Node`] in the [`Usage`] in forwards order. */
     pub fn add_node(&mut self, node: Node) {
-        let df: &'a Dataflow = self.schedule.dataflow;
+        let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
         for &in_ in df.ins(node) {
-            if self.schedule.first_use(in_).is_none() {
+            if self.usage.first(in_).is_none() {
                 if let Some(reg) = self.current_reg(in_) {
                     self.pool.free(reg);
                 }
@@ -218,28 +219,31 @@ impl<'a> Allocator<'a> {
     }
 }
 
-impl<'a> std::iter::Iterator for Allocator<'a> {
-    type Item = Node;
-
-    fn next(&mut self) -> Option<Self::Item> { self.schedule.next() }
-
-    fn size_hint(&self) -> (usize, Option<usize>) { self.schedule.size_hint() }
-}
-
-/** Choose the execution order and allocate [`Register`]s. */
+/**
+ * Choose the execution order and allocate [`Register`]s.
+ *
+ * - before - The [`Convention`] on entry to the hot path.
+ * - dataflow - The dataflow graph.
+ * - nodes - The [`Node`]s that need to be executed on the hot path,
+ *   topologically sorted. Includes the exit node.
+ */
 pub fn allocate(
     before: &Convention,
     dataflow: &Dataflow,
     nodes: &[Node],
-    exit_node: Node,
 ) -> (
     Vec<Instruction>,
     ArrayMap<Out, Option<Register>>
 ) {
-    let schedule = Schedule::new(dataflow, nodes, exit_node);
-    let mut a = Allocator::new(before, schedule);
-    while let Some(node) = a.next() {
-        a.add_node(node);
+    let mut usage = Usage::default();
+    for &node in nodes {
+        usage.push(node, dataflow.ins(node).iter().copied());
+    }
+    let mut a = Allocator::new(before, dataflow, usage);
+    while let Some(node) = a.usage.pop() {
+        if !matches!(dataflow.op(node), Op::Convention) {
+            a.add_node(node);
+        }
     }
     a.finish()
 }
