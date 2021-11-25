@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::util::{ArrayMap};
-use super::{Dataflow, Node, Out, Cold, CFT};
+use super::{Dataflow, Node, Out, flood, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
@@ -62,64 +62,6 @@ impl HotPathTree {
 
 //-----------------------------------------------------------------------------
 
-/** The state of a LIFO flood fill through a [`Dataflow`] graph. */
-struct Flood<'a> {
-    /** The graph to flood fill. */
-    dataflow: &'a Dataflow,
-    /** Records which [`Node`]s have been visited. */
-    marks: &'a mut ArrayMap<Node, usize>,
-    /** The value to store in `marks` when we visit a [`Node`]. */
-    temperature: usize,
-    /** Accumulates the live inputs. */
-    inputs: &'a mut HashSet<Out>,
-    /** Accumulates the visited [`Node`]s, topologically sorted. */
-    nodes: Vec<Node>,
-}
-
-impl <'a> Flood<'a> {
-    pub fn new(
-        dataflow: &'a Dataflow,
-        marks: &'a mut ArrayMap<Node, usize>,
-        temperature: usize,
-        inputs: &'a mut HashSet<Out>,
-    ) -> Self {
-        Self {dataflow, marks, temperature, inputs, nodes: Vec::new()}
-    }
-
-    /**
-     * Flood the unmarked [`Node`]s on which `node` depends.
-     *
-     * The fill follows `dataflow` dependencies (both values and side-effects)
-     * backwards in time. Visited [`Node`]s are marked with `temperature`,
-     * and are added to `nodes` after all of their dependencies. The fill stops
-     * at [`Node`]s that are marked with a non-zero value; the [`Out`]s by
-     * which they are reached are added to `inputs`.
-     */
-    pub fn flood(&mut self, node: Node) {
-        assert_eq!(self.marks[node], 0);
-        self.marks[node] = self.temperature;
-        // TODO: Sort `Node`s by latency or breadth or something.
-        for &node in self.dataflow.deps(node) {
-            if self.marks[node] == 0 {
-                self.flood(node);
-            }
-        }
-        for &out in self.dataflow.ins(node) {
-            let (node, _) = self.dataflow.out(out);
-            if self.marks[node] == 0 {
-                self.flood(node);
-            } else if self.marks[node] < self.temperature {
-                self.inputs.insert(out);
-            } else {
-                assert_eq!(self.marks[node], self.temperature);
-            }
-        }
-        self.nodes.push(node);
-    }
-}
-
-//-----------------------------------------------------------------------------
-
 struct KeepAlive<'a> {
     dataflow: &'a Dataflow,
     marks: ArrayMap<Node, usize>,
@@ -146,9 +88,7 @@ impl<'a> KeepAlive<'a> {
     -> HotPathTree {
         let (colds, exit) = cft.hot_path();
         // Mark everything that `exit` depends on.
-        let mut flood = Flood::new(&self.dataflow, &mut self.marks, temperature, inputs);
-        flood.flood(exit);
-        let nodes: Box<[_]> = flood.nodes.into();
+        let nodes = flood(&self.dataflow, &mut self.marks, temperature, inputs, exit);
         // For each guard we passed...
         let children: Vec<_> = colds.into_iter().map(|cold| {
             // Recurse to find all the inputs of any cold path.

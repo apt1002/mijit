@@ -23,6 +23,9 @@ pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
 mod dataflow;
 pub use dataflow::{Dataflow, Node, Out};
 
+mod flood;
+pub use flood::{flood};
+
 mod cft;
 pub use cft::{Switch, Cold, CFT};
 
@@ -46,7 +49,7 @@ pub fn optimize(_num_globals: usize, input: &EBB) -> EBB {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(input);
     // Compute the keep-alive sets.
-    let _kas = keep_alive_sets(&dataflow, &cft);
+    let _hpt = keep_alive_sets(&dataflow, &cft);
 
     // TODO:
     // Make an initial [`Schedule`].
