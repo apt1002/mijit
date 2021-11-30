@@ -6,7 +6,7 @@ use super::{Dataflow, Node, Out, flood, Cold, CFT};
 //-----------------------------------------------------------------------------
 
 /** Represents what happens when a particular [`Op::Guard`] fails. */
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GuardFailure {
     /**
      * The HotPathTrees that could be entered as a result of this
@@ -27,7 +27,7 @@ pub struct GuardFailure {
  * which we consider to be a child of the original. This gives a tree
  * structure.
  */
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct HotPathTree {
     /** The exit [`Node`] of the hot path. */
     pub exit: Node,
@@ -130,28 +130,6 @@ mod tests {
             let colds = colds.into();
             let keep_alives = HashSet::from_iter(keep_alives);
             GuardFailure {cold: Cold {guard, hot_index, colds}, keep_alives}
-        }
-    }
-
-    impl<C: PartialEq> PartialEq<Self> for Cold<C> {
-        fn eq(&self, other: &Self) -> bool {
-            self.guard == other.guard &&
-            self.hot_index == other.hot_index &&
-            self.colds == other.colds
-        }
-    }
-
-    impl PartialEq<Self> for GuardFailure {
-        fn eq(&self, other: &Self) -> bool {
-            self.cold == other.cold &&
-            self.keep_alives == other.keep_alives
-        }
-    }
-
-    impl PartialEq<Self> for HotPathTree {
-        fn eq(&self, other: &Self) -> bool {
-            self.exit == other.exit &&
-            self.children == other.children
         }
     }
 

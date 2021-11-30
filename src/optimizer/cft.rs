@@ -7,7 +7,7 @@ use super::{Node, Leaf};
  *
  * `code::Switch`: super::code::Switch
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Switch<C> {
     /** The [`Op::Guard`] that discriminates the cases. */
     pub guard: Node,
@@ -52,7 +52,7 @@ impl<C> Switch<C> {
  * This is used in the return types of [`Switch::remove_hot()`] and
  * [`CFT::hot_path()`].
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cold<C> {
     /** The [`Op::Guard`] that separates these `Colds` from the hot path. */
     pub guard: Node,

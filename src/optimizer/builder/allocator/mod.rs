@@ -16,7 +16,7 @@ use placer::{Time, LEAST as EARLY, Placer};
 
 //-----------------------------------------------------------------------------
 
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq)]
 pub enum Instruction {
     Spill(Out, Out),
     Node(Node),
