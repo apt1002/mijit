@@ -64,28 +64,28 @@ impl<'a> KeepAlive<'a> {
     /**
      * Convert `cft` into a [`HotPathTree`].
      *
-     * On entry and on exit, `marks[node]` must be in `1..temperature` if
+     * On entry and on exit, `marks[node]` must be in `1..coldness` if
      * `node` is on the hotter path from which `cft` diverges, and `0`
      * otherwise. `marks[entry_node]` must be `1`.
      *
-     * - temperature - the number of cold branches needed to reach `cft` + 2.
+     * - coldness - 2 + the number of cold branches needed to reach `cft`.
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
      */
-    fn walk(&mut self, cft: &'a CFT, inputs: &mut HashSet<Out>, temperature: usize)
+    fn walk(&mut self, cft: &'a CFT, inputs: &mut HashSet<Out>, coldness: usize)
     -> HotPathTree {
         let (colds, exit) = cft.hot_path();
         // Mark everything that `exit` depends on.
-        let nodes = flood(&self.dataflow, &mut self.marks, temperature, inputs, exit);
+        let nodes = flood(&self.dataflow, &mut self.marks, coldness, inputs, exit);
         // For each guard we passed...
         let children: Vec<_> = colds.into_iter().map(|cold| {
             // Recurse to find all the inputs of any cold path.
             let mut keep_alives = HashSet::new();
-            let cold = cold.map(|&c| self.walk(c, &mut keep_alives, temperature + 1));
+            let cold = cold.map(|&c| self.walk(c, &mut keep_alives, coldness + 1));
             // Add them to our own inputs if necessary.
             for &out in &keep_alives {
                 let (node, _) = self.dataflow.out(out);
                 assert_ne!(self.marks[node], 0);
-                if self.marks[node] < temperature {
+                if self.marks[node] < coldness {
                     // Hotter than us.
                     inputs.insert(out);
                 }
@@ -94,7 +94,7 @@ impl<'a> KeepAlive<'a> {
         }).collect();
         // Unmark everything that we marked.
         for &node in &*nodes {
-            assert_eq!(self.marks[node], temperature);
+            assert_eq!(self.marks[node], coldness);
             self.marks[node] = 0;
         }
         // Construct and return a HotPathTree.
