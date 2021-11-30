@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers, Op, Dataflow, Node, Out};
-use super::cost::{SPILL_COST, SLOT_COST};
+use super::{NUM_REGISTERS, all_registers, Resources, Op, Dataflow, Node, Out};
+use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable, Convention};
 use crate::util::{ArrayMap, map_filter_max};
 

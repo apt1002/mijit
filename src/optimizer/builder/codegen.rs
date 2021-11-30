@@ -1,7 +1,6 @@
 use std::collections::{HashMap};
 
-use super::{NUM_REGISTERS, all_registers, Op, moves, Instruction};
-use super::dataflow::{Dataflow, Node, Out};
+use super::{NUM_REGISTERS, all_registers, Op, Dataflow, Node, Out, moves, Instruction};
 use super::code::{Register, Slot, Variable, Convention, Action};
 use crate::util::{ArrayMap};
 

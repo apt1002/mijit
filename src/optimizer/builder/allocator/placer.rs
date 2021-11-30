@@ -1,7 +1,7 @@
 use std::fmt::{Debug};
 use std::ops::{Add, AddAssign};
 
-use super::super::{Resources, BUDGET};
+use super::{Resources, BUDGET};
 use crate::util::{AsUsize};
 
 array_index! {

@@ -20,18 +20,6 @@ pub struct GuardFailure {
     pub keep_alives: HashSet<Out>,
 }
 
-impl GuardFailure {
-    pub fn new(
-        guard: Node,
-        hot_index: usize,
-        colds: impl Into<Box<[HotPathTree]>>,
-        keep_alives: HashSet<Out>,
-    ) -> Self {
-        let colds = colds.into();
-        GuardFailure {cold: Cold {guard, hot_index, colds}, keep_alives}
-    }
-}
-
 /**
  * Represents a tree of (acyclic) hot paths. A hot path is defined to be the
  * set of [`Node`]s that will be executed if all [`Op::Guard`]s have their
@@ -132,7 +120,21 @@ mod tests {
     use std::hash::{Hash};
 
     use super::*;
-    use super::super::{Leaf, CFT, Dataflow, Op};
+    use super::super::{CFT, Dataflow, Op};
+    use super::super::ebb::{Leaf};
+
+    impl GuardFailure {
+        pub fn new(
+            guard: Node,
+            hot_index: usize,
+            keep_alives: impl IntoIterator<Item=Out>,
+            colds: impl Into<Box<[HotPathTree]>>,
+        ) -> Self {
+            let colds = colds.into();
+            let keep_alives = HashSet::from_iter(keep_alives);
+            GuardFailure {cold: Cold {guard, hot_index, colds}, keep_alives}
+        }
+    }
 
     /** Returns a duplicate-free slice as a [`HashSet`]. */
     fn as_set<T: Copy + Hash + Eq>(slice: &[T]) -> HashSet<T> {
@@ -208,30 +210,18 @@ mod tests {
         let switch3 = CFT::switch(guard3, [merge6], merge7, 0);
         let switch1 = CFT::switch(guard1, [switch2], switch3, 0);
         // Test
-        let expected = HotPathTree::new(
-            [guard1, guard2, hot_hot],
-            [
-                GuardFailure::new(
-                    guard1, 0, [
-                        HotPathTree::new(
-                            [guard3, cold_hot],
-                            [
-                                GuardFailure::new(
-                                    guard3, 0, [
-                                        HotPathTree::new([cold_cold], []),
-                                    ], HashSet::from_iter([s])
-                                ),
-                            ],
-                        ),
-                    ], HashSet::from_iter([c, r, s])
-                ),
-                GuardFailure::new(
-                    guard2, 0, [
-                        HotPathTree::new([hot_cold], []),
-                    ], HashSet::from_iter([q])
-                ),
-            ],
-        );
+        let expected = HotPathTree::new([guard1, guard2, hot_hot], [
+            GuardFailure::new(guard1, 0, [c, r, s], [
+                HotPathTree::new([guard3, cold_hot], [
+                    GuardFailure::new(guard3, 0, [s], [
+                        HotPathTree::new([cold_cold], []),
+                    ]),
+                ]),
+            ]),
+            GuardFailure::new(guard2, 0, [q], [
+                HotPathTree::new([hot_cold], []),
+            ]),
+        ]);
         let  observed = keep_alive_sets(&dataflow, &switch1);
         assert_eq!(observed, expected);
     }
