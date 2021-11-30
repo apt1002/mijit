@@ -29,22 +29,21 @@ pub struct GuardFailure {
  */
 #[derive(Debug)]
 pub struct HotPathTree {
-    /** The `Node`s that comprise the root hot path, topologically sorted. */
-    pub nodes: Box<[Node]>,
+    /** The exit [`Node`] of the hot path. */
+    pub exit: Node,
     /** A [`GuardFailure`] for each [`Op::Guard`] on the root hot path. */
     pub children: HashMap<Node, GuardFailure>,
 }
 
 impl HotPathTree {
     pub fn new(
-        nodes: impl Into<Box<[Node]>>,
+        exit: Node,
         children: impl IntoIterator<Item=GuardFailure>,
     ) -> Self {
-        let nodes = nodes.into();
         let children = HashMap::from_iter(children.into_iter().map(
             |gf| (gf.cold.guard, gf)
         ));
-        HotPathTree {nodes, children}
+        HotPathTree {exit, children}
     }
 }
 
@@ -99,7 +98,7 @@ impl<'a> KeepAlive<'a> {
             self.marks[node] = 0;
         }
         // Construct and return a HotPathTree.
-        HotPathTree::new(nodes, children)
+        HotPathTree::new(exit, children)
     }
 }
 
@@ -117,8 +116,6 @@ pub fn keep_alive_sets(dataflow: &Dataflow, cft: &CFT) -> HotPathTree {
 
 #[cfg(test)]
 mod tests {
-    use std::hash::{Hash};
-
     use super::*;
     use super::super::{CFT, Dataflow, Op};
     use super::super::ebb::{Leaf};
@@ -134,13 +131,6 @@ mod tests {
             let keep_alives = HashSet::from_iter(keep_alives);
             GuardFailure {cold: Cold {guard, hot_index, colds}, keep_alives}
         }
-    }
-
-    /** Returns a duplicate-free slice as a [`HashSet`]. */
-    fn as_set<T: Copy + Hash + Eq>(slice: &[T]) -> HashSet<T> {
-        let set: HashSet<_> = slice.iter().copied().collect();
-        assert_eq!(set.len(), slice.len());
-        set
     }
 
     impl<C: PartialEq> PartialEq<Self> for Cold<C> {
@@ -160,7 +150,7 @@ mod tests {
 
     impl PartialEq<Self> for HotPathTree {
         fn eq(&self, other: &Self) -> bool {
-            as_set(&*self.nodes) == as_set(&*other.nodes) &&
+            self.exit == other.exit &&
             self.children == other.children
         }
     }
@@ -210,16 +200,16 @@ mod tests {
         let switch3 = CFT::switch(guard3, [merge6], merge7, 0);
         let switch1 = CFT::switch(guard1, [switch2], switch3, 0);
         // Test
-        let expected = HotPathTree::new([guard1, guard2, hot_hot], [
+        let expected = HotPathTree::new(hot_hot, [
             GuardFailure::new(guard1, 0, [c, r, s], [
-                HotPathTree::new([guard3, cold_hot], [
+                HotPathTree::new(cold_hot, [
                     GuardFailure::new(guard3, 0, [s], [
-                        HotPathTree::new([cold_cold], []),
+                        HotPathTree::new(cold_cold, []),
                     ]),
                 ]),
             ]),
             GuardFailure::new(guard2, 0, [q], [
-                HotPathTree::new([hot_cold], []),
+                HotPathTree::new(hot_cold, []),
             ]),
         ]);
         let  observed = keep_alive_sets(&dataflow, &switch1);
