@@ -19,15 +19,15 @@ pub enum Switch<C> {
     Index {
         discriminant: Variable,
         cases: Box<[C]>,
-        default_: C,
+        default_: Box<C>,
     },
     /** Always does the same thing. */
-    Always(C),
+    Always(Box<C>),
 }
 
 impl<C> Switch<C> {
     pub fn new(discriminant: Variable, cases: Box<[C]>, default_: C) -> Self {
-        Self::Index {discriminant, cases, default_}
+        Self::Index {discriminant, cases, default_: Box::new(default_)}
     }
 
     pub fn if_(condition: Variable, if_true: C, if_false: C) -> Self {
@@ -35,7 +35,7 @@ impl<C> Switch<C> {
     }
 
     pub fn always(default_: C) -> Self {
-        Self::Always(default_)
+        Self::Always(Box::new(default_))
     }
 
     /** Apply `callback` to every `C` and return a fresh `Switch`. */
@@ -44,10 +44,10 @@ impl<C> Switch<C> {
             Switch::Index {discriminant, cases, default_} => {
                 let discriminant = *discriminant;
                 let cases = cases.iter().map(&mut callback).collect();
-                let default_ = callback(default_);
+                let default_ = Box::new(callback(&*default_));
                 Switch::Index {discriminant, cases, default_}
             },
-            Switch::Always(case) => Switch::Always(callback(case)),
+            Switch::Always(case) => Switch::Always(Box::new(callback(&*case))),
         }
     }
 }

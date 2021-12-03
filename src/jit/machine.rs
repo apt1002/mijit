@@ -73,7 +73,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let trap_infos: Vec<_> = (0..trap_index.len() as i64).map(|exit_value| {
             assert!(exit_value < NOT_IMPLEMENTED);
             let entry = engine.new_entry(&empty_marshal, exit_value);
-            Switch::Always(entry)
+            Switch::always(entry)
         }).collect();
 
         // Fill in the code for states.

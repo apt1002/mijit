@@ -209,17 +209,17 @@ impl<T: Target> Engine<T> {
         lo.actions(&*fetch_code);
         // Compile `switch`.
         match switch {
-            Switch::Index {discriminant, ref cases, default_} => {
+            Switch::Index {discriminant, ref cases, ref default_} => {
                 for (index, &case) in cases.iter().enumerate() {
                     assert_eq!(*lo.slots_used_mut(), self.internals.convention(case).slots_used);
                     lo.if_eq((discriminant, index as u64), &mut self.internals[case].label);
                 }
-                assert_eq!(*lo.slots_used_mut(), self.internals.convention(default_).slots_used);
-                lo.jump(&mut self.internals[default_].label);
+                assert_eq!(*lo.slots_used_mut(), self.internals.convention(**default_).slots_used);
+                lo.jump(&mut self.internals[**default_].label);
             },
-            Switch::Always(jump) => {
-                assert_eq!(*lo.slots_used_mut(), self.internals.convention(jump).slots_used);
-                lo.jump(&mut self.internals[jump].label);
+            Switch::Always(ref jump) => {
+                assert_eq!(*lo.slots_used_mut(), self.internals.convention(**jump).slots_used);
+                lo.jump(&mut self.internals[**jump].label);
             },
         }
         self.internals[id].junction = Fetch {fetch_code, switch};
