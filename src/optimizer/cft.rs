@@ -19,7 +19,7 @@ pub struct Switch<C> {
 
 impl<C> Switch<C> {
     /** Apply `callback` to every `C` and return a fresh `Switch`. */
-    pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Switch<D> {
+    pub fn map<'a, D>(&'a self, mut callback: impl FnMut(&'a C) -> D) -> Switch<D> {
         let Switch {guard, ref cases, ref default_} = *self;
         let cases = cases.iter().map(&mut callback).collect();
         let default_ = Box::new(callback(default_));
@@ -27,14 +27,14 @@ impl<C> Switch<C> {
     }
 
     /** Separates the hot and cold branches. */
-    pub fn remove_hot(&self, hot_index: usize) -> (&C, Cold<&C>) {
-        let Switch {guard, ref cases, ref default_} = *self;
-        let mut cases: Vec<&C> = cases.iter().collect();
+    pub fn remove_hot(self, hot_index: usize) -> (C, Cold<C>) {
+        let Switch {guard, cases, default_} = self;
+        let mut cases = cases.into_vec();
         let hot = if hot_index == usize::MAX {
-            default_
+            *default_
         } else {
             let hot = cases.remove(hot_index);
-            cases.push(default_);
+            cases.push(*default_);
             hot
         };
         let colds = cases.into_boxed_slice();
@@ -64,16 +64,16 @@ pub struct Cold<C> {
 
 impl<C> Cold<C> {
     /** Apply `callback` to every `C` and return a fresh `Cold`. */
-    pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Cold<D> {
+    pub fn map<'a, D>(&'a self, mut callback: impl FnMut(&'a C) -> D) -> Cold<D> {
         let Cold {guard, hot_index, ref colds} = *self;
         let colds = colds.iter().map(&mut callback).collect();
         Cold {guard, hot_index, colds}
     }
 
     /** Recombines the hot and cold branches. */
-    pub fn insert_hot<'a>(&'a self, hot: &'a C) -> Switch<&'a C> {
-        let Cold {guard, hot_index, ref colds} = *self;
-        let mut colds: Vec<&C> = colds.iter().collect();
+    pub fn insert_hot(self, hot: C) -> Switch<C> {
+        let Cold {guard, hot_index, colds} = self;
+        let mut colds: Vec<C> = colds.into_vec();
         let default_ = Box::new(if hot_index == usize::MAX {
             hot
         } else {
@@ -118,7 +118,7 @@ impl CFT {
     }
 
     /**
-     * Follows the hot path through `cft`.
+     * Follows the hot path through `self`.
      * Returns the [`Colds`]es and the exit [`Node`].
      */
     pub fn hot_path(&self) -> (Vec<Cold<&Self>>, Node) {
@@ -130,7 +130,7 @@ impl CFT {
                     return (colds, exit);
                 },
                 &CFT::Switch {ref switch, hot_index} => {
-                    let (hot, cold) = switch.remove_hot(hot_index);
+                    let (hot, cold) = switch.map(|t| t).remove_hot(hot_index);
                     cft = hot;
                     colds.push(cold);
                 },
