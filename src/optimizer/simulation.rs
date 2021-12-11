@@ -179,17 +179,17 @@ impl Simulation {
      * necessary.
      */
     fn walk<'a>(mut self, dataflow: &mut Dataflow, ebb: &'a EBB) -> CFT {
-        match ebb.block {
+        match ebb.switch {
             None => {
                 let exit = self.exit(dataflow, &ebb.convention);
                 CFT::Merge {exit, leaf: ebb.leaf}
             },
-            Some(ref block) => {
-                for ref action in &block.actions {
+            Some(ref switch) => {
+                for ref action in &ebb.actions {
                     self.action(dataflow, action);
                 }
-                match block.switch {
-                    Switch::Always(ref ebb) => self.walk(dataflow, ebb),
+                match *switch {
+                    Switch::Always(ref ebb) => self.walk(dataflow, &*ebb),
                     Switch::Index {discriminant, ref cases, ref default_} => {
                         let guard = self.guard(dataflow, discriminant);
                         // Find the hottest case
@@ -205,7 +205,7 @@ impl Simulation {
                         let cases: Box<[_]> = cases.iter().map(
                             |ebb| self.clone().walk(dataflow, ebb)
                         ).collect();
-                        let default_ = self.walk(dataflow, default_);
+                        let default_ = self.walk(dataflow, &*default_);
                         CFT::switch(guard, cases, default_, hot_index)
                     }
                 }

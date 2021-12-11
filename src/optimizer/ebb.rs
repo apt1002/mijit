@@ -8,18 +8,6 @@ use super::code::{Convention, Action, Switch};
 pub struct Leaf;
 
 /**
- * Represents a [basic block], i.e. some straight-line code followed by a
- * [`Switch`].
- *
- * [basic block]: https://en.wikipedia.org/wiki/Basic_block
- */
-#[derive(Debug, Clone)]
-pub struct BasicBlock {
-    pub actions: Vec<Action>,
-    pub switch: Switch<EBB>,
-}
-
-/**
  * Represents an [extended basic block], i.e. a tree-like control-flow graph,
  * comprised of [`BasicBlock`]s. This is the unit of optimization.
  *
@@ -30,5 +18,6 @@ pub struct EBB {
     pub leaf: Leaf,
     pub convention: Convention,
     pub weight: usize,
-    pub block: Option<Box<BasicBlock>>,
+    pub actions: Vec<Action>,
+    pub switch: Option<Switch<EBB>>,
 }
