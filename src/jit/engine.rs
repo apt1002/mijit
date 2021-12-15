@@ -2,7 +2,7 @@ use std::ops::{Index, IndexMut};
 
 use crate::util::{AsUsize};
 use super::{code};
-use super::target::{Label, Counter, Word, Pool, Lower, Execute, Target, RESULT};
+use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
 use code::{Precision, Global, Switch, Action, Convention, Marshal};
 use Precision::*;
 
@@ -20,8 +20,6 @@ array_index! {
 enum Junction {
     /** Not yet specialized. Count, and retire to another [`Case`]. */
     Retire {
-        /** The profiling [`Counter`] to increment. */
-        _counter: Counter,
         /** The code to run. */
         retire_code: Box<[Action]>,
         /** The [`Case`] to jump to. `None` means the root. */
@@ -171,9 +169,6 @@ impl<T: Target> Engine<T> {
         let mut label = Label::new(None);
         lo.jump(&mut label);
         lo.define(&mut label);
-        // Create a `Counter` and compile the code to increment it.
-        let counter = lo.pool_mut().new_counter();
-        lo.count(counter);
         // Compile `retire_code`.
         lo.actions(&*retire_code);
         // Compile the jump to `jump`.
@@ -191,7 +186,7 @@ impl<T: Target> Engine<T> {
             _fetch_parent,
             convention,
             label,
-            junction: Retire {_counter: counter, retire_code, jump}
+            junction: Retire {retire_code, jump}
         });
         id
     }

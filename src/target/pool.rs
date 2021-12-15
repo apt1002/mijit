@@ -4,10 +4,6 @@ use std::fmt::{self, Debug};
 
 use super::code::{Global};
 
-/** Names a profiling counter. */
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
-pub struct Counter(usize);
-
 //-----------------------------------------------------------------------------
 
 /** An untyped 64-bit value. */
@@ -45,7 +41,7 @@ impl PartialEq for Word {
  * A contiguous array of 64-bit words, rewriteable at runtime by the compiled
  * code, providing storage to a virtual machine instance.
  *
- * A pool contains [`Global`]s and profiling counters.
+ * A pool contains [`Global`]s.
  */
 pub struct Pool {
     /** The number of [`Global`]s used by the [`code::Machine`]. */
@@ -55,17 +51,10 @@ pub struct Pool {
 }
 
 impl Pool {
-    /** Allocate a new `Pool`, initially with no [`Counter`]s. */
+    /** Allocate a new `Pool`. */
     pub fn new(num_globals: usize) -> Self {
         let pool = vec![Word::default(); num_globals];
         Pool {num_globals, pool}
-    }
-
-    /** Allocate a profiling counter, initialized to `0`. */
-    pub fn new_counter(&mut self) -> Counter {
-        let ret = Counter(self.pool.len() - self.index_of_counter(Counter(0)));
-        self.pool.push(Word {w: Wrapping(0)});
-        ret
     }
 
     /**
@@ -78,11 +67,6 @@ impl Pool {
     pub fn index_of_global(&self, global: Global) -> usize {
         assert!(global.0 < self.num_globals);
         global.0
-    }
-
-    /** The position in the pool of the given [`Counter`]. */
-    pub fn index_of_counter(&self, counter: Counter) -> usize {
-        self.num_globals + counter.0
     }
 }
 
@@ -116,21 +100,5 @@ impl IndexMut<Global> for Pool {
     fn index_mut(&mut self, g: Global) -> &mut Self::Output {
         let i = self.index_of_global(g);
         &mut self[i]
-    }
-}
-
-impl Index<Counter> for Pool {
-    type Output = Wrapping<u64>;
-
-    fn index(&self, c: Counter) -> &Self::Output {
-        let i = self.index_of_counter(c);
-        unsafe { &self[i].w }
-    }
-}
-
-impl IndexMut<Counter> for Pool {
-    fn index_mut(&mut self, c: Counter) -> &mut Self::Output {
-        let i = self.index_of_counter(c);
-        unsafe { &mut self[i].w }
     }
 }

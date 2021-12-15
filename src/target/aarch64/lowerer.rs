@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{
     buffer, code,
-    Patch, Label, Counter, Pool, RESULT,
+    Patch, Label, Pool, RESULT,
     Offset, Shift, Unsigned,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
@@ -220,11 +220,6 @@ impl<B: Buffer> Lowerer<B> {
     /** Returns the base and offset of `global`. */
     fn global_address(&self, global: Global) -> (Register, u64) {
         (POOL, (self.pool.index_of_global(global) * 8) as u64)
-    }
-
-    /** Returns the base and offset of `counter`. */
-    fn counter_address(&self, counter: Counter) -> (Register, u64) {
-        (POOL, (self.pool.index_of_counter(counter) * 8) as u64)
     }
 
     /** Returns the base and offset of `slot` in the stack-allocated data. */
@@ -506,12 +501,6 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 }
             },
         };
-    }
-
-    fn count(&mut self, counter: Counter) {
-        self.mem(LDR, TEMP0, self.counter_address(counter), TEMP1);
-        self.const_add(ADD, P64, TEMP0, TEMP0, 1, TEMP1);
-        self.mem(STR, TEMP0, self.counter_address(counter), TEMP1);
     }
 }
 

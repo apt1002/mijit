@@ -1,4 +1,4 @@
-use super::{buffer, code, Patch, Label, Counter, Pool, RESULT, Lower, ExecuteFn, Execute};
+use super::{buffer, code, Patch, Label, Pool, RESULT, Lower, ExecuteFn, Execute};
 use buffer::{Mmap};
 
 mod immediate;

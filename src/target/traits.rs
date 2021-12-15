@@ -1,4 +1,4 @@
-use super::{code, Counter, Word, Pool, Patch, Label};
+use super::{code, Word, Pool, Patch, Label};
 use code::{Variable, Action};
 
 /**
@@ -107,9 +107,6 @@ pub trait Lower {
             self.action(action);
         }
     }
-
-    /** Assemble code to increment the given `counter`. */
-    fn count(&mut self, counter: Counter);
 }
 
 //-----------------------------------------------------------------------------

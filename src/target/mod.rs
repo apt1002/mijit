@@ -1,7 +1,7 @@
 use super::{buffer, code};
 
 mod pool;
-pub use pool::{Counter, Word, Pool};
+pub use pool::{Word, Pool};
 
 mod label;
 pub use label::{Patch, Label};
