@@ -24,13 +24,13 @@ mod simulation;
 pub use simulation::{Simulation, simulate};
 
 mod builder;
-pub use builder::{Instruction, allocate, generate_code, build};
+pub use builder::{build};
 
 /** Optimizes an [`EBB`]. */
-pub fn optimize<'a>(num_globals: usize, input: &EBB<'a>) -> EBB<'a> {
+pub fn optimize<'a>(input: &EBB<'a>) -> EBB<'a> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(input);
-    build(num_globals, &dataflow, &cft)
+    build(&input.before, &dataflow, &cft)
 }
 
 

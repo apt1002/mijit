@@ -1,11 +1,12 @@
-use std::collections::{HashMap};
+use std::collections::{HashSet, HashMap};
 
-use super::{NUM_REGISTERS, all_registers, Op, Dataflow, Node, Out, moves, Instruction};
+use super::{NUM_REGISTERS, all_registers, EBB, Ending, Op, Dataflow, Node, Out, moves};
 use super::code::{Register, Slot, Variable, Convention, Action};
 use crate::util::{ArrayMap};
 
-/** The state of an algorithm that builds a list of [`Action`]s. */
-struct CodeGen<'a> {
+/** The state of an algorithm that builds a list of [`Action`]s in reverse. */
+#[derive(Debug)]
+pub struct CodeGen<'a> {
     /** The [`Dataflow`] graph of the code. */
     dataflow: &'a Dataflow,
     /** For each `out`, the [`Register`] it should be computed into. */
@@ -13,150 +14,161 @@ struct CodeGen<'a> {
     /** The current number of stack [`Slot`]s. */
     slots_used: usize,
     /** For each [`Out`], the [`Variable`] it is currently held in. */
-    spills: ArrayMap<Out, Option<Variable>>,
-    /** For each [`Register`], the [`Out`] it currently holds. */
-    regs: ArrayMap<Register, Option<Out>>,
-    /** The list of [`Action`]s so far. */
-    actions: Vec<Action>,
+    variables: HashMap<Out, Variable>,
+    /** The live [`Out`]s. */
+    live_outs: HashSet<Out>,
+    /** The list of [`Action`]s so far. Stored in reverse order. */
+    actions_rev: Vec<Action>,
 }
 
 impl<'a> CodeGen<'a> {
-    pub fn new(num_globals: usize, before: &Convention, dataflow: &'a Dataflow, allocation: ArrayMap<Out, Option<Register>>) -> Self {
-        let mut spills = dataflow.out_map();
-        let mut regs = ArrayMap::new(NUM_REGISTERS);
-        for (out, &value) in dataflow.outs(dataflow.entry_node()).zip(&*before.live_values) {
-            match value {
-                Variable::Register(r) => regs[r] = Some(out),
-                Variable::Global(g) => assert!(g.0 < num_globals),
-                Variable::Slot(s) => assert!(s.0 < before.slots_used),
-            }
-            spills[out] = Some(value);
-        }
+    pub fn new(
+        dataflow: &'a Dataflow,
+        allocation: ArrayMap<Out, Option<Register>>,
+        slots_used: usize,
+        variables: HashMap<Out, Variable>,
+        exit_node: Node,
+        after: &Convention,
+    ) -> Self {
         Self {
-            dataflow: dataflow,
-            allocation: allocation,
-            slots_used: before.slots_used,
-            spills: spills,
-            regs: regs,
-            actions: Vec::new(),
-        }
+            dataflow,
+            allocation,
+            slots_used,
+            variables,
+            live_outs: HashSet::new(),
+            actions_rev: Vec::new(),
+        }.init(exit_node, after)
     }
 
-    /** Puts `out` in its allocated [`Register`], and return it. */
-    fn write(&mut self, out: Out) -> Register {
-        let r = self.allocation[out].expect("Wrote a non-register");
-        self.regs[r] = Some(out);
-        r
-    }
-
-    /** Spill `out` to (unused) `slot`. Returns `out`'s [`Register`]. */
-    fn spill(&mut self, out: Out, slot: Slot) -> Register {
-        let old = self.spills[out].replace(slot.into());
-        assert!(old.is_none()); // Not previously spilled.
-        let r = self.allocation[out].expect("Spilled a non-register");
-        assert_eq!(self.regs[r], Some(out)); // Not yet overwritten.
-        r
-    }
-
-    /** Returns the [`Variable`] currently holding the value of [`Out`]. */
-    fn read(&self, out: Out) -> Variable {
-        if let Some(r) = self.allocation[out] {
-            if self.regs[r] == Some(out) {
-                return r.into()
-            }
-        }
-        self.spills[out].expect("Variable was overwritten but not spilled")
-    }
-
-    /** Generate an [`Action`] to spill `out_x` and `out_y`. */
-    pub fn add_spill(&mut self, out1: Out, out2: Out) {
-        let r1 = self.spill(out1, Slot(self.slots_used + 1));
-        let r2 = self.spill(out2, Slot(self.slots_used));
-        self.actions.push(Action::Push(Some(r1.into()), Some(r2.into())));
-        self.slots_used += 2;
-    }
-
-    /** Generate an [`Action`] to execute `n`. */
-    pub fn add_node(&mut self, n: Node) {
-        let df = self.dataflow;
-        let ins: Vec<Variable> = df.ins(n).iter().map(|&in_| self.read(in_)).collect();
-        let outs: Vec<Register> = df.outs(n).map(|out| self.write(out)).collect();
-        self.actions.push(Op::to_action(df.op(n), &outs, &ins));
-    }
-
-    /**
-     * Generate [`Action`]s as necessary to match `exit_node` to `after`, and
-     * return the final list of Actions.
-     */
-    pub fn finish(mut self, after: &Convention, exit_node: Node) -> Box<[Action]> {
+    fn init(mut self, exit_node: Node, after: &Convention) -> Self {
         // Work out which live values need to be moved where.
         let mut dest_to_src: HashMap<Variable, Variable> =
             self.dataflow.ins(exit_node).iter().zip(&*after.live_values)
                 .map(|(&out, &dest)| (dest, self.read(out)))
                 .collect();
+
+        let mut stored_actions = Vec::new();
+        let mut slots_used = self.slots_used;
+
         // Create spill slots if necessary to match `after`.
-        while self.slots_used < after.slots_used {
-            let src1 = dest_to_src.remove(&Slot(self.slots_used + 1).into());
-            let src2 = dest_to_src.remove(&Slot(self.slots_used).into());
-            self.actions.push(Action::Push(src1, src2));
-            self.slots_used += 2;
+        while slots_used < after.slots_used {
+            let src1 = dest_to_src.remove(&Slot(slots_used + 1).into());
+            let src2 = dest_to_src.remove(&Slot(slots_used).into());
+            stored_actions.push(Action::Push(src1, src2));
+            slots_used += 2;
         }
+
         // We need a temporary `Register`: the least used in `dest_to_src`.
+        // `uses[r] & 1` indicates that `r` is used as a destination.
+        // `uses[r] >> 1` counts uses of `r` as a source.
         let mut uses: ArrayMap<Register, usize> = ArrayMap::new(NUM_REGISTERS);
         for (&dest, &src) in &dest_to_src {
             if let Variable::Register(r) = dest { uses[r] |= 1; }
             if let Variable::Register(r) = src { uses[r] += 2; }
         }
         let temp = all_registers().min_by_key(|&r| uses[r]).unwrap();
+        let temp_replacement = Variable::from(Slot(slots_used));
+
         // If `temp` is used, spill it and replace all mentions of it.
-        let temp_replacement = Variable::from(Slot(self.slots_used));
         if uses[temp] == 1 {
             // `temp` is a destination only.
-            self.actions.push(Action::Push(None, None));
-            self.slots_used += 2;
+            stored_actions.push(Action::Push(None, None));
+            slots_used += 2;
         } else if uses[temp] >= 2 {
             // `temp` is used as a source.
-            self.actions.push(Action::Push(None, Some(temp.into())));
-            self.slots_used += 2;
+            stored_actions.push(Action::Push(None, Some(temp.into())));
+            slots_used += 2;
         }
+
+        assert_eq!(stored_actions.len() * 2, slots_used.wrapping_sub(self.slots_used));
+
         // Move all live values into the expected `Variable`s.
         // TODO: Find a way to schedule these `Move`s properly or to eliminate them.
-        self.actions.extend(moves(dest_to_src, &temp.into()).map(|(mut dest, mut src)| {
-            if src == temp.into() { src = temp_replacement; }
-            if dest == temp.into() { dest = temp_replacement; }
-            Action::Move(dest, src)
-        }));
+        stored_actions.extend(moves(dest_to_src, &temp.into()).map(
+            |(mut dest, mut src)| {
+                if src == temp.into() { src = temp_replacement; }
+                if dest == temp.into() { dest = temp_replacement; }
+                Action::Move(dest, src)
+            }
+        ));
+
         if uses[temp] & 1 != 0 {
             // `temp` is a destination.
-            self.actions.push(Action::Move(temp.into(), temp_replacement));
+            stored_actions.push(Action::Move(temp.into(), temp_replacement));
         }
+
         // Drop now-unused slots.
-        let num_drops = self.slots_used.checked_sub(after.slots_used).unwrap();
+        let num_drops = slots_used.checked_sub(after.slots_used).unwrap();
         if num_drops > 0 {
             assert_eq!(num_drops & 1, 0);
-            self.actions.push(Action::DropMany(num_drops >> 1));
+            stored_actions.push(Action::DropMany(num_drops >> 1));
         }
-        // Return.
-        self.actions.into()
-    }
-}
 
-/** Turn a list of [`Instruction`]s into [`Action`]s. */
-pub fn generate_code(
-    num_globals: usize,
-    before: &Convention,
-    after: &Convention,
-    dataflow: &Dataflow,
-    instructions: &[Instruction],
-    allocation: ArrayMap<Out, Option<Register>>,
-    exit_node: Node,
-) -> Box<[Action]> {
-    let mut cg = CodeGen::new(num_globals, before, &dataflow, allocation);
-    for i in instructions {
-        match i {
-            &Instruction::Spill(out1, out2) => cg.add_spill(out1, out2),
-            &Instruction::Node(n) => cg.add_node(n),
+        // Output the stored actions.
+        self.actions_rev.extend(stored_actions.into_iter().rev());
+
+        self
+    }
+
+    /** Returns the number of [`Slot`]s in use. */
+    pub fn slots_used(&self) -> usize {
+        self.slots_used
+    }
+
+    /** Remove `out` from `live_outs` and return its [`Register`]. */
+    fn write(&mut self, out: Out) -> Register {
+        let r = self.allocation[out].expect("Wrote a non-register");
+        let v = self.variables.remove(&out);
+        assert_eq!(v, Some(Variable::from(r)));
+        self.live_outs.remove(&out);
+        r
+    }
+
+    /** Remove `out` from `variables`. Returns `out`'s [`Register`] if live. */
+    fn spill(&mut self, out: Out) -> Option<Register> {
+        let r = self.allocation[out].expect("Spilled a non-register");
+        let old_value = self.variables.insert(out, r.into());
+        assert_eq!(old_value, Some(Variable::from(Slot(self.slots_used))));
+        if self.live_outs.contains(&out) {
+            Some(r)
+        } else {
+            None
         }
     }
-    cg.finish(after, exit_node)
+
+    /** Adds `out` to `live_outs`, and returns its [`Variable`]. */
+    pub fn read(&mut self, out: Out) -> Variable {
+        self.live_outs.insert(out);
+        self.variables[&out]
+    }
+
+    /** Generate an [`Action`] to spill `out_x` and `out_y`. */
+    pub fn add_spill(&mut self, out1: Out, out2: Out) {
+        self.slots_used -= 1;
+        let r2 = self.spill(out2).map(|r| r.into());
+        self.slots_used -= 1;
+        let r1 = self.spill(out1).map(|r| r.into());
+        self.actions_rev.push(Action::Push(r1.into(), r2.into()));
+    }
+
+    /** Generate an [`Action`] to execute `n`. */
+    pub fn add_node(&mut self, n: Node) {
+        let df = self.dataflow;
+        let outs: Vec<Register> = df.outs(n).map(|out| self.write(out)).collect();
+        let ins: Vec<Variable> = df.ins(n).iter().map(|&in_| self.read(in_)).collect();
+        self.actions_rev.push(Op::to_action(df.op(n), &outs, &ins));
+    }
+
+    /**
+     * Constructs an [`EBB`] from the [`Action`]s generated so far and from
+     * `switch`. The list of `Action`s is cleared.
+     */
+    pub fn ebb<'b>(&mut self, ending: Ending<'b>) -> EBB<'b> {
+        let before = Convention {
+            live_values: self.live_outs.iter().map(|&out| self.variables[&out]).collect(),
+            slots_used: self.slots_used,
+        };
+        let actions = self.actions_rev.drain(..).rev().collect();
+        EBB {before, actions, ending}
+    }
 }

@@ -197,7 +197,7 @@ mod tests {
                 HotPathTree::new(hot_cold, leaf, []),
             ]),
         ]);
-        let  observed = keep_alive_sets(&dataflow, &switch1);
+        let observed = keep_alive_sets(&dataflow, &switch1);
         assert_eq!(observed, expected);
     }
 }
