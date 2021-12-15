@@ -1,5 +1,5 @@
 use super::{code, target, ebb, cost, Dataflow, Node, Out, Cold, CFT, Op, Resources};
-use ebb::{EBB};
+use ebb::{Leaf, EBB};
 
 mod flood;
 use flood::{flood};
@@ -28,11 +28,11 @@ fn all_registers() -> impl Iterator<Item=Register> {
 
 //-----------------------------------------------------------------------------
 
-pub fn build(
+pub fn build<'a>(
     _num_globals: usize,
     dataflow: &Dataflow,
-    cft: &CFT,
-) -> EBB {
+    cft: &CFT<'a>,
+) -> EBB<'a> {
     // Compute the keep-alive sets.
     let _hpt = keep_alive_sets(dataflow, cft);
 

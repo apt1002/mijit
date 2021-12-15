@@ -3,7 +3,7 @@ use super::{code, target};
 //-----------------------------------------------------------------------------
 
 mod ebb;
-pub use ebb::{Leaf, EBB};
+pub use ebb::{Leaf, Ending, EBB};
 
 mod op;
 pub use op::{Op};
@@ -27,7 +27,7 @@ mod builder;
 pub use builder::{Instruction, allocate, generate_code, build};
 
 /** Optimizes an [`EBB`]. */
-pub fn optimize(num_globals: usize, input: &EBB) -> EBB {
+pub fn optimize<'a>(num_globals: usize, input: &EBB<'a>) -> EBB<'a> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(input);
     build(num_globals, &dataflow, &cft)
