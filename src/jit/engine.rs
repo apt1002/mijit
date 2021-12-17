@@ -1,6 +1,6 @@
 use std::ops::{Index, IndexMut};
 
-use crate::util::{AsUsize};
+use crate::util::{AsUsize, AndOr};
 use super::{code};
 use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
 use code::{Precision, Global, Switch, Action, Convention, Marshal};
@@ -16,30 +16,29 @@ array_index! {
     }
 }
 
-/** The part of a [`Case`] which changes when it is specialized. */
-enum Junction {
-    /** Not yet specialized. Count, and retire to another [`Case`]. */
-    Retire {
-        /** The code to run. */
-        retire_code: Box<[Action]>,
-        /** The [`Case`] to jump to. `None` means the root. */
-        jump: Option<CaseId>,
-    },
-    /** Specialized. Run special code and pick a continuation. */
-    Fetch {
-        /** The code to run. */
-        fetch_code: Box<[Action]>,
-        /** The control-flow decision. */
-        switch: Switch<CaseId>,
-    },
+/** A branch that merges with a [`Case`] that is less specialized. */
+#[derive(Debug)]
+struct Retire {
+    /** The code to run. */
+    actions: Box<[Action]>,
+    /** The [`Case`] to jump to. `None` means the root. */
+    jump: Option<CaseId>,
 }
 
-use Junction::*;
+/** A branch to [`Case`]s that are more specialized. */
+#[derive(Debug)]
+struct Fetch {
+    /** The code to run. */
+    actions: Box<[Action]>,
+    /** The control-flow decision. */
+    switch: Switch<CaseId>,
+}
 
 /**
  * Represents a basic block ending with some kind of branch.
- * See "doc/engine/structure.md".
+ * See `doc/engine/structure.md`.
  */
+#[derive(Debug)]
 struct Case {
     /** The unique [`Switch`] that can jump directly to this `Case`. */
     _fetch_parent: Option<CaseId>,
@@ -47,8 +46,8 @@ struct Case {
     convention: Convention,
     /** The address of the code. */
     label: Label,
-    /** The behaviour. */
-    junction: Junction,
+    /** The part which changes when it is specialized. */
+    junction: AndOr<Retire, Fetch>,
 }
 
 //-----------------------------------------------------------------------------
@@ -136,7 +135,7 @@ pub struct Engine<T: Target> {
     /** The code compiled so far. */
     lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
-    internals: Internals,
+    i: Internals,
 }
 
 impl<T: Target> Engine<T> {
@@ -148,12 +147,12 @@ impl<T: Target> Engine<T> {
     pub fn new(target: T, num_globals: usize) -> Self {
         let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool);
-        let internals = Internals {
+        let i = Internals {
             convention: code::empty_convention(num_globals),
             cases: Vec::new(),
             entries: Vec::new(),
         };
-        Engine {_target: target, lowerer, internals}
+        Engine {_target: target, lowerer, i}
     }
 
     /** Borrows the value of variable `global`. */
@@ -162,62 +161,64 @@ impl<T: Target> Engine<T> {
     }
 
     /** Construct a fresh [`Case`] which retires to `jump`. */
-    fn new_case(&mut self, _fetch_parent: Option<CaseId>, convention: Convention, retire_code: Box<[Action]>, jump: Option<CaseId>) -> CaseId {
+    fn new_retire(&mut self, _fetch_parent: Option<CaseId>, convention: Convention, retire: Retire) -> CaseId {
         let lo = &mut self.lowerer;
         *lo.slots_used_mut() = convention.slots_used;
         // Compile the mutable jump.
         let mut label = Label::new(None);
         lo.jump(&mut label);
         lo.define(&mut label);
-        // Compile `retire_code`.
-        lo.actions(&*retire_code);
-        // Compile the jump to `jump`.
-        assert_eq!(*lo.slots_used_mut(), self.internals.convention(jump).slots_used);
-        if let Some(jump) = jump {
+        // Compile `retire`.
+        lo.actions(&*retire.actions);
+        assert_eq!(*lo.slots_used_mut(), self.i.convention(retire.jump).slots_used);
+        if let Some(jump) = retire.jump {
             // Jump to a non-root `Case`.
-            lo.jump(&mut self.internals[jump].label);
+            lo.jump(&mut self.i[jump].label);
         } else {
             // Jump to the root.
             lo.epilogue()
         }
         // Record details in a `Case` and return its `CaseId`.
-        let id = CaseId::new(self.internals.cases.len()).unwrap();
-        self.internals.cases.push(Case {
+        let id = CaseId::new(self.i.cases.len()).unwrap();
+        self.i.cases.push(Case {
             _fetch_parent,
             convention,
             label,
-            junction: Retire {retire_code, jump}
+            junction: AndOr::A(retire),
         });
         id
     }
 
-    /** Mutate a [`Case`] from a [`Retire`] into a [`Fetch`]. */
-    fn replace(&mut self, id: CaseId, fetch_code: Box<[Action]>, switch: Switch<CaseId>) {
-        let case = &mut self.internals[id];
+    /** Add a [`Fetch`] to a [`Case`] that only has a [`Retire`]. */
+    fn add_fetch(&mut self, id: CaseId, fetch: Fetch) {
+        let case = &mut self.i[id];
         let lo = &mut self.lowerer;
         *lo.slots_used_mut() = case.convention.slots_used;
         // Intercept all jumps to `id`.
         let mut here = lo.here();
         lo.steal(&mut case.label, &mut here);
         case.label = here;
-        // Compile `fetch_code`.
-        lo.actions(&*fetch_code);
-        // Compile `switch`.
-        match switch {
+        // Compile `fetch`.
+        lo.actions(&*fetch.actions);
+        match fetch.switch {
             Switch::Index {discriminant, ref cases, ref default_} => {
                 for (index, &case) in cases.iter().enumerate() {
-                    assert_eq!(*lo.slots_used_mut(), self.internals.convention(case).slots_used);
-                    lo.if_eq((discriminant, index as u64), &mut self.internals[case].label);
+                    assert_eq!(*lo.slots_used_mut(), self.i.convention(case).slots_used);
+                    lo.if_eq((discriminant, index as u64), &mut self.i[case].label);
                 }
-                assert_eq!(*lo.slots_used_mut(), self.internals.convention(**default_).slots_used);
-                lo.jump(&mut self.internals[**default_].label);
+                assert_eq!(*lo.slots_used_mut(), self.i.convention(**default_).slots_used);
+                lo.jump(&mut self.i[**default_].label);
             },
             Switch::Always(ref jump) => {
-                assert_eq!(*lo.slots_used_mut(), self.internals.convention(**jump).slots_used);
-                lo.jump(&mut self.internals[**jump].label);
+                assert_eq!(*lo.slots_used_mut(), self.i.convention(**jump).slots_used);
+                lo.jump(&mut self.i[**jump].label);
             },
         }
-        self.internals[id].junction = Fetch {fetch_code, switch};
+        // Add `fetch` to `case` preserving its `retire`.
+        let case = &mut self.i[id];
+        let mut retire = Retire {actions: Box::new([]), jump: None}; // Dummy value.
+        std::mem::swap(&mut retire, case.junction.b_mut().expect_err("Already specialized"));
+        case.junction = AndOr::AB(retire, fetch);
     }
 
     /**
@@ -242,17 +243,22 @@ impl<T: Target> Engine<T> {
         lo.actions(&marshal.prologue);
         assert_eq!(*lo.slots_used_mut(), marshal.convention.slots_used);
         // Compile the epilogue.
-        let mut retire_code = Vec::new();
-        retire_code.extend(marshal.epilogue.iter().copied());
-        retire_code.push(Action::Constant(P64, RESULT, exit_value));
-        let case = self.new_case(None, marshal.convention.clone(), retire_code.into(), None);
+        let mut actions = Vec::new();
+        actions.extend(marshal.epilogue.iter().copied());
+        actions.push(Action::Constant(P64, RESULT, exit_value));
+        let retire = Retire {actions: actions.into(), jump: None};
+        let case = self.new_retire(None, marshal.convention.clone(), retire);
         // Return.
-        self.internals.new_entry(label, case)
+        self.i.new_entry(label, case)
     }
 
     /** Tests whether [`define(entry, ...)`] has been called. */
     pub fn is_defined(&self, entry: EntryId) -> bool {
-        matches!(self.internals[self.internals[entry].case].junction, Fetch {..})
+        match self.i[self.i[entry].case].junction {
+            AndOr::A(ref _retire) => false,
+            AndOr::B(ref _fetch) => panic!("Impossible"),
+            AndOr::AB(ref _retire, ref _fetch) => true,
+        }
     }
 
     /**
@@ -263,15 +269,14 @@ impl<T: Target> Engine<T> {
     pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
         assert!(!self.is_defined(entry));
         let switch = switch.map(|&e: &EntryId| {
-            let case_id = self.internals[e].case;
-            self.new_case(
-                Some(self.internals[entry].case),
-                self.internals[case_id].convention.clone(),
-                Box::new([]),
-                Some(case_id),
+            let case_id = self.i[e].case;
+            self.new_retire(
+                Some(self.i[entry].case),
+                self.i[case_id].convention.clone(),
+                Retire {actions: Box::new([]), jump: Some(case_id)},
             )
         });
-        self.replace(self.internals[entry].case, actions, switch);
+        self.add_fetch(self.i[entry].case, Fetch {actions, switch});
     }
 
     /**
@@ -280,20 +285,23 @@ impl<T: Target> Engine<T> {
      * a `Switch`.
      */
     fn hot_path(&self, mut id: CaseId) -> Option<(Vec<Action>, Switch<CaseId>)> {
-        let mut code = Vec::new();
+        let mut actions = Vec::new();
         loop {
-            match self.internals[id].junction {
-                Retire {jump, ref retire_code, ..} => {
-                    code.extend(retire_code.iter().copied());
-                    if let Some(jump) = jump {
+            match self.i[id].junction.b() {
+                Ok(fetch) => {
+                    // Succeed.
+                    actions.extend(fetch.actions.iter().copied());
+                    return Some((actions, fetch.switch.clone()));
+                },
+                Err(retire) => {
+                    actions.extend(retire.actions.iter().copied());
+                    if let Some(jump) = retire.jump {
+                        // Loop.
                         id = jump;
                     } else {
+                        // Fail.
                         return None;
                     }
-                },
-                Fetch {ref fetch_code, ref switch, ..} => {
-                    code.extend(fetch_code.iter().copied());
-                    return Some((code, switch.clone()));
                 },
             }
         }
@@ -305,20 +313,18 @@ impl<T: Target> Engine<T> {
      */
     // TODO: Make private. Revealing it suppresses several "unused" warnings.
     pub fn specialize(&mut self, id: CaseId) {
-        assert!(matches!(self.internals[id].junction, Retire {..}));
-        if let Some((code, switch)) = self.hot_path(id) {
+        assert!(self.i[id].junction.b().is_err());
+        if let Some((actions, switch)) = self.hot_path(id) {
             // TODO: Optimize.
-            let fetch_code = code.into_boxed_slice();
-            let switch = switch.map(|&jump| {
-                self.new_case(
+            let fetch = Fetch {
+                actions: actions.into(),
+                switch: switch.map(|&jump| self.new_retire(
                     Some(id),
-                    self.internals[jump].convention.clone(),
-                    Box::new([]),
-                    Some(jump),
-                )
-            });
-            // Replace the `Retire` with a `Fetch`.
-            self.replace(id, fetch_code, switch);
+                    self.i.convention(jump).clone(),
+                    Retire {actions: Box::new([]), jump: Some(jump)},
+                )),
+            };
+            self.add_fetch(id, fetch);
         }
     }
 
@@ -331,7 +337,7 @@ impl<T: Target> Engine<T> {
      * the code returned by the [`Machine`] is invalid.
      */
     pub unsafe fn run(mut self, entry: EntryId) -> std::io::Result<(Self, Word)> {
-        let label = &self.internals[entry].label;
+        let label = &self.i[entry].label;
         let (lowerer, ret) = self.lowerer.execute(label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
             // Here is a good place to set a gdb breakpoint.
