@@ -16,3 +16,6 @@ pub use rotate::{rotate_left, rotate_right};
 
 mod permutation;
 pub use permutation::{permutation};
+
+mod and_or;
+pub use and_or::{AndOr};
