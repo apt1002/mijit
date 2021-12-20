@@ -19,7 +19,7 @@ A Just-In-Time (JIT) compiler is a way of executing programs that simultaneously
 2. We want it to run efficiently, to save time and money.
 3. We don't want to do any preparation before running new code.
 
-Without 1, we'd write the code in assembly language. Without 2, we'd use an interpreter. Without 3, we'd use an ahead-of-time compiler. All of these approaches cover a lot of interesting cases. However, the software engineering is increasingly throwing up cases where we need all three goals to be met.
+Without 1, we'd write the code in assembly language. Without 2, we'd use an interpreter. Without 3, we'd use an ahead-of-time compiler. All of these approaches cover a lot of interesting cases. However, software engineering is increasingly throwing up cases where we need all three goals to be met.
 
 How does a JIT compiler work?
 =============================
@@ -70,9 +70,11 @@ It is not possible to compile an interpeter that is specialised for every progra
 
 The costs of specialisation include: compile time (which must be accounted as part of run time); the memory needed to hold the compiled code; the space consumed in the instruction cache and branch predictor by the compiled code. All of these are roughly proportional to the amount of compiled code. This argument focuses attention on the benefit per compiled specialisation.
 
+Let's first consider whether there is an alternative to compiling dedicated code per specialisation. Could we get the benefit of the specialisation without the cost?
+
 The main benefit of compiling dedicated code for a specialisation is that it provides a way for the interpreter to remember that it is "in" the specialisation, and to execute different instructions from those it would execute otherwise. Essentially, the JIT compiler reserves a branch target, i.e. a possible value of the program counter (EIP on x86, PC on ARM), to mean "the specialisation is active", and it compiles at that address the code it wants to run.
 
-Is there any other way to remember that a specialisation is active? Could we get the benefit of the specialisation without the cost? I think the answer is no. We can rule out any mechanism that is as inefficient as an interpreter; we already have one of those. That includes any mechanism that tests a state variable at run time; we might as well interpret an instruction opcode instead (or test some other aspect of the virtual machine code). To put it another way, the only alternative to compiling dedicated code per specialisation is for specialisations to share code, and in that case we lose the benefits of specialisation.
+Is there any other way to remember that a specialisation is active? I think the answer is no. We can rule out any mechanism that is as inefficient as an interpreter; we already have one of those. That includes any mechanism that tests a state variable at run time; we might as well interpret an instruction opcode instead (or test some other aspect of the virtual machine code). To put it another way, if specialisations share code then we lose the benefits of specialisation.
 
 So the total amount of storage available for remembering which specialisation is active is limited to about 20 bits, being the parts of the program counter that the JIT compiler can choose freely without straying outside the compiled code and without the basic blocks overlapping. Furthermore, some of that tiny budget is needed just to implement the virtual machine specification correctly; the interpreter itself has a control-flow graph. This budget is extremely constraining, and I can't see a way around it.
 
@@ -83,16 +85,16 @@ If we accept that there is a one-to-one correspondence between branch targets an
 
  - Entering a specialisation is exactly the process of incorporating into the program counter information from somewhere else. The corresponding CPU feature is a conditional (or indirect) branch instruction. In an interpreter, the most common example is reading some virtual machine code before executing it; we will therefore call this "fetching" (but please note that the concept is more general than just fetching virtual machine instructions).
 
- - Leaving a specialisation is exactly the process of removing information from the program counter, i.e. collapsing several program counter values to the same value. The corresponding CPU feature is a direct branch to a control-flow merge point. In an interpreter, the most common example is forgetting some virtual machine code after executing it; we therefore call this "retiring".
+ - Leaving a specialisation is exactly the process of removing information from the program counter, i.e. collapsing several program counter values to the same value. The corresponding CPU feature is a direct jump to a control-flow merge point. In an interpreter, the most common example is forgetting some virtual machine code after executing it; we therefore call this "retiring".
 
  - Sequential execution may be understood as an arbitrary way to generate unique program counter values when not fetching or retiring.
 
- - The CPU's branch history register may be understood as a clever way to supplement the information in the program counter, and thereby to get more specialisations out of a given amount of code. Essentially, information that is retired from the program counter is briefly retained in the branch history register in the hope that the correlated information is fetched soon afterwards.
+ - The CPU's branch history register may be understood as a clever way to supplement the information in the program counter, and thereby to get more specialisations out of a given amount of code. Essentially, information that is retired from the program counter is briefly retained in the branch history register in the hope that correlated information is fetched soon afterwards.
 
 Information content of instruction traces
 =========================================
 
-The foregoing analysis focuses attention on fetching and retiring, because control flow branch- and merge-points are expensive on real CPUs. The expense is partly the cost of the branch instructions themselves, and partly the cost of code not being sequential in memory, but there is also a significant contribution from the obstacles that branch- and merge-points put in the way of other optimisations such as register allocation and instruction scheduling. An important optimisation metric is therefore the amount of *information* that needs to be fetched (and later retired) in order to run the user program.
+The foregoing analysis focuses attention on fetching and retiring, because control flow branch- and merge-points are expensive on real CPUs. The expense is partly the cost of the branch instructions themselves, and partly the cost of code not being sequential in memory, but there is also a significant contribution from the obstacles that branch- and merge-points put in the way of other optimisations such as register allocation and instruction scheduling. An important optimisation metric is therefore the amount of *information* that needs to be fetched (and later retired) in order to run the user program. Predictable control flow is efficient; surprises are costly.
 
 A traditional interpreter is pessimal according to this metric; after executing each instruction it returns to the top of the interpreter loop, thereby retiring all the information it has. The next virtual machine instruction is a complete surprise, every time, thus maximising the amount of information fetched (which is bad).
 
@@ -113,10 +115,12 @@ Assumption 1: No critical edges. In a control-flow graph, "a critical edge is an
 
 Assumption 2: Two parent rule. In principle, one can imagine a specialisation that can only be entered by retiring, or that can only be exited by fetching. Let's forbid such specialisations, and insist that every specialisation can be entered from a lesser specialisation, and can exit to a lesser specialisation. We call these lesser specialsations its "fetch parent" and "retire parent" respectively.
 
+[TODO: Allow specialisations that can only be exited by fetching. These arise when the optimiser reorders fetches. Weakening assumption 2 in this way ("Fetch parent rule") doesn't change very much.]
+
 Clearly there must be a base case: an exceptional "least" specialisation, which uniquely has no parents. This node of the control flow graph models the entire virtual machine state as data, i.e. execution leaves the JIT compiler entirely. The least specialisation is a convenient state in which to start and stop the virtual machine, to perform I/O, to run the compiler or garbage collector, and to catch exceptions.
 
 Assumption 2 implies that every specialisation is reachable from the least specialisation using only fetches, and assumption 1 implies that this path to each specialisation is unique. In other words, the specialisations form a tree, which I call the "fetch tree", with the least specialisation at the root. Analogously, the specialisations form a "retire tree", also with the least specialisation at the root. Thus, we have a beautiful double tree structure.
 
 The double tree structure provides an organising principle for specialisations. It is a useful restriction on the control-flow graph of the interpreter. It gives us a concrete representation of the graph, vocabulary for describing the relationships between specialisations, and the mutation operations that the compiler needs in order to create new specialisations.
 
-The diagram "specialisation.svg" shows the reationships of a single specialisation to its control-flow neighbours, and defines some terminology.
+The diagram "specialisation.svg" shows the relationships of a single specialisation to its control-flow neighbours, and defines some terminology.
