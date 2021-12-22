@@ -1,9 +1,9 @@
 use std::ops::{Index, IndexMut};
 
-use crate::util::{AsUsize, AndOr};
+use crate::util::{AsUsize};
 use super::{code};
 use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
-use code::{Precision, Global, Switch, Action, Convention, Marshal};
+use code::{Precision, Global, Switch, Action, Convention, Marshal, EBB, Ending};
 use Precision::*;
 
 // CaseId.
@@ -37,17 +37,22 @@ struct Fetch {
 /**
  * Represents a basic block ending with some kind of branch.
  * See `doc/engine/structure.md`.
+ *
+ * One or both of `fetch` and `retire` must be non-`None` for every reachable
+ * `Case`.
  */
 #[derive(Debug)]
 struct Case {
     /** The unique [`Switch`] that can jump directly to this `Case`. */
-    _fetch_parent: Option<CaseId>,
+    fetch_parent: Option<CaseId>,
     /** The [`Convention`] on entry (i.e. at `label`). */
     convention: Convention,
     /** The address of the code. */
     label: Label,
-    /** The part which changes when it is specialized. */
-    junction: AndOr<Retire, Fetch>,
+    /** The `Retire`, if any. */
+    retire: Option<Retire>,
+    /** The `Fetch`, if any. */
+    fetch: Option<Fetch>,
 }
 
 //-----------------------------------------------------------------------------
@@ -88,15 +93,102 @@ struct Internals {
 }
 
 impl Internals {
+    /**
+     * Constructs a new [`Case`], initially with an undefined `label` and with
+     * neither a [`Retire`] nor a [`Fetch`]. Call at least one of
+     * `add_retire()` and `add_fetch()` before using the new `Case`.
+     *  - fetch_parent - the `Case` whose `Fetch` will eventually jump to the
+     *    new `Case`.
+     *  - convention - the [`Convention`] in effect on entry to the new `Case`.
+     */
+    fn new_case(&mut self, fetch_parent: impl Into<Option<CaseId>>, convention: Convention) -> CaseId {
+        let id = CaseId::new(self.cases.len()).unwrap();
+        self.cases.push(Case {
+            fetch_parent: fetch_parent.into(),
+            convention,
+            label: Label::new(None),
+            retire: None,
+            fetch: None,
+        });
+        id
+    }
+
+    /** Constructs a new `Entry` that wraps `case`. */
     fn new_entry(&mut self, label: Label, case: CaseId) -> EntryId {
-        let index = self.entries.len();
+        let id = EntryId::new(self.entries.len()).unwrap();
         self.entries.push(Entry {label, case});
-        EntryId::new(index).unwrap()
+        id
     }
 
     /** Find the [`Convention`] for a [`CaseId`] allowing for `None`. */
     fn convention(&self, id: impl Into<Option<CaseId>>) -> &Convention {
         id.into().map_or(&self.convention, |id| &self[id].convention)
+    }
+
+    /**
+     * Add a [`Retire`] to a [`Case`] that doesn't have one, and that also
+     * doesn't have a [`Fetch`].
+     *
+     * The [`Convention`] of `retire.jump` must be compatible with the
+     * situation after executing `retire.actions`.
+     */
+    fn add_retire(&mut self, lo: &mut impl Lower, id: CaseId, retire: Retire) {
+        assert!(self[id].retire.is_none());
+        assert!(self[id].fetch.is_none());
+        *lo.slots_used_mut() = self[id].convention.slots_used;
+        // Intercept all jumps to `id`.
+        lo.define(&mut self[id].label);
+        // Compile `retire`.
+        lo.actions(&*retire.actions);
+        let slots_used = *lo.slots_used_mut();
+        assert_eq!(self.convention(retire.jump).slots_used, slots_used);
+        if let Some(jump) = retire.jump {
+            // Jump to a non-root `Case`.
+            lo.jump(&mut self[jump].label);
+        } else {
+            // Jump to the root.
+            lo.epilogue()
+        }
+        self[id].retire = Some(retire);
+    }
+
+    /**
+     * Add a [`Fetch`] to a [`Case`] that doesn't have one.
+     *
+     * Every child `Case` must have `id` as its `fetch_parent`, and its
+     * [`Convention`] must be compatible with the situation after executing
+     * `fetch.actions`.
+     */
+    fn add_fetch(&mut self, lo: &mut impl Lower, id: CaseId, fetch: Fetch) {
+        assert!(self[id].fetch.is_none());
+        *lo.slots_used_mut() = self[id].convention.slots_used;
+        // Intercept all jumps to `id`.
+        let mut here = lo.here();
+        lo.steal(&mut self[id].label, &mut here);
+        self[id].label = here;
+        // Compile `fetch`.
+        lo.actions(&*fetch.actions);
+        let slots_used = *lo.slots_used_mut();
+        let check_child = |child: &Case| {
+            assert_eq!(child.convention.slots_used, slots_used);
+            assert_eq!(child.fetch_parent, Some(id));
+            assert!(child.retire.is_some() || child.fetch.is_some());
+        };
+        match fetch.switch {
+            Switch::Index {discriminant, ref cases, ref default_} => {
+                for (index, &case) in cases.iter().enumerate() {
+                    check_child(&self[case]);
+                    lo.if_eq((discriminant, index as u64), &mut self[case].label);
+                }
+                check_child(&self[**default_]);
+                lo.jump(&mut self[**default_].label);
+            },
+            Switch::Always(ref jump) => {
+                check_child(&self[**jump]);
+                lo.jump(&mut self[**jump].label);
+            },
+        }
+        self[id].fetch = Some(fetch);
     }
 }
 
@@ -160,65 +252,34 @@ impl<T: Target> Engine<T> {
         &mut self.lowerer.pool_mut()[global]
     }
 
-    /** Construct a fresh [`Case`] which retires to `jump`. */
-    fn new_retire(&mut self, _fetch_parent: Option<CaseId>, convention: Convention, retire: Retire) -> CaseId {
-        let lo = &mut self.lowerer;
-        *lo.slots_used_mut() = convention.slots_used;
-        // Compile the mutable jump.
-        let mut label = Label::new(None);
-        lo.jump(&mut label);
-        lo.define(&mut label);
-        // Compile `retire`.
-        lo.actions(&*retire.actions);
-        assert_eq!(*lo.slots_used_mut(), self.i.convention(retire.jump).slots_used);
-        if let Some(jump) = retire.jump {
-            // Jump to a non-root `Case`.
-            lo.jump(&mut self.i[jump].label);
-        } else {
-            // Jump to the root.
-            lo.epilogue()
-        }
-        // Record details in a `Case` and return its `CaseId`.
-        let id = CaseId::new(self.i.cases.len()).unwrap();
-        self.i.cases.push(Case {
-            _fetch_parent,
-            convention,
-            label,
-            junction: AndOr::A(retire),
-        });
+    /** Constructs a fresh [`Case`] with a no-op [`Retire`] to `jump`. */
+    fn new_retire(&mut self, fetch_parent: Option<CaseId>, jump: Option<CaseId>) -> CaseId {
+        let id = self.i.new_case(fetch_parent, self.i.convention(jump).clone());
+        self.i.add_retire(&mut self.lowerer, id, Retire {actions: Box::new([]), jump});
         id
     }
 
-    /** Add a [`Fetch`] to a [`Case`] that only has a [`Retire`]. */
-    fn add_fetch(&mut self, id: CaseId, fetch: Fetch) {
-        let case = &mut self.i[id];
-        let lo = &mut self.lowerer;
-        *lo.slots_used_mut() = case.convention.slots_used;
-        // Intercept all jumps to `id`.
-        let mut here = lo.here();
-        lo.steal(&mut case.label, &mut here);
-        case.label = here;
-        // Compile `fetch`.
-        lo.actions(&*fetch.actions);
-        match fetch.switch {
-            Switch::Index {discriminant, ref cases, ref default_} => {
-                for (index, &case) in cases.iter().enumerate() {
-                    assert_eq!(*lo.slots_used_mut(), self.i.convention(case).slots_used);
-                    lo.if_eq((discriminant, index as u64), &mut self.i[case].label);
-                }
-                assert_eq!(*lo.slots_used_mut(), self.i.convention(**default_).slots_used);
-                lo.jump(&mut self.i[**default_].label);
+    /**
+     * Recursively constructs a tree of [`Case`]s that implements an [`EBB`].
+     * `root` will acquire a [`Retire`] or a [`Fetch`] depending on whether
+     * `ending` is an [`Ending::Leaf`] or an [`Ending::Switch`].
+     */
+    // TODO: Make private. Revealing it suppresses several "unused" warnings.
+    pub fn build(&mut self, root: CaseId, actions: Box<[Action]>, ending: &Ending<CaseId>) {
+        match ending {
+            Ending::Leaf(jump) => {
+                self.i.add_retire(&mut self.lowerer, root, Retire {actions, jump: Some(*jump)});
             },
-            Switch::Always(ref jump) => {
-                assert_eq!(*lo.slots_used_mut(), self.i.convention(**jump).slots_used);
-                lo.jump(&mut self.i[**jump].label);
+            Ending::Switch(switch) => {
+                let switch = switch.map(|EBB {before, actions, ending}| {
+                    let id = self.i.new_case(Some(root), before.clone());
+                    let actions = actions.iter().copied().collect();
+                    self.build(id, actions, ending);
+                    id
+                });
+                self.i.add_fetch(&mut self.lowerer, root, Fetch {actions, switch});
             },
         }
-        // Add `fetch` to `case` preserving its `retire`.
-        let case = &mut self.i[id];
-        let mut retire = Retire {actions: Box::new([]), jump: None}; // Dummy value.
-        std::mem::swap(&mut retire, case.junction.b_mut().expect_err("Already specialized"));
-        case.junction = AndOr::AB(retire, fetch);
     }
 
     /**
@@ -235,30 +296,27 @@ impl<T: Target> Engine<T> {
     pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> EntryId {
         assert_eq!(marshal.convention.slots_used & 1, 0);
         assert!(exit_value >= 0);
-        let lo = &mut self.lowerer;
-        *lo.slots_used_mut() = 0;
-        // Compile the prologue.
-        let label = lo.here();
-        lo.prologue();
-        lo.actions(&marshal.prologue);
-        assert_eq!(*lo.slots_used_mut(), marshal.convention.slots_used);
+        let case = self.i.new_case(None, marshal.convention.clone());
         // Compile the epilogue.
         let mut actions = Vec::new();
         actions.extend(marshal.epilogue.iter().copied());
         actions.push(Action::Constant(P64, RESULT, exit_value));
-        let retire = Retire {actions: actions.into(), jump: None};
-        let case = self.new_retire(None, marshal.convention.clone(), retire);
-        // Return.
+        self.i.add_retire(&mut self.lowerer, case, Retire {actions: actions.into(), jump: None});
+        // Compile the prologue.
+        let lo = &mut self.lowerer;
+        *lo.slots_used_mut() = 0;
+        let label = lo.here();
+        lo.prologue();
+        lo.actions(&marshal.prologue);
+        assert_eq!(*lo.slots_used_mut(), self.i[case].convention.slots_used);
+        lo.jump(&mut self.i[case].label);
+        // Wrap and return.
         self.i.new_entry(label, case)
     }
 
     /** Tests whether [`define(entry, ...)`] has been called. */
     pub fn is_defined(&self, entry: EntryId) -> bool {
-        match self.i[self.i[entry].case].junction {
-            AndOr::A(ref _retire) => false,
-            AndOr::B(ref _fetch) => panic!("Impossible"),
-            AndOr::AB(ref _retire, ref _fetch) => true,
-        }
+        self.i[self.i[entry].case].fetch.is_some()
     }
 
     /**
@@ -268,15 +326,8 @@ impl<T: Target> Engine<T> {
      */
     pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
         assert!(!self.is_defined(entry));
-        let switch = switch.map(|&e: &EntryId| {
-            let case_id = self.i[e].case;
-            self.new_retire(
-                Some(self.i[entry].case),
-                self.i[case_id].convention.clone(),
-                Retire {actions: Box::new([]), jump: Some(case_id)},
-            )
-        });
-        self.add_fetch(self.i[entry].case, Fetch {actions, switch});
+        let switch = switch.map(|&e: &EntryId| self.new_retire(Some(self.i[entry].case), Some(self.i[e].case)));
+        self.i.add_fetch(&mut self.lowerer, self.i[entry].case, Fetch {actions, switch});
     }
 
     /**
@@ -287,23 +338,23 @@ impl<T: Target> Engine<T> {
     fn hot_path(&self, mut id: CaseId) -> Option<(Vec<Action>, Switch<CaseId>)> {
         let mut actions = Vec::new();
         loop {
-            match self.i[id].junction.b() {
-                Ok(fetch) => {
-                    // Succeed.
-                    actions.extend(fetch.actions.iter().copied());
-                    return Some((actions, fetch.switch.clone()));
-                },
-                Err(retire) => {
-                    actions.extend(retire.actions.iter().copied());
-                    if let Some(jump) = retire.jump {
-                        // Loop.
-                        id = jump;
-                    } else {
-                        // Fail.
-                        return None;
-                    }
-                },
+            if let Some(fetch) = &self.i[id].fetch {
+                // Succeed.
+                actions.extend(fetch.actions.iter().copied());
+                return Some((actions, fetch.switch.clone()));
             }
+            if let Some(retire) = &self.i[id].retire {
+                actions.extend(retire.actions.iter().copied());
+                if let Some(jump) = retire.jump {
+                    // Loop.
+                    id = jump;
+                    continue;
+                } else {
+                    // Fail.
+                    return None;
+                }
+            }
+            panic!("Case has neither Fetch nor Retire");
         }
     }
 
@@ -313,18 +364,11 @@ impl<T: Target> Engine<T> {
      */
     // TODO: Make private. Revealing it suppresses several "unused" warnings.
     pub fn specialize(&mut self, id: CaseId) {
-        assert!(self.i[id].junction.b().is_err());
+        assert!(self.i[id].fetch.is_none());
         if let Some((actions, switch)) = self.hot_path(id) {
-            // TODO: Optimize.
-            let fetch = Fetch {
-                actions: actions.into(),
-                switch: switch.map(|&jump| self.new_retire(
-                    Some(id),
-                    self.i.convention(jump).clone(),
-                    Retire {actions: Box::new([]), jump: Some(jump)},
-                )),
-            };
-            self.add_fetch(id, fetch);
+            // TODO: Optimize `actions`.
+            let switch = switch.map(|&jump| self.new_retire(Some(id), Some(jump)));
+            self.i.add_fetch(&mut self.lowerer, id, Fetch {actions: actions.into(), switch});
         }
     }
 
