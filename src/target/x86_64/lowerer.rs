@@ -493,14 +493,22 @@ impl<B: Buffer> Lowerer<B> {
             },
             code::BinaryOp::Max => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, src1| {
-                    l.move_(dest, src1);
-                    l.value_move_if(Condition::L, prec, dest, src2);
+                    if Value::Register(dest) == src2.into() {
+                        l.value_move_if(Condition::GE, prec, dest, src1);
+                    } else {
+                        l.move_(dest, src1);
+                        l.value_move_if(Condition::L, prec, dest, src2);
+                    }
                 });
             },
             code::BinaryOp::Min => {
                 self.compare_binary(prec, dest, src1, src2, |l, dest, src1| {
-                    l.move_(dest, src1);
-                    l.value_move_if(Condition::G, prec, dest, src2);
+                    if Value::Register(dest) == src2.into() {
+                        l.value_move_if(Condition::LE, prec, dest, src1);
+                    } else {
+                        l.move_(dest, src1);
+                        l.value_move_if(Condition::G, prec, dest, src2);
+                    }
                 });
             },
         };

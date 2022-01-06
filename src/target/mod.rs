@@ -137,6 +137,31 @@ mod tests {
         }        
     }
 
+    /**
+     * Test that the results of arithmetic operations do not depend on which
+     * registers are used to compute them.
+     *  - compile - Takes (lo, dest, src1, src2).
+     */
+    pub unsafe fn test_clobber(
+        compile: impl Fn(&mut dyn Lower, Register, Register, Register),
+    ) {
+        for dest in [R0, R1] {
+            let mut vm = VM::new(2, |lo| {
+                lo.action(Move(R0.into(), Global(0).into()));
+                lo.action(Move(R1.into(), Global(1).into()));
+                compile(lo, R2, R0, R1);
+                compile(lo, dest, R0, R1);
+                lo.action(Move(R1.into(), dest.into()));
+                lo.action(Binary(Xor, P64, R0, R1.into(), R2.into()));
+            });
+            for x in TEST_VALUES {
+                for y in [1, 11, 31] {
+                    vm = vm.run(&[Word {u: x}, Word {u: y}], Word {u: 0});
+                }
+            }
+        }
+    }
+
     // Move, Constant, Push, Pop, DropMany.
 
     #[test]
@@ -254,6 +279,18 @@ mod tests {
             |lo| { lo.action(Unary(Not, P64, R0, Global(0).into())); },
             |x| !x,
         )};
+    }
+
+    #[test]
+    fn clobber_unary() {
+        for op in [Abs, Negate, Not] {
+            for prec in [P32, P64] {
+                println!("Clobbering {:?} {:?}", op, prec);
+                unsafe {test_clobber(|lo, dest, src1, _| {
+                    lo.action(Unary(op, prec, dest, src1.into()));
+                })};
+            }
+        }
     }
 
     // BinaryOps.
@@ -536,6 +573,24 @@ mod tests {
             |lo| { lo.action(Binary(Min, P64, R0, Global(0).into(), Global(1).into())); },
             |x, y| std::cmp::min(x as i64, y as i64) as u64,
         )};
+    }
+
+    #[test]
+    fn clobber_binary() {
+        for op in [
+            Add, Sub, Mul, UDiv, SDiv,
+            Lsl, Lsr, Asr,
+            And, Or, Xor,
+            Lt, Ult, Eq,
+            Max, Min,
+        ] {
+            for prec in [P32, P64] {
+                println!("Clobbering {:?} {:?}", op, prec);
+                unsafe {test_clobber(|lo, dest, src1, src2| {
+                    lo.action(Binary(op, prec, dest, src1.into(), src2.into()));
+                })};
+            }
+        }
     }
 
     // Load and Store.
