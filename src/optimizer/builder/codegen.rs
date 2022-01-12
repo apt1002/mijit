@@ -163,7 +163,7 @@ impl<'a> CodeGen<'a> {
      * Constructs an [`EBB`] from the [`Action`]s generated so far and from
      * `switch`. The list of `Action`s is cleared.
      */
-    pub fn ebb<'b>(&mut self, ending: Ending<'b>) -> EBB<'b> {
+    pub fn ebb<L: Clone>(&mut self, ending: Ending<L>) -> EBB<L> {
         let before = Convention {
             live_values: self.live_outs.iter().map(|&out| self.variables[&out]).collect(),
             slots_used: self.slots_used,

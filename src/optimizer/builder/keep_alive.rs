@@ -1,18 +1,18 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::util::{ArrayMap};
-use super::{Leaf, Dataflow, Node, Out, flood, Cold, CFT};
+use super::{Dataflow, Node, Out, flood, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
 /** Represents what happens when a particular [`Op::Guard`] fails. */
 #[derive(Debug, PartialEq, Eq)]
-pub struct GuardFailure<'a> {
+pub struct GuardFailure<L: Clone> {
     /**
      * The HotPathTrees that could be entered as a result of this
      * `GuardFailure`.
      */
-    pub cold: Cold<HotPathTree<'a>>,
+    pub cold: Cold<HotPathTree<L>>,
     /**
      * The set of `Out`s that any of `cases` depends on. On the hot path, the
      * `Out`s must be kept alive at least until the [`Op::Guard`] is executed.
@@ -28,20 +28,20 @@ pub struct GuardFailure<'a> {
  * structure.
  */
 #[derive(Debug, PartialEq, Eq)]
-pub struct HotPathTree<'a> {
+pub struct HotPathTree<L: Clone> {
     /** The exit [`Node`] of the hot path. */
     pub exit: Node,
-    /** The [`Leaf`] of the hot path. */
-    pub leaf: Leaf<'a>,
+    /** The leaf of the hot path. */
+    pub leaf: L,
     /** A [`GuardFailure`] for each [`Op::Guard`] on the root hot path. */
-    pub children: HashMap<Node, GuardFailure<'a>>,
+    pub children: HashMap<Node, GuardFailure<L>>,
 }
 
-impl<'a> HotPathTree<'a> {
+impl<L: Clone> HotPathTree<L> {
     pub fn new(
         exit: Node,
-        leaf: Leaf<'a>,
-        children: impl IntoIterator<Item=GuardFailure<'a>>,
+        leaf: L,
+        children: impl IntoIterator<Item=GuardFailure<L>>,
     ) -> Self {
         let children = HashMap::from_iter(children.into_iter().map(
             |gf| (gf.cold.guard, gf)
@@ -74,8 +74,8 @@ impl<'a> KeepAlive<'a> {
      * - coldness - 2 + the number of cold branches needed to reach `cft`.
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
      */
-    fn walk<'b>(&mut self, cft: &'a CFT<'b>, inputs: &mut HashSet<Out>, coldness: usize)
-    -> HotPathTree<'b> {
+    fn walk<L: Clone>(&mut self, cft: &'a CFT<L>, inputs: &mut HashSet<Out>, coldness: usize)
+    -> HotPathTree<L> {
         let (colds, exit, leaf) = cft.hot_path();
         // Mark everything that `exit` depends on.
         let nodes = flood(&self.dataflow, &mut self.marks, coldness, inputs, exit);
@@ -101,7 +101,7 @@ impl<'a> KeepAlive<'a> {
             self.marks[node] = 0;
         }
         // Construct and return a HotPathTree.
-        HotPathTree::new(exit, leaf, children)
+        HotPathTree::new(exit, leaf.clone(), children)
     }
 }
 
@@ -110,7 +110,7 @@ impl<'a> KeepAlive<'a> {
  * are computed on the hot path but which must outlive the `Guard` because they
  * are also needed on at least one cold path.
  */
-pub fn keep_alive_sets<'a>(dataflow: &Dataflow, cft: &CFT<'a>) -> HotPathTree<'a> {
+pub fn keep_alive_sets<L: Clone>(dataflow: &Dataflow, cft: &CFT<L>) -> HotPathTree<L> {
     let mut ka = KeepAlive::new(dataflow);
     ka.walk(cft, &mut HashSet::new(), 2)
 }
@@ -120,14 +120,14 @@ pub fn keep_alive_sets<'a>(dataflow: &Dataflow, cft: &CFT<'a>) -> HotPathTree<'a
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{code, CFT, Dataflow, Op};
+    use super::super::{CFT, Dataflow, Op};
 
-    impl<'a> GuardFailure<'a> {
+    impl<L: Clone> GuardFailure<L> {
         pub fn new(
             guard: Node,
             hot_index: usize,
             keep_alives: impl IntoIterator<Item=Out>,
-            colds: impl Into<Box<[HotPathTree<'a>]>>,
+            colds: impl Into<Box<[HotPathTree<L>]>>,
         ) -> Self {
             let colds = colds.into();
             let keep_alives = HashSet::from_iter(keep_alives);
@@ -155,10 +155,8 @@ mod tests {
     #[test]
     fn binary_tree() {
         // Dummy `Leaf`.
-        let leaf = Leaf {
-            weight: 1,
-            after: &code::empty_convention(0),
-        };
+        #[derive(Debug, Clone, PartialEq)]
+        struct Leaf;
         // Dataflow
         let mut dataflow = Dataflow::new(7);
         let ins: Box<[_]> = dataflow.outs(dataflow.entry_node()).collect();
@@ -177,24 +175,24 @@ mod tests {
         let cold_hot = dataflow.add_node(Op::Convention, &[guard1, guard3], &[r], 0);
         let cold_cold = dataflow.add_node(Op::Convention, &[guard1, guard3], &[s], 0);
         // CFT
-        let merge4 = CFT::Merge {exit: hot_hot, leaf};
-        let merge5 = CFT::Merge {exit: hot_cold, leaf};
-        let merge6 = CFT::Merge {exit: cold_hot, leaf};
-        let merge7 = CFT::Merge {exit: cold_cold, leaf};
+        let merge4 = CFT::Merge {exit: hot_hot, leaf: Leaf};
+        let merge5 = CFT::Merge {exit: hot_cold, leaf: Leaf};
+        let merge6 = CFT::Merge {exit: cold_hot, leaf: Leaf};
+        let merge7 = CFT::Merge {exit: cold_cold, leaf: Leaf};
         let switch2 = CFT::switch(guard2, [merge4], merge5, 0);
         let switch3 = CFT::switch(guard3, [merge6], merge7, 0);
         let switch1 = CFT::switch(guard1, [switch2], switch3, 0);
         // Test
-        let expected = HotPathTree::new(hot_hot, leaf, [
+        let expected = HotPathTree::new(hot_hot, Leaf, [
             GuardFailure::new(guard1, 0, [c, r, s], [
-                HotPathTree::new(cold_hot, leaf, [
+                HotPathTree::new(cold_hot, Leaf, [
                     GuardFailure::new(guard3, 0, [s], [
-                        HotPathTree::new(cold_cold, leaf, []),
+                        HotPathTree::new(cold_cold, Leaf, []),
                     ]),
                 ]),
             ]),
             GuardFailure::new(guard2, 0, [q], [
-                HotPathTree::new(hot_cold, leaf, []),
+                HotPathTree::new(hot_cold, Leaf, []),
             ]),
         ]);
         let observed = keep_alive_sets(&dataflow, &switch1);

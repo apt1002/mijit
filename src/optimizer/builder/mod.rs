@@ -2,7 +2,7 @@ use std::collections::{HashSet, HashMap};
 
 use super::{code, target, ebb, cost, cft, Dataflow, Node, Out, Cold, CFT, Op, Resources};
 use code::{Slot, Variable, Convention};
-use ebb::{Leaf, Ending, EBB};
+use ebb::{LookupLeaf, Ending, EBB};
 use crate::util::{ArrayMap};
 
 mod flood;
@@ -65,13 +65,14 @@ impl<'a> Builder<'a> {
      * - input - called once for each input to `tree`. It informs the caller
      *   that the input is live, and returns the [`Variable`] that holds it.
      */
-    pub fn walk<'b>(
+    pub fn walk<L: Clone>(
         &mut self,
-        tree: &HotPathTree<'b>,
+        tree: &HotPathTree<L>,
         coldness: usize,
         slots_used: usize,
         input: &mut dyn FnMut(Out) -> Variable,
-    ) -> EBB<'b> {
+        lookup_leaf: &impl LookupLeaf<L>,
+    ) -> EBB<L> {
         let mut inputs = HashSet::new();
         let nodes = flood(self.dataflow, &mut self.marks, coldness, &mut inputs, tree.exit);
         let input_values = inputs.into_iter().map(input).collect();
@@ -104,11 +105,11 @@ impl<'a> Builder<'a> {
             slots_used,
             variables,
             tree.exit,
-            tree.leaf.after,
+            lookup_leaf.after(&tree.leaf),
         );
 
         // Depth-first walk from the exits back to the entry.
-        let mut ending: Ending<'_> = tree.leaf.into();
+        let mut ending = Ending::Leaf(tree.leaf.clone());
         let mut rev_iter = instructions.iter().rev();
         let last_instruction = rev_iter.next().expect("Missing exit node");
         assert_eq!(last_instruction, &Instruction::Node(tree.exit));
@@ -120,16 +121,17 @@ impl<'a> Builder<'a> {
                 },
                 Instruction::Node(node) => {
                     if self.is_guard(node) {
-                        let hot: EBB = cg.ebb(ending);
+                        let hot = cg.ebb(ending);
                         let gf = tree.children.get(&node).expect("Missing GuardFailure");
                         let cold = gf.cold.map(|child| self.walk(
                             child,
                             coldness + 1,
                             cg.slots_used(),
                             &mut |out| cg.read(out),
+                            lookup_leaf,
                         ));
-                        let cft_switch: cft::Switch<EBB<'_>> = cold.insert_hot(hot);
-                        ending = code::Switch::Index {
+                        let cft_switch: cft::Switch<EBB<_>> = cold.insert_hot(hot);
+                        ending = Ending::Switch(code::Switch::Index {
                             discriminant: {
                                 let outs = self.dataflow.ins(cft_switch.guard);
                                 assert_eq!(outs.len(), 1);
@@ -137,7 +139,7 @@ impl<'a> Builder<'a> {
                             },
                             cases: cft_switch.cases,
                             default_: cft_switch.default_,
-                        }.into();
+                        });
                     } else {
                         cg.add_node(node);
                     }
@@ -149,11 +151,12 @@ impl<'a> Builder<'a> {
     }
 }
 
-pub fn build<'a>(
+pub fn build<L: Clone>(
     before: &Convention,
     dataflow: &Dataflow,
-    cft: &CFT<'a>,
-) -> EBB<'a> {
+    cft: &CFT<L>,
+    lookup_leaf: &impl LookupLeaf<L>,
+) -> EBB<L> {
     // Work out what is where.
     let entry = dataflow.entry_node();
     let input_map: HashMap<Out, Variable> =
@@ -171,5 +174,6 @@ pub fn build<'a>(
         2,
         before.slots_used,
         &mut |out| *input_map.get(&out).unwrap(),
+        lookup_leaf,
     )
 }

@@ -1,6 +1,6 @@
 use std::collections::{HashMap};
 use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch};
-use super::{CFT, Op, Dataflow, Node, Out, EBB, Ending};
+use super::{CFT, Op, Dataflow, Node, Out, LookupLeaf, EBB, Ending};
 
 /**
  * Represents the state of an abstract execution of some code which builds a
@@ -178,26 +178,26 @@ impl Simulation {
      * Simulate every control-flow path in `ebb`, adding to `dataflow` as
      * necessary. Returns a [`CFT`] and its total weight.
      */
-    fn walk<'a>(mut self, dataflow: &mut Dataflow, ebb: &EBB<'a>) -> (CFT<'a>, usize) {
+    fn walk<L: Clone>(mut self, dataflow: &mut Dataflow, ebb: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> (CFT<L>, usize) {
         for ref action in &ebb.actions {
             self.action(dataflow, action);
         }
         match ebb.ending {
-            Ending::Leaf(leaf) => {
-                let exit = self.exit(dataflow, &leaf.after);
-                (CFT::Merge {exit, leaf}, leaf.weight)
+            Ending::Leaf(ref leaf) => {
+                let exit = self.exit(dataflow, lookup_leaf.after(leaf));
+                (CFT::Merge {exit, leaf: leaf.clone()}, lookup_leaf.weight(leaf))
             },
             Ending::Switch(ref switch) => {
                 match *switch {
-                    Switch::Always(ref ebb) => self.walk(dataflow, &*ebb),
+                    Switch::Always(ref ebb) => self.walk(dataflow, &*ebb, lookup_leaf),
                     Switch::Index {discriminant, ref cases, ref default_} => {
                         let guard = self.guard(dataflow, discriminant);
                         // Recurse on all branches and study the weights.
-                        let (default_, mut hot_weight) = self.clone().walk(dataflow, &*default_);
+                        let (default_, mut hot_weight) = self.clone().walk(dataflow, &*default_, lookup_leaf);
                         let mut hot_index = usize::MAX;
                         let mut total_weight = hot_weight;
                         let cases: Box<[_]> = cases.iter().enumerate().map(|(i, case)| {
-                            let (case, weight) = self.clone().walk(dataflow, case);
+                            let (case, weight) = self.clone().walk(dataflow, case, lookup_leaf);
                             if weight > hot_weight {
                                 hot_index = i;
                                 hot_weight = weight;
@@ -217,9 +217,9 @@ impl Simulation {
  * Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
  * `input`.
  */
-pub fn simulate<'a>(input: &EBB<'a>) -> (Dataflow, CFT<'a>) {
+pub fn simulate<L: Clone>(input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> (Dataflow, CFT<L>) {
     let mut dataflow = Dataflow::new(input.before.live_values.len());
     let simulation = Simulation::new(&dataflow, &input.before);
-    let (cft, _) = simulation.walk(&mut dataflow, &input);
+    let (cft, _) = simulation.walk(&mut dataflow, &input, lookup_leaf);
     (dataflow, cft)
 }

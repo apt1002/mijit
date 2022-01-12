@@ -3,7 +3,7 @@ use super::{code, target};
 //-----------------------------------------------------------------------------
 
 mod ebb;
-pub use ebb::{Leaf, Ending, EBB};
+pub use ebb::{LookupLeaf, Ending, EBB};
 
 mod op;
 pub use op::{Op};
@@ -27,10 +27,10 @@ mod builder;
 pub use builder::{build};
 
 /** Optimizes an [`EBB`]. */
-pub fn optimize<'a>(input: &EBB<'a>) -> EBB<'a> {
+pub fn optimize<L: Clone>(input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> EBB<L> {
     // Generate the [`Dataflow`] graph.
-    let (dataflow, cft) = simulate(input);
-    build(&input.before, &dataflow, &cft)
+    let (dataflow, cft) = simulate(input, lookup_leaf);
+    build(&input.before, &dataflow, &cft, lookup_leaf)
 }
 
 

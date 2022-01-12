@@ -1,4 +1,4 @@
-use super::{Node, Leaf};
+use super::{Node};
 
 //-----------------------------------------------------------------------------
 
@@ -89,27 +89,27 @@ impl<C> Cold<C> {
 //-----------------------------------------------------------------------------
 
 /** Represents a control-flow tree. */
-pub enum CFT<'a> {
+pub enum CFT<L: Clone> {
     Merge {
         /** The exit [`Node`] of the dataflow graph for this path. */
         exit: Node,
         /** Where to merge into the existing compiled code. */
-        leaf: Leaf<'a>,
+        leaf: L,
     },
     Switch {
         /** The control-flow decision. */
-        switch: Switch<CFT<'a>>,
+        switch: Switch<CFT<L>>,
         /** The index of the most probable case, or `usize::MAX`. */
         hot_index: usize,
     },
 }
 
-impl<'a> CFT<'a> {
+impl<L: Clone> CFT<L> {
     /** Constructs a `CFT::Switch`. */
     pub fn switch(
         guard: Node,
-        cases: impl Into<Box<[CFT<'a>]>>,
-        default_: impl Into<Box<CFT<'a>>>,
+        cases: impl Into<Box<[CFT<L>]>>,
+        default_: impl Into<Box<CFT<L>>>,
         hot_index: usize,
     ) -> Self {
         let cases = cases.into();
@@ -121,13 +121,13 @@ impl<'a> CFT<'a> {
      * Follows the hot path through `self`.
      * Returns the [`Colds`]es and the exit [`Node`].
      */
-    pub fn hot_path(&self) -> (Vec<Cold<&Self>>, Node, Leaf<'a>) {
+    pub fn hot_path(&self) -> (Vec<Cold<&Self>>, Node, L) {
         let mut cft = self;
         let mut colds = Vec::new();
         loop {
             match cft {
-                &CFT::Merge {exit, leaf} => {
-                    return (colds, exit, leaf);
+                &CFT::Merge {exit, ref leaf} => {
+                    return (colds, exit, leaf.clone());
                 },
                 &CFT::Switch {ref switch, hot_index} => {
                     let (hot, cold) = switch.map(|t| t).remove_hot(hot_index);
