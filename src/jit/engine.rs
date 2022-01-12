@@ -39,7 +39,7 @@ struct Fetch {
  * See `doc/engine/structure.md`.
  *
  * One or both of `fetch` and `retire` must be non-`None` for every reachable
- * `Case`.
+ * `Case` (they can both be `None` during construction).
  */
 #[derive(Debug)]
 struct Case {
@@ -339,17 +339,26 @@ impl<T: Target> Engine<T> {
         let mut actions = Vec::new();
         loop {
             if let Some(fetch) = &self.i[id].fetch {
-                // Succeed.
                 actions.extend(fetch.actions.iter().copied());
-                return Some(EBB {
-                    before: self.i.convention(id).clone(),
-                    actions: actions.into(),
-                    ending: Ending::Switch(fetch.switch.map(|&jump| EBB {
-                        before: self.i.convention(jump).clone(),
-                        actions: Vec::new(),
-                        ending: Ending::Leaf(jump),
-                    })),
-                });
+                match &fetch.switch {
+                    Switch::Always(ref jump) => {
+                        // Loop.
+                        id = **jump;
+                        continue;
+                    },
+                    switch => {
+                        // Succeed.
+                        return Some(EBB {
+                            before: self.i.convention(id).clone(),
+                            actions: actions.into(),
+                            ending: Ending::Switch(switch.map(|&jump| EBB {
+                                before: self.i.convention(jump).clone(),
+                                actions: Vec::new(),
+                                ending: Ending::Leaf(jump),
+                            })),
+                        });
+                    },
+                }
             }
             if let Some(retire) = &self.i[id].retire {
                 actions.extend(retire.actions.iter().copied());
