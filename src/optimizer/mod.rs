@@ -38,28 +38,6 @@ pub fn optimize<L: Clone>(input: &code::EBB<L>, lookup_leaf: &impl LookupLeaf<L>
     build(&input.before, &dataflow, &cft, lookup_leaf)
 }
 
-
-// TODO: Delete.
-/*
-/** Optimizes a basic block. */
-pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
-    // Generate the [`Dataflow`] graph.
-    let mut simulation = Simulation::new(before);
-    for action in actions {
-        simulation.action(action);
-    }
-    let (dataflow, exit_node) = simulation.finish(after);
-    // TODO: enumerate the live [`Node`]s. For now, keep them all.
-    let nodes: Vec<_> = dataflow.all_nodes().collect();
-    assert_eq!(dataflow.entry_node(), nodes[0]);
-    let nodes = &nodes[1..];
-    // Refine the schedule and allocate registers.
-    let (instructions, allocation) = allocate(before, &dataflow, nodes);
-    // Generate the [`Action`]s.
-    generate_code(num_globals, before, after, &dataflow, &instructions, allocation, exit_node)
-}
-*/
-
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
