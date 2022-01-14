@@ -1,18 +1,7 @@
-use super::code::{Convention, Action, Switch};
-
-/**
- * Look up information about a control-flow merge point.
- */
-pub trait LookupLeaf<L: Clone> {
-    /** Return the convention in effect at `leaf`. */
-    fn after(&self, leaf: &L) -> &Convention;
-    /** Return the estimated relative frequency of `leaf`. */
-    fn weight(&self, leaf: &L) -> usize;
-}
+use super::{Convention, Action, Switch};
 
 /**
  * Represents an [extended basic block], i.e. a tree-like control-flow graph.
- * This is the unit of optimization.
  *
  * `L` identifies a point where control-flow merges with pre-existing code.
  *

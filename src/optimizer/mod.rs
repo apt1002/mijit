@@ -2,9 +2,6 @@ use super::{code, target};
 
 //-----------------------------------------------------------------------------
 
-mod ebb;
-pub use ebb::{LookupLeaf, Ending, EBB};
-
 mod op;
 pub use op::{Op};
 
@@ -26,8 +23,16 @@ pub use simulation::{Simulation, simulate};
 mod builder;
 pub use builder::{build};
 
+/** Look up information about a control-flow merge point. */
+pub trait LookupLeaf<L: Clone> {
+    /** Return the convention in effect at `leaf`. */
+    fn after(&self, leaf: &L) -> &code::Convention;
+    /** Return the estimated relative frequency of `leaf`. */
+    fn weight(&self, leaf: &L) -> usize;
+}
+
 /** Optimizes an [`EBB`]. */
-pub fn optimize<L: Clone>(input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> EBB<L> {
+pub fn optimize<L: Clone>(input: &code::EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> code::EBB<L> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(input, lookup_leaf);
     build(&input.before, &dataflow, &cft, lookup_leaf)

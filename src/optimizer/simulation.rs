@@ -1,6 +1,6 @@
 use std::collections::{HashMap};
-use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch};
-use super::{CFT, Op, Dataflow, Node, Out, LookupLeaf, EBB, Ending};
+use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch, EBB, Ending};
+use super::{CFT, Op, Dataflow, Node, Out, LookupLeaf};
 
 /**
  * Represents the state of an abstract execution of some code which builds a

@@ -1,8 +1,7 @@
 use std::collections::{HashSet, HashMap};
 
-use super::{code, target, ebb, cost, cft, Dataflow, Node, Out, Cold, CFT, Op, Resources};
-use code::{Slot, Variable, Convention};
-use ebb::{LookupLeaf, Ending, EBB};
+use super::{code, target, cost, cft, Dataflow, Node, Out, Cold, CFT, Op, Resources, LookupLeaf};
+use code::{Slot, Variable, Convention, Ending, EBB};
 use crate::util::{ArrayMap};
 
 mod flood;
