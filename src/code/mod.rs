@@ -33,6 +33,9 @@ pub use action::{Action, debug_word};
 mod switch;
 pub use switch::{Case, Switch};
 
+mod ebb;
+pub use ebb::{EBB, Ending};
+
 //-----------------------------------------------------------------------------
 
 /**

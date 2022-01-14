@@ -1,10 +1,4 @@
-use super::code::{self, Register, Convention, Action};
-
-const NUM_REGISTERS: usize = super::target::x86_64::ALLOCATABLE_REGISTERS.len();
-
-fn all_registers() -> impl Iterator<Item=Register> {
-    (0..NUM_REGISTERS).map(|i| Register::new(i as u8).unwrap())
-}
+use super::{code, target};
 
 //-----------------------------------------------------------------------------
 
@@ -20,18 +14,33 @@ pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
 mod dataflow;
 pub use dataflow::{Dataflow, Node, Out};
 
+mod cft;
+pub use cft::{Switch, Cold, CFT};
+
 mod simulation;
-pub use simulation::{Simulation};
+pub use simulation::{Simulation, simulate};
 
-mod moves;
-pub use moves::{moves};
+mod builder;
+pub use builder::{build};
 
-mod allocator;
-pub use allocator::{Instruction, allocate};
+/** Look up information about a control-flow merge point. */
+pub trait LookupLeaf<L: Clone> {
+    /** Return the convention in effect at `leaf`. */
+    fn after(&self, leaf: &L) -> &code::Convention;
+    /** Return the estimated relative frequency of `leaf`. */
+    fn weight(&self, leaf: &L) -> usize;
+}
 
-mod codegen;
-pub use codegen::{generate_code};
+/** Optimizes an [`EBB`]. */
+pub fn optimize<L: Clone>(input: &code::EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> code::EBB<L> {
+    // Generate the [`Dataflow`] graph.
+    let (dataflow, cft) = simulate(input, lookup_leaf);
+    build(&input.before, &dataflow, &cft, lookup_leaf)
+}
 
+
+// TODO: Delete.
+/*
 /** Optimizes a basic block. */
 pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, actions: &[Action]) -> Box<[Action]> {
     // Generate the [`Dataflow`] graph.
@@ -49,12 +58,13 @@ pub fn optimize(num_globals: usize, before: &Convention, after: &Convention, act
     // Generate the [`Action`]s.
     generate_code(num_globals, before, after, &dataflow, &instructions, allocation, exit_node)
 }
+*/
 
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap};
+/*
     use super::*;
     use code::{Register, REGISTERS, Slot, UnaryOp, BinaryOp, AliasMask, Precision, Width};
     use code::tests::{Emulator};
@@ -148,4 +158,5 @@ mod tests {
         let _ = optimize(0, &before, &after, &actions);
         // Just don't panic!
     }
+*/
 }
