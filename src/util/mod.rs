@@ -1,6 +1,3 @@
-mod rceq;
-pub use rceq::{RcEq};
-
 #[macro_use]
 mod array_map;
 pub use array_map::{ArrayMap, AsUsize};
