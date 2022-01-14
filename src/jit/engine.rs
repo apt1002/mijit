@@ -252,13 +252,6 @@ impl<T: Target> Engine<T> {
         &mut self.lowerer.pool_mut()[global]
     }
 
-    /** Constructs a fresh [`Case`] with a no-op [`Retire`] to `jump`. */
-    fn new_retire(&mut self, fetch_parent: Option<CaseId>, jump: Option<CaseId>) -> CaseId {
-        let id = self.i.new_case(fetch_parent, self.i.convention(jump).clone());
-        self.i.add_retire(&mut self.lowerer, id, Retire {actions: Box::new([]), jump});
-        id
-    }
-
     /**
      * Recursively constructs a tree of [`Case`]s that implements an [`EBB`].
      * `root` will acquire a [`Retire`] or a [`Fetch`] depending on whether
@@ -342,13 +335,21 @@ impl<T: Target> Engine<T> {
      * [`Switch`]. Returns `None` if the hot path exits Mijit without reaching
      * a `Switch`.
      */
-    fn hot_path(&self, mut id: CaseId) -> Option<(Vec<Action>, Switch<CaseId>)> {
+    fn hot_path(&self, mut id: CaseId) -> Option<EBB<CaseId>> {
         let mut actions = Vec::new();
         loop {
             if let Some(fetch) = &self.i[id].fetch {
                 // Succeed.
                 actions.extend(fetch.actions.iter().copied());
-                return Some((actions, fetch.switch.clone()));
+                return Some(EBB {
+                    before: self.i.convention(id).clone(),
+                    actions: actions.into(),
+                    ending: Ending::Switch(fetch.switch.map(|&jump| EBB {
+                        before: self.i.convention(jump).clone(),
+                        actions: Vec::new(),
+                        ending: Ending::Leaf(jump),
+                    })),
+                });
             }
             if let Some(retire) = &self.i[id].retire {
                 actions.extend(retire.actions.iter().copied());
@@ -372,10 +373,9 @@ impl<T: Target> Engine<T> {
     // TODO: Make private. Revealing it suppresses several "unused" warnings.
     pub fn specialize(&mut self, id: CaseId) {
         assert!(self.i[id].fetch.is_none());
-        if let Some((actions, switch)) = self.hot_path(id) {
-            // TODO: Optimize `actions`.
-            let switch = switch.map(|&jump| self.new_retire(Some(id), Some(jump)));
-            self.i.add_fetch(&mut self.lowerer, id, Fetch {actions: actions.into(), switch});
+        if let Some(ebb) = self.hot_path(id) {
+            // TODO: Optimize `ebb`.
+            self.build(id, ebb.actions.into(), &ebb.ending);
         }
     }
 
