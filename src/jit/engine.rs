@@ -326,8 +326,15 @@ impl<T: Target> Engine<T> {
      */
     pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
         assert!(!self.is_defined(entry));
-        let switch = switch.map(|&e: &EntryId| self.new_retire(Some(self.i[entry].case), Some(self.i[e].case)));
-        self.i.add_fetch(&mut self.lowerer, self.i[entry].case, Fetch {actions, switch});
+        let switch = Ending::Switch(switch.map(|&e: &EntryId| {
+            let jump = self.i[e].case;
+            EBB {
+                before: self.i.convention(jump).clone(),
+                actions: Vec::new(),
+                ending: Ending::Leaf(jump),
+            }
+        }));
+        self.build(self.i[entry].case, actions, &switch);
     }
 
     /**
