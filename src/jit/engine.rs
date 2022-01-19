@@ -257,17 +257,23 @@ impl<T: Target> Engine<T> {
      * `root` will acquire a [`Retire`] or a [`Fetch`] depending on whether
      * `ending` is an [`Ending::Leaf`] or an [`Ending::Switch`].
      */
-    // TODO: Make private. Revealing it suppresses several "unused" warnings.
-    pub fn build(&mut self, root: CaseId, actions: Box<[Action]>, ending: &Ending<CaseId>) {
+    fn build<L: Clone>(
+        &mut self,
+        root: CaseId,
+        actions: Box<[Action]>,
+        ending: &Ending<L>,
+        to_case: &impl Fn(&mut Self, L) -> CaseId,
+    ) {
         match ending {
-            Ending::Leaf(jump) => {
-                self.i.add_retire(&mut self.lowerer, root, Retire {actions, jump: Some(*jump)});
+            Ending::Leaf(leaf) => {
+                let jump = to_case(self, leaf.clone());
+                self.i.add_retire(&mut self.lowerer, root, Retire {actions, jump: Some(jump)});
             },
             Ending::Switch(switch) => {
                 let switch = switch.map(|EBB {before, actions, ending}| {
                     let id = self.i.new_case(Some(root), before.clone());
                     let actions = actions.iter().copied().collect();
-                    self.build(id, actions, ending);
+                    self.build(id, actions, ending, to_case);
                     id
                 });
                 self.i.add_fetch(&mut self.lowerer, root, Fetch {actions, switch});
@@ -317,17 +323,9 @@ impl<T: Target> Engine<T> {
      * jumps to the [`EntryId`] selected by `switch`. Each `EntryId` may only
      * be defined once.
      */
-    pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, switch: &Switch<EntryId>) {
+    pub fn define(&mut self, entry: EntryId, actions: Box<[Action]>, ending: &Ending<EntryId>) {
         assert!(!self.is_defined(entry));
-        let switch = Ending::Switch(switch.map(|&e: &EntryId| {
-            let jump = self.i[e].case;
-            EBB {
-                before: self.i.convention(jump).clone(),
-                actions: Vec::new(),
-                ending: Ending::Leaf(jump),
-            }
-        }));
-        self.build(self.i[entry].case, actions, &switch);
+        self.build(self.i[entry].case, actions, &ending, &|self_: &mut Self, e| self_.i[e].case);
     }
 
     /**
@@ -384,7 +382,7 @@ impl<T: Target> Engine<T> {
         assert!(self.i[id].fetch.is_none());
         if let Some(ebb) = self.hot_path(id) {
             // TODO: Optimize `ebb`.
-            self.build(id, ebb.actions.into(), &ebb.ending);
+            self.build(id, ebb.actions.into(), &ebb.ending, &|_, c| c);
         }
     }
 

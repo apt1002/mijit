@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 use indexmap::{IndexSet};
 
 use super::{code, target, engine};
-use code::{Case, Switch, Machine, Global, empty_convention, Marshal};
+use code::{Case, Switch, EBB, Ending, Machine, Global, empty_convention, Marshal};
 use target::{Word, Target};
 use engine::{Engine, EntryId};
 
@@ -60,12 +60,19 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let state_infos: Vec<_> = switches.iter().map(|(marshal, switch)| {
             let entry = engine.new_entry(&empty_marshal, NOT_IMPLEMENTED);
             let switch = switch.map(|ce| ce.entry);
+            let ending = Ending::Switch(switch.map(|&e: &EntryId| {
+                EBB {
+                    before: marshal.convention.clone(),
+                    actions: Vec::new(),
+                    ending: Ending::Leaf(e),
+                }
+            }));
             engine.define(
                 entry,
                 marshal.prologue.iter().copied().collect(),
-                &switch,
+                &ending,
             );
-            (entry, switch)
+            (entry, ending)
         }).collect();
 
         // Make and define an `EntryId` for each `Trap`.
@@ -73,7 +80,12 @@ impl<M: Machine, T: Target> Jit<M, T> {
         let trap_infos: Vec<_> = (0..trap_index.len() as i64).map(|exit_value| {
             assert!(exit_value < NOT_IMPLEMENTED);
             let entry = engine.new_entry(&empty_marshal, exit_value);
-            Switch::always(entry)
+            let ebb = EBB {
+                before: empty_marshal.convention.clone(),
+                actions: Vec::new(),
+                ending: Ending::Leaf(entry),
+            };
+            Ending::Switch(Switch::always(ebb))
         }).collect();
 
         // Fill in the code for states.
