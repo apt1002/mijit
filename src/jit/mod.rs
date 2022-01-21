@@ -1,8 +1,10 @@
 use super::{code, target};
 
 mod engine;
-// TODO: Make private. Having these public reduces "unused" warnings.
-pub use engine::{Engine, EntryId};
+use engine::{Engine, CaseId};
+
+mod entry;
+pub use entry::{Jit2, EntryId};
 
 mod machine;
 pub use machine::{Jit};
