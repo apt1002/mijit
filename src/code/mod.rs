@@ -34,12 +34,21 @@ mod switch;
 pub use switch::{Case, Switch};
 
 mod convention;
-pub use convention::{Convention, empty_convention, Marshal, Propagator};
+pub use convention::{Convention, empty_convention, Propagator};
 
 mod ebb;
 pub use ebb::{EBB, Ending};
 
 //-----------------------------------------------------------------------------
+
+/** Code to be run on entry and exit from a `Machine`. */
+#[derive(Debug, Clone)]
+pub struct Marshal {
+    /** Code to be run on entry, starting with only [`Global`]s live. */
+    pub prologue: Box<[Action]>,
+    /** Code to be run on exit, ending with only [`Global`]s live. */
+    pub epilogue: Box<[Action]>,
+}
 
 /**
  * A specification of a virtual machine.

@@ -7,8 +7,8 @@
 
 use memoffset::{offset_of};
 use super::code::{
-    self, UnaryOp, BinaryOp, Global, Register, REGISTERS, Variable,
-    Switch, Case, Convention, Marshal,
+    self, UnaryOp, BinaryOp, Global, Register, REGISTERS,
+    Switch, Case, Marshal,
 };
 use UnaryOp::*;
 use BinaryOp::*;
@@ -77,15 +77,14 @@ impl code::Machine for Machine {
     fn num_globals(&self) -> usize { 2 }
 
     fn marshal(&self, state: Self::State) -> Marshal {
-        let mut live_values = vec![Global(0).into(), BEP.into(), BSP.into(), BRP.into(), M0.into()];
         #[allow(clippy::match_same_arms)]
-        live_values.extend(match state {
+        let live_registers = match state {
             State::Root => vec![BA],
             State::Branchi => vec![BA],
             State::Qbranchi => vec![BA, BI],
             State::Dispatch => vec![BA, BI],
             State::NotImplemented => vec![BA, BI],
-        }.into_iter().map(Variable::Register));
+        };
         let prologue = {
             let mut b = Builder::new();
             b.load_register(BEP, register!(ep));
@@ -99,7 +98,7 @@ impl code::Machine for Machine {
         let epilogue = {
             let mut b = Builder::new();
             for v in [BA, BI] {
-                if !live_values.contains(&v.into()) {
+                if !live_registers.contains(&v) {
                     b.const64(v, 0xDEADDEADDEADDEADu64);
                 }
             }
@@ -111,11 +110,7 @@ impl code::Machine for Machine {
             b.store_global(M0, Global(1));
             b.finish()
         };
-        let convention = Convention {
-            slots_used: 0,
-            live_values: live_values.into(),
-        };
-        Marshal {prologue, convention, epilogue}
+        Marshal {prologue, epilogue}
     }
 
     #[allow(clippy::too_many_lines)]

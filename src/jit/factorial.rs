@@ -29,7 +29,6 @@ impl super::code::Machine for Machine {
     fn marshal(&self, _state: Self::State) -> Marshal {
         Marshal {
             prologue: Box::new([]),
-            convention: empty_convention(self.num_globals()),
             epilogue: Box::new([]),
         }
     }

@@ -269,10 +269,10 @@ impl<T: Target> Engine<T> {
      * entry will immediately return `exit_value`. To change this behaviour,
      * use [`build()`].
      *
-     *  - prologue - executed on every entry to the compiled code.
-     *  - convention - the [`Convention`] used after `prologue` and before
-     *    `epilogue`.
-     *  - epilogue - executed on every exit from the compiled code.
+     *  - marshal.prologue - executed on every entry to the compiled code.
+     *  - marshal.convention - the [`Convention`] used after `prologue` and
+     *    before `epilogue`.
+     *  - marshall.epilogue - executed on every exit from the compiled code.
      *  - exit_value - returned to the caller on exit. Must be non-negative.
      *
      * Returns:
@@ -280,7 +280,6 @@ impl<T: Target> Engine<T> {
      *  - id - the `CaseId` corresponding to the entry.
      */
     pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> (Label, CaseId) {
-        assert_eq!(marshal.convention.slots_used & 1, 0);
         assert!(exit_value >= 0);
         let id = self.i.new_case(None);
         // Compile the epilogue.
@@ -311,7 +310,7 @@ impl<T: Target> Engine<T> {
             if let Some(fetch) = &self.i[id].fetch {
                 actions.extend(fetch.actions.iter().copied());
                 match &fetch.switch {
-                    Switch::Always(ref jump) => {
+                    Switch::Always(jump) => {
                         // Loop.
                         id = **jump;
                         continue;

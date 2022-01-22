@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 use indexmap::{IndexSet};
 
 use super::{code, target, Jit2, EntryId};
-use code::{Case, Switch, EBB, Ending, Machine, Global, empty_convention, Marshal};
+use code::{Case, Switch, EBB, Ending, Machine, Global, Marshal};
 use target::{Word, Target};
 
 /** Exit value for incomplete compilation. */
@@ -27,7 +27,6 @@ impl<M: Machine, T: Target> Jit<M, T> {
         // Used by `Entry`s for `Switch`es and `Trap`s.
         let empty_marshal = Marshal {
             prologue: Box::new([]),
-            convention: empty_convention(num_globals),
             epilogue: Box::new([]),
         };
 

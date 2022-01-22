@@ -33,17 +33,6 @@ pub fn empty_convention(num_globals: usize) -> Convention {
     }
 }
 
-/** Code to be run on entry and exit from a `Machine`. */
-#[derive(Debug, Clone)]
-pub struct Marshal {
-    /** Code to be run on entry, starting with only [`Global`]s live. */
-    pub prologue: Box<[Action]>,
-    /** The [`Convention`] after `prologue` and before `epilogue`. */
-    pub convention: Convention,
-    /** Code to be run on exit, ending with only [`Global`]s live. */
-    pub epilogue: Box<[Action]>,
-}
-
 //-----------------------------------------------------------------------------
 
 /**
