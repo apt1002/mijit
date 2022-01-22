@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use crate::util::{AsUsize};
 use super::{code};
 use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
-use code::{Precision, Global, Switch, Action, Convention, Marshal, EBB, Ending};
+use code::{Precision, Global, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
 use Precision::*;
 
 // CaseId.
@@ -39,20 +39,27 @@ struct Fetch {
  * See `doc/engine/structure.md`.
  *
  * One or both of `fetch` and `retire` must be non-`None` for every reachable
- * `Case` (they can both be `None` during construction).
+ * `Case`, as must `convention` (they can all be `None` during construction).
  */
 #[derive(Debug)]
 struct Case {
     /** The unique [`Switch`] that can jump directly to this `Case`. */
     fetch_parent: Option<CaseId>,
     /** The [`Convention`] on entry (i.e. at `label`). */
-    convention: Convention,
+    before: Option<Convention>,
     /** The address of the code. */
     label: Label,
     /** The `Retire`, if any. */
     retire: Option<Retire>,
     /** The `Fetch`, if any. */
     fetch: Option<Fetch>,
+}
+
+impl Case {
+    pub fn convention(&self) -> &Convention {
+        assert!(self.retire.is_some() || self.fetch.is_some());
+        self.before.as_ref().expect("Incompletely constructed")
+    }
 }
 
 //-----------------------------------------------------------------------------
@@ -80,11 +87,11 @@ impl Internals {
      *    new `Case`.
      *  - convention - the [`Convention`] in effect on entry to the new `Case`.
      */
-    fn new_case(&mut self, fetch_parent: impl Into<Option<CaseId>>, convention: Convention) -> CaseId {
+    fn new_case(&mut self, fetch_parent: impl Into<Option<CaseId>>) -> CaseId {
         let id = CaseId::new(self.cases.len()).unwrap();
         self.cases.push(Case {
             fetch_parent: fetch_parent.into(),
-            convention,
+            before: None,
             label: Label::new(None),
             retire: None,
             fetch: None,
@@ -94,20 +101,23 @@ impl Internals {
 
     /** Find the [`Convention`] for a [`CaseId`] allowing for `None`. */
     fn convention(&self, id: impl Into<Option<CaseId>>) -> &Convention {
-        id.into().map_or(&self.convention, |id| &self[id].convention)
+        id.into().map_or(&self.convention, |id| self[id].convention())
     }
 
     /**
      * Add a [`Retire`] to a [`Case`] that doesn't have one, and that also
      * doesn't have a [`Fetch`].
-     *
-     * The [`Convention`] of `retire.jump` must be compatible with the
-     * situation after executing `retire.actions`.
      */
     fn add_retire(&mut self, lo: &mut impl Lower, id: CaseId, retire: Retire) {
         assert!(self[id].retire.is_none());
         assert!(self[id].fetch.is_none());
-        *lo.slots_used_mut() = self[id].convention.slots_used;
+        // Compute the `before` convention.
+        let mut propagator = Propagator::new(self.convention(retire.jump));
+        for &action in retire.actions.iter().rev() {
+            propagator.action(action);
+        }
+        let before = propagator.before();
+        *lo.slots_used_mut() = before.slots_used;
         // Intercept all jumps to `id`.
         lo.define(&mut self[id].label);
         // Compile `retire`.
@@ -121,19 +131,27 @@ impl Internals {
             // Jump to the root.
             lo.epilogue()
         }
+        self[id].before = Some(before);
         self[id].retire = Some(retire);
     }
 
     /**
      * Add a [`Fetch`] to a [`Case`] that doesn't have one.
      *
-     * Every child `Case` must have `id` as its `fetch_parent`, and its
-     * [`Convention`] must be compatible with the situation after executing
-     * `fetch.actions`.
+     * Every child `Case` must have `id` as its `fetch_parent`.
      */
     fn add_fetch(&mut self, lo: &mut impl Lower, id: CaseId, fetch: Fetch) {
         assert!(self[id].fetch.is_none());
-        *lo.slots_used_mut() = self[id].convention.slots_used;
+        // Compute the `before` convention.
+        let mut propagator = Propagator::switch(&fetch.switch, |&child| self[child].convention());
+        for &action in fetch.actions.iter().rev() {
+            propagator.action(action);
+        }
+        if self[id].retire.is_some() {
+            propagator.branch(self[id].convention());
+        }
+        let before = propagator.before();
+        *lo.slots_used_mut() = before.slots_used;
         // Intercept all jumps to `id`.
         let mut here = lo.here();
         lo.steal(&mut self[id].label, &mut here);
@@ -142,9 +160,8 @@ impl Internals {
         lo.actions(&*fetch.actions);
         let slots_used = *lo.slots_used_mut();
         let check_child = |child: &Case| {
-            assert_eq!(child.convention.slots_used, slots_used);
+            assert_eq!(child.convention().slots_used, slots_used);
             assert_eq!(child.fetch_parent, Some(id));
-            assert!(child.retire.is_some() || child.fetch.is_some());
         };
         match fetch.switch {
             Switch::Index {discriminant, ref cases, ref default_} => {
@@ -160,6 +177,7 @@ impl Internals {
                 lo.jump(&mut self[**jump].label);
             },
         }
+        self[id].before = Some(before);
         self[id].fetch = Some(fetch);
     }
 }
@@ -236,8 +254,8 @@ impl<T: Target> Engine<T> {
                 self.i.add_retire(&mut self.lowerer, id, Retire {actions: ebb_actions, jump: Some(jump)});
             },
             Ending::Switch(switch) => {
-                let switch = switch.map(|EBB {before, actions, ending}| {
-                    let child = self.i.new_case(Some(id), before.clone());
+                let switch = switch.map(|EBB {before: _, actions, ending}| {
+                    let child = self.i.new_case(Some(id));
                     self.build(child, (actions, ending), to_case);
                     child
                 });
@@ -264,7 +282,7 @@ impl<T: Target> Engine<T> {
     pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> (Label, CaseId) {
         assert_eq!(marshal.convention.slots_used & 1, 0);
         assert!(exit_value >= 0);
-        let id = self.i.new_case(None, marshal.convention.clone());
+        let id = self.i.new_case(None);
         // Compile the epilogue.
         let mut actions = Vec::new();
         actions.extend(marshal.epilogue.iter().copied());
@@ -276,7 +294,7 @@ impl<T: Target> Engine<T> {
         let label = lo.here();
         lo.prologue();
         lo.actions(&marshal.prologue);
-        assert_eq!(*lo.slots_used_mut(), self.i[id].convention.slots_used);
+        assert_eq!(*lo.slots_used_mut(), self.i[id].convention().slots_used);
         lo.jump(&mut self.i[id].label);
         // Return.
         (label, id)
