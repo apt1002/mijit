@@ -1,4 +1,6 @@
-use super::{Global, Variable, Action};
+use std::collections::{HashSet};
+
+use super::{Global, Variable, IntoVariable, Action, Switch};
 
 /**
  * Represents the convention by which code passes values to a label. The
@@ -44,3 +46,135 @@ pub struct Marshal {
 
 //-----------------------------------------------------------------------------
 
+/**
+ * A utility for computing [`Convention`]s. Given the `Convention` at the end
+ * of a piece of code, this utility can calculate the `Convention` at the
+ * beginning.
+ */
+pub struct Propagator {
+    /** The [`Variable`]s that are live. */
+    live_variables: HashSet<Variable>,
+    /** The number of spill [`Slot`]s that are allocated. */
+    slots_used: usize,
+}
+
+impl Propagator {
+    /** Constructs a Propagator given the [`Convention`] after the code. */
+    pub fn new(after: &Convention) -> Self {
+        Self {
+            live_variables: after.live_values.iter().copied().collect(),
+            slots_used: after.slots_used,
+        }
+    }
+
+    /** Adds `src` to `live_variables`. */
+    pub fn insert(&mut self, src: impl IntoVariable) {
+        self.live_variables.insert(src.into());
+    }
+
+    /** Removes `dest` from `live_variables`. */
+    pub fn remove(&mut self, dest: impl IntoVariable) {
+        self.live_variables.remove(&dest.into());
+    }
+
+    /**
+     * Propagate information backwards through a conditional branch.
+     * [`Variable`]s live in `other` are added to `live_variables`.
+     */
+    pub fn branch(&mut self, other: &Convention) {
+        for &v in other.live_values.iter() {
+            self.insert(v);
+        }
+        assert_eq!(self.slots_used, other.slots_used);
+    }
+
+    /**
+     * Propagate information backwards through a `Switch`.
+     * [`Variable`]s live in every case of `switch` are included in
+     * `live_variables`, along with `switch.discriminant()` if present.
+     */
+    pub fn switch<'a, C>(switch: &'a Switch<C>, to_convention: impl Fn(&C) -> &'a Convention) -> Self {
+        let mut ret: Option<Self> = None;
+        switch.map(|c| {
+            let convention = to_convention(c);
+            if let Some(ref mut ret) = ret {
+                ret.branch(convention);
+            } else {
+                ret = Some(Self::new(convention));
+            }
+        });
+        let mut ret = ret.expect("Switch has no cases");
+        if let Some(src) = switch.discriminant() {
+            ret.insert(src);
+        }
+        ret
+    }
+
+    /**
+     * Propagate information backwards through `action`.
+     * [`Variable`]s written by `action` are removed from `live_variables`
+     * and those read by it are added.
+     */
+    pub fn action(&mut self, action: Action) {
+        use Action::*;
+        match action {
+            Move(dest, src) => {
+                self.remove(dest);
+                self.insert(src);
+            },
+            Constant(_, dest, _) => {
+                self.remove(dest);
+            },
+            Unary(_, _, dest, src) => {
+                self.remove(dest);
+                self.insert(src);
+            },
+            Binary(_, _, dest, src1, src2) => {
+                self.remove(dest);
+                self.insert(src1);
+                self.insert(src2);
+            },
+            Load(dest, (addr, _), _) => {
+                self.remove(dest);
+                self.insert(addr);
+            },
+            Store(dest, src, (addr, _), _) => {
+                self.remove(dest);
+                self.insert(src);
+                self.insert(addr);
+            },
+            Push(src1, src2) => {
+                if let Some(src) = src1 {
+                    self.insert(src);
+                }
+                if let Some(src) = src2 {
+                    self.insert(src);
+                }
+                self.slots_used -= 2;
+            },
+            Pop(dest1, dest2) => {
+                if let Some(dest) = dest1 {
+                    self.remove(dest);
+                }
+                if let Some(dest) = dest2 {
+                    self.remove(dest);
+                }
+                self.slots_used += 2;
+            },
+            DropMany(n) => {
+                self.slots_used += 2 * n;
+            },
+            Debug(src) => {
+                assert!(self.live_variables.contains(&src));
+            },
+        }
+    }
+
+    /** Returns the [`Convention`] before the code. */
+    pub fn before(&self) -> Convention {
+        Convention {
+            live_values: self.live_variables.iter().copied().collect(),
+            slots_used: self.slots_used,
+        }
+    }
+}

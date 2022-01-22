@@ -38,6 +38,13 @@ impl<C> Switch<C> {
         Self::Always(Box::new(default_))
     }
 
+    pub fn discriminant(&self) -> Option<Variable> {
+        match self {
+            Switch::Index {discriminant, ..} => Some(*discriminant),
+            Switch::Always(_) => None,
+        }
+    }
+
     /** Apply `callback` to every `C` and return a fresh `Switch`. */
     pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Switch<D> {
         match self {
