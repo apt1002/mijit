@@ -61,7 +61,6 @@ impl<M: Machine, T: Target> Jit<M, T> {
             let switch = switch.map(|ce| ce.entry);
             let ending = Ending::Switch(switch.map(|&e: &EntryId| {
                 EBB {
-                    before: marshal.convention.clone(),
                     actions: Vec::new(),
                     ending: Ending::Leaf(e),
                 }
@@ -76,7 +75,6 @@ impl<M: Machine, T: Target> Jit<M, T> {
             assert!(exit_value < NOT_IMPLEMENTED);
             let entry = jit2.new_entry(&empty_marshal, exit_value);
             let ebb = EBB {
-                before: empty_marshal.convention.clone(),
                 actions: Vec::new(),
                 ending: Ending::Leaf(entry),
             };

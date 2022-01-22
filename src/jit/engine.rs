@@ -254,7 +254,7 @@ impl<T: Target> Engine<T> {
                 self.i.add_retire(&mut self.lowerer, id, Retire {actions: ebb_actions, jump: Some(jump)});
             },
             Ending::Switch(switch) => {
-                let switch = switch.map(|EBB {before: _, actions, ending}| {
+                let switch = switch.map(|EBB {actions, ending}| {
                     let child = self.i.new_case(Some(id));
                     self.build(child, (actions, ending), to_case);
                     child
@@ -319,10 +319,8 @@ impl<T: Target> Engine<T> {
                     switch => {
                         // Succeed.
                         return Some(EBB {
-                            before: self.i.convention(id).clone(),
                             actions: actions.into(),
                             ending: Ending::Switch(switch.map(|&jump| EBB {
-                                before: self.i.convention(jump).clone(),
                                 actions: Vec::new(),
                                 ending: Ending::Leaf(jump),
                             })),

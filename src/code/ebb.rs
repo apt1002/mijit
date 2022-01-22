@@ -1,4 +1,4 @@
-use super::{Convention, Action, Switch};
+use super::{Action, Switch};
 
 /**
  * Represents an [extended basic block], i.e. a tree-like control-flow graph.
@@ -9,7 +9,6 @@ use super::{Convention, Action, Switch};
  */
 #[derive(Debug, Clone)]
 pub struct EBB<L> {
-    pub before: Convention,
     pub actions: Vec<Action>,
     pub ending: Ending<L>,
 }
