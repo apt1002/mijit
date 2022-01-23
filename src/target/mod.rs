@@ -717,11 +717,22 @@ mod tests {
 
     // Test extremes.
 
+    /** Generate a pseudo-random permutation of size `size`. */
+    fn permutation(size: usize) -> Vec<usize> {
+        let mut nats: Vec<usize> = (0..size).collect();
+        let mut seed: u32 = 1;
+        (0..size).map(|_| {
+            seed = seed.wrapping_mul(314159265).wrapping_add(271828183);
+            let index = ((nats.len() as u64) * (seed as u64)) >> 32;
+            nats.swap_remove(index as usize)
+        }).collect()
+    }
+
     #[test]
     fn long_jump() {
         // Choose an order in which to visit a large number of blocks.
         const SIZE: usize = 0x10000;
-        let permutation = crate::util::permutation(SIZE);
+        let permutation = permutation(SIZE);
         // Work out which block each block jumps to.
         let mut nexts: Vec<Option<usize>> = vec![None; SIZE];
         let mut prev = permutation[0];

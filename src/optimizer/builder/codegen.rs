@@ -16,6 +16,7 @@ pub struct CodeGen<'a> {
     /** For each [`Out`], the [`Variable`] it is currently held in. */
     variables: HashMap<Out, Variable>,
     /** The live [`Out`]s. */
+    // TODO: Can this be removed?
     live_outs: HashSet<Out>,
     /** The list of [`Action`]s so far. Stored in reverse order. */
     actions_rev: Vec<Action>,
@@ -164,11 +165,7 @@ impl<'a> CodeGen<'a> {
      * `switch`. The list of `Action`s is cleared.
      */
     pub fn ebb<L: Clone>(&mut self, ending: Ending<L>) -> EBB<L> {
-        let before = Convention {
-            live_values: self.live_outs.iter().map(|&out| self.variables[&out]).collect(),
-            slots_used: self.slots_used,
-        };
         let actions = self.actions_rev.drain(..).rev().collect();
-        EBB {before, actions, ending}
+        EBB {actions, ending}
     }
 }

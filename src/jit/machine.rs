@@ -1,18 +1,17 @@
 use std::collections::{HashMap};
 use indexmap::{IndexSet};
 
-use super::{code, target, engine};
-use code::{Case, Switch, Machine, Global, empty_convention, Marshal};
+use super::{code, target, Jit2, EntryId};
+use code::{Case, Switch, EBB, Ending, Machine, Global, empty_convention, Marshal};
 use target::{Word, Target};
-use engine::{Engine, EntryId};
 
 /** Exit value for incomplete compilation. */
 pub const NOT_IMPLEMENTED: i64 = i64::MAX;
 
 /** The state of the JIT compiler for a [`Machine`]. */
 pub struct Jit<M: Machine, T: Target> {
-    /** The low-level bookkeeping data structures. */
-    engine: Engine<T>,
+    /** The version 0.2 jit to which we delegate. */
+    jit2: Jit2<T>,
     /** Maps `Machine::State`s to the corresponding `EntryId`s. */
     states: HashMap<M::State, EntryId>,
     /** Maps `Machine::Trap`s to the corresponding exit values. */
@@ -23,7 +22,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
     pub fn new(machine: &M, target: T) -> Self {
         // Construct the `Engine`.
         let num_globals = machine.num_globals();
-        let mut engine = Engine::new(target, num_globals);
+        let mut jit2 = Jit2::new(target, num_globals);
 
         // Used by `Entry`s for `Switch`es and `Trap`s.
         let empty_marshal = Marshal {
@@ -49,7 +48,7 @@ impl<M: Machine, T: Target> Jit<M, T> {
                     Ok(state) => state_index.insert(state.clone()),
                     Err(trap) => trap_index.insert(trap.clone()),
                 };
-                let entry = engine.new_entry(&marshal, NOT_IMPLEMENTED);
+                let entry = jit2.new_entry(&marshal, NOT_IMPLEMENTED);
                 CaseAndEntry {case: case.clone(), entry: entry}
             });
             switches.push((marshal, switch));
@@ -58,22 +57,28 @@ impl<M: Machine, T: Target> Jit<M, T> {
         // Make and define an `EntryId` for each `Switch`.
         // Also, make a `Switch<EntryId>` for each `Switch`.
         let state_infos: Vec<_> = switches.iter().map(|(marshal, switch)| {
-            let entry = engine.new_entry(&empty_marshal, NOT_IMPLEMENTED);
+            let entry = jit2.new_entry(&empty_marshal, NOT_IMPLEMENTED);
             let switch = switch.map(|ce| ce.entry);
-            engine.define(
-                entry,
-                marshal.prologue.iter().copied().collect(),
-                &switch,
-            );
-            (entry, switch)
+            let ending = Ending::Switch(switch.map(|&e: &EntryId| {
+                EBB {
+                    actions: Vec::new(),
+                    ending: Ending::Leaf(e),
+                }
+            }));
+            jit2.define(entry, (&marshal.prologue, &ending));
+            (entry, ending)
         }).collect();
 
         // Make and define an `EntryId` for each `Trap`.
         // Also, make a `Switch<EntryId>` for each `Trap`.
         let trap_infos: Vec<_> = (0..trap_index.len() as i64).map(|exit_value| {
             assert!(exit_value < NOT_IMPLEMENTED);
-            let entry = engine.new_entry(&empty_marshal, exit_value);
-            Switch::always(entry)
+            let entry = jit2.new_entry(&empty_marshal, exit_value);
+            let ebb = EBB {
+                actions: Vec::new(),
+                ending: Ending::Leaf(entry),
+            };
+            Ending::Switch(Switch::always(ebb))
         }).collect();
 
         // Fill in the code for states.
@@ -82,29 +87,27 @@ impl<M: Machine, T: Target> Jit<M, T> {
             let _ = switch.map(|ce| {
                 match &ce.case.new_state {
                     Ok(new_state) => {
-                        engine.define(
-                            ce.entry,
-                            ce.case.actions.iter().copied().collect(),
+                        jit2.define(ce.entry, (
+                            &ce.case.actions,
                             &state_infos[state_index.get_index_of(new_state).unwrap()].1,
-                        );
+                        ));
                     },
                     Err(trap) => {
-                        engine.define(
-                            ce.entry,
-                            ce.case.actions.iter().chain(marshal.epilogue.iter()).copied().collect(),
+                        jit2.define(ce.entry, (
+                            &Vec::from_iter(ce.case.actions.iter().chain(marshal.epilogue.iter()).copied()),
                             &trap_infos[trap_index.get_index_of(trap).unwrap()],
-                        );
+                        ));
                     },
                 }
             });
             (state.clone(), state_infos[i].0)
         }).collect();
 
-        Jit {engine, states, trap_index}
+        Jit {jit2, states, trap_index}
     }
 
     pub fn global_mut(&mut self, global: Global) -> &mut Word {
-        self.engine.global_mut(global)
+        self.jit2.global_mut(global)
     }
 
     /**
@@ -117,9 +120,9 @@ impl<M: Machine, T: Target> Jit<M, T> {
      */
     pub unsafe fn execute(mut self, state: &M::State) -> std::io::Result<(Self, M::Trap)> {
         let entry = *self.states.get(state).expect("invalid state");
-        let (engine, exit_value) = self.engine.run(entry)?;
+        let (jit2, exit_value) = self.jit2.run(entry)?;
         let trap = self.trap_index[exit_value.s as usize].clone();
-        self.engine = engine;
+        self.jit2 = jit2;
         Ok((self, trap))
     }
 }
