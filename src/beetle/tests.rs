@@ -121,7 +121,7 @@ impl VM {
     }
 
     /** Run the code at address `ep`. If it `HALT`s, return the code. */
-    pub unsafe fn run(&mut self, ep: u32) -> Option<u32> {
+    pub fn run(&mut self, ep: u32) -> Option<u32> {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
         let beetle = self.beetle.take().expect("Trying to call run() after error");
@@ -207,7 +207,7 @@ pub fn halt() {
     let initial_sp = vm.registers().sp;
     let initial_rp = vm.registers().rp;
     let entry_address = vm.halt_addr;
-    let exit = unsafe { vm.run(entry_address) };
+    let exit = vm.run(entry_address);
     assert_eq!(exit, Some(0));
     assert_eq!(vm.registers().sp, initial_sp);
     assert_eq!(vm.registers().rp, initial_rp);
@@ -222,7 +222,7 @@ pub fn ackermann() {
     vm.push(3);
     vm.push(5);
     vm.rpush(vm.halt_addr);
-    let exit = unsafe { vm.run(0) };
+    let exit = vm.run(0);
     assert_eq!(exit, Some(0));
     let result = vm.pop();
     assert_eq!(vm.registers().sp, initial_sp);
