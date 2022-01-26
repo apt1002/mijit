@@ -1,8 +1,6 @@
-use super::super::target::{Native, native, Word};
-use super::super::{jit};
-use super::code::{Global};
+use super::super::target::{Native, native};
 
-use super::{Registers, CELL, Machine, State, NotImplemented};
+use super::{Registers, CELL, Beetle};
 
 /** The suggested size of the Beetle memory, in cells. */
 pub const MEMORY_CELLS: u32 = 1 << 20;
@@ -11,12 +9,9 @@ pub const DATA_CELLS: u32 = 1 << 18;
 /** The suggested size of the Beetle return stack, in cells. */
 pub const RETURN_CELLS: u32 = 1 << 18;
 
-/** The type of VM::jit. */
-type Jit = jit::Jit<Machine, Native>;
-
 pub struct VM {
     /** The compiled code, registers, and other compiler state. */
-    jit: Option<Jit>,
+    beetle: Option<super::Beetle<Native>>,
     /** The Beetle state (other than the memory). */
     state: Registers,
     /** The Beetle memory. */
@@ -42,7 +37,7 @@ impl VM {
         return_cells: u32,
     ) -> Self {
         let mut vm = VM {
-            jit: Some(jit::Jit::new(&Machine, native())),
+            beetle: Some(Beetle::new(native())),
             state: Registers::default(),
             memory: vec![0; memory_cells as usize],
             free_cells: memory_cells,
@@ -129,16 +124,15 @@ impl VM {
     pub fn run(&mut self, ep: u32) -> Option<u32> {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
-        let mut jit = self.jit.take().expect("Trying to call run() after error");
-        *jit.global_mut(Global(0)) = Word {mp: (&mut self.state as *mut Registers).cast()};
-        *jit.global_mut(Global(1)) = Word {mp: (self.memory.as_mut_ptr()).cast()};
-        let (jit, NotImplemented) = unsafe {jit.execute(&State::Root)}.expect("Execute failed");
-        self.jit = Some(jit);
+        let beetle = self.beetle.take().expect("Trying to call run() after error");
+        let beetle = beetle.run(&mut self.state, self.memory.as_mut()).expect("Execute failed");
+        self.beetle = Some(beetle);
         if self.registers_mut().a & 0xFF == 0x55 {
+            // Halt.
             self.registers_mut().a >>= 8;
             Some(self.pop())
         } else {
-            // Some other `NotImplemented` case.
+            // Some other not implemented case.
             None
         }
     }

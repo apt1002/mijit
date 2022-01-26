@@ -5,13 +5,11 @@
  * [Beetle]: https://github.com/rrthomas/beetle
  */
 
-use memoffset::{offset_of};
-use super::code::{
-    self, UnaryOp, BinaryOp, Global, Register, REGISTERS,
-    Switch, Case, Marshal,
-};
+use super::code::{self, UnaryOp, BinaryOp, Register, REGISTERS, Global, Switch, Ending};
 use UnaryOp::*;
 use BinaryOp::*;
+use super::target::{Word, Target};
+use super::jit::{EntryId, Jit2};
 
 mod registers;
 pub use registers::{Registers};
@@ -24,8 +22,6 @@ pub const CELL_BITS: u32 = CELL * 8;
 
 //-----------------------------------------------------------------------------
 
-/* Register allocation. */
-
 const TEMP: Register = REGISTERS[0];
 const R1: Register = REGISTERS[1];
 const R2: Register = REGISTERS[2];
@@ -37,549 +33,503 @@ const BSP: Register = REGISTERS[7];
 const BRP: Register = REGISTERS[8];
 const M0: Register = REGISTERS[9];
 
-//-----------------------------------------------------------------------------
-
-/* Control-flow states. */
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub enum State {
-    Root,
-    Dispatch,
-    Branchi,
-    Qbranchi,
-    NotImplemented,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
-pub struct NotImplemented;
-
-//-----------------------------------------------------------------------------
-
 mod builder;
-use builder::{build, Builder};
+use builder::{build, marshal};
 
-/** Returns the offset of `$field`. */
-macro_rules! register {
-    ($field: ident) => {
-        offset_of!(Registers, $field)
-    }
-}
+/** The return code used to indicate normal exit from the hot code. */
+const NOT_IMPLEMENTED: i64 = 0;
+/** Dummy return code which should never actually occur. */
+const UNDEFINED: i64 = i64::MAX;
+
+//-----------------------------------------------------------------------------
 
 /** The performance-critical part of the virtual machine. */
 #[derive(Debug)]
-pub struct Machine;
+pub struct Beetle<T: Target> {
+    pub jit: Jit2<T>,
+    pub root: EntryId,
+}
 
-impl code::Machine for Machine {
-    type State = State;
-
-    type Trap = NotImplemented;
-
-    fn num_globals(&self) -> usize { 2 }
-
-    fn marshal(&self, state: Self::State) -> Marshal {
-        #[allow(clippy::match_same_arms)]
-        let live_registers = match state {
-            State::Root => vec![BA],
-            State::Branchi => vec![BA],
-            State::Qbranchi => vec![BA, BI],
-            State::Dispatch => vec![BA, BI],
-            State::NotImplemented => vec![BA, BI],
-        };
-        let prologue = {
-            let mut b = Builder::new();
-            b.load_register(BEP, register!(ep));
-            b.load_register(BI, register!(i));
-            b.load_register(BA, register!(a));
-            b.load_register(BSP, register!(sp));
-            b.load_register(BRP, register!(rp));
-            b.load_global(M0, Global(1));
-            b.finish()
-        };
-        let epilogue = {
-            let mut b = Builder::new();
-            for v in [BA, BI] {
-                if !live_registers.contains(&v) {
-                    b.const64(v, 0xDEADDEADDEADDEADu64);
-                }
-            }
-            b.store_register(BEP, register!(ep));
-            b.store_register(BI, register!(i));
-            b.store_register(BA, register!(a));
-            b.store_register(BSP, register!(sp));
-            b.store_register(BRP, register!(rp));
-            b.store_global(M0, Global(1));
-            b.finish()
-        };
-        Marshal {prologue, epilogue}
-    }
-
+impl<T: Target> Beetle<T> {
     #[allow(clippy::too_many_lines)]
-    fn code(&self, state: Self::State) -> Switch<Case<Result<Self::State, Self::Trap>>> {
-        match state {
-            State::Root => Switch::always(build(|b| {
-                b.const_binary(And, BI, BA, 0xFF);
-                b.const_binary(Asr, BA, BA, 8);
-            }, Ok(State::Dispatch))),
-            State::Branchi => Switch::always(build(|b| {
-                b.const_binary(Mul, R1, BA, CELL);
-                b.binary(Add, BEP, BEP, R1);
-                b.pop(BA, BEP);
-            }, Ok(State::Root))),
-            State::Qbranchi => Switch::if_(
-                BI.into(), // Top of stack.
+    pub fn new(target: T) -> Self {
+        let mut jit = Jit2::new(target, 2);
+        let root = jit.new_entry(&marshal(vec![BI]), UNDEFINED);
+
+        // Immediate branch.
+        let branchi = jit.new_entry(&marshal(vec![BI]), UNDEFINED);
+        jit.define(branchi, &build(|b| {
+            b.const_binary(Mul, R1, BA, CELL);
+            b.binary(Add, BEP, BEP, R1);
+            b.pop(BA, BEP);
+        }, Ending::Leaf(root)));
+        
+        // Not implemented.
+        let not_implemented2 = jit.new_entry(&marshal(vec![]), NOT_IMPLEMENTED);
+        let not_implemented = jit.new_entry(&marshal(vec![]), UNDEFINED);
+        jit.define(not_implemented, &build(|b| {
+            b.const_binary(Lsl, BA, BA, 8);
+            b.binary(Or, BA, BA, BI);
+        }, Ending::Leaf(not_implemented2)));
+
+        // Main dispatch loop.
+        jit.define(root, &build(|b| {
+            b.const_binary(And, BI, BA, 0xFF);
+            b.const_binary(Asr, BA, BA, 8);
+        }, Ending::Switch(Switch::new(
+            BI.into(),
+            Box::new([
+                // NEXT
                 build(|b| {
                     b.pop(BA, BEP);
-                }, Ok(State::Root)),
-                build(|_| {}, Ok(State::Branchi)),
-            ),
-            State::NotImplemented => Switch::always(build(|b| {
-                b.const_binary(Lsl, BA, BA, 8);
-                b.binary(Or, BA, BA, BI);
-            }, Err(NotImplemented))),
-            State::Dispatch => Switch::new(
-                BI.into(),
-                Box::new([
-                    // NEXT
+                }, Ending::Leaf(root)),
+
+                // DUP
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.push(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // DROP
+                build(|b| {
+                    b.const_binary(Add, BSP, BSP, CELL);
+                }, Ending::Leaf(root)),
+
+                // SWAP
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.store(R2, BSP);
+                    b.push(R3, BSP);
+                }, Ending::Leaf(root)),
+
+                // OVER
+                build(|b| {
+                    b.const_binary(Add, R1, BSP, CELL);
+                    b.load(R2, R1);
+                    b.push(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // ROT
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Add, R1, BSP, CELL);
+                    b.load(R3, R1);
+                    b.store(R2, R1);
+                    b.const_binary(Add, R1, BSP, 2 * CELL);
+                    b.load(R2, R1);
+                    b.store(R3, R1);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // -ROT
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Add, R1, BSP, 2 * CELL);
+                    b.load(R3, R1);
+                    b.store(R2, R1);
+                    b.const_binary(Add, R1, BSP, CELL);
+                    b.load(R2, R1);
+                    b.store(R3, R1);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // TUCK
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Add, R1, BSP, CELL);
+                    b.load(R3, R1);
+                    b.store(R2, R1);
+                    b.store(R3, BSP);
+                    b.push(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // NIP
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // PICK
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // ROLL
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // ?DUP
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // >R
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // R>
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // R@
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // <
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Lt, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // >
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Lt, R2, R2, R3);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // =
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Eq, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // <>
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Eq, R2, R3, R2);
+                    b.unary(Not, R2, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 0<
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Lt, R2, R2, 0);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 0>
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_(R3, 0);
+                    b.binary(Lt, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 0=
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Eq, R2, R2, 0);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 0<>
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Eq, R2, R2, 0);
+                    b.unary(Not, R2, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // U<
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Ult, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // U>
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Ult, R2, R2, R3);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 0
+                build(|b| {
+                    b.const_(R2, 0);
+                    b.push(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 1
+                build(|b| {
+                    b.const_(R2, 1);
+                    b.push(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // -1
+                build(|b| {
+                    b.const_(R2, -1i32 as u32);
+                    b.push(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // CELL
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // -CELL
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // +
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Add, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // -
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Sub, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // >-<
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Sub, R2, R2, R3);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 1+
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Add, R2, R2, 1);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // 1-
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.const_binary(Sub, R2, R2, 1);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // CELL+
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // CELL-
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // *
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Mul, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // /
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // MOD
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // /MOD
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // U/MOD
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // S/REM
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // 2/
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // CELLS
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // ABS
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.unary(Abs, R2, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // NEGATE
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.unary(Negate, R2, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // MAX
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Max, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // MIN
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.load(R3, BSP);
+                    b.binary(Min, R2, R3, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // INVERT
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.unary(Not, R2, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // AND
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // OR
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // XOR
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // LSHIFT
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // RSHIFT
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // 1LSHIFT
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // 1RSHIFT
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // @
+                build(|b| {
+                    b.load(R2, BSP);
+                    b.load(R2, R2);
+                    b.store(R2, BSP);
+                }, Ending::Leaf(root)),
+
+                // !
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.pop(R3, BSP);
+                    b.store(R3, R2);
+                }, Ending::Leaf(root)),
+
+                // C@
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // C!
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // +!
+                build(|b| {
+                    b.pop(R2, BSP);
+                    b.pop(R3, BSP);
+                    b.load(R1, R2);
+                    b.binary(Add, R3, R1, R3);
+                    b.store(R3, R2);
+                }, Ending::Leaf(root)),
+
+                // SP@
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // SP!
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // RP@
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // RP!
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // BRANCH
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // BRANCHI
+                build(|_| {}, Ending::Leaf(branchi)),
+
+                // ?BRANCH
+                build(|_| {}, Ending::Leaf(not_implemented)),
+
+                // ?BRANCHI
+                build(|b| {
+                    b.pop(BI, BSP);
+                }, Ending::Switch(Switch::if_(
+                    BI.into(),
                     build(|b| {
                         b.pop(BA, BEP);
-                    }, Ok(State::Root)),
+                    }, Ending::Leaf(root)),
+                    build(|_| {}, Ending::Leaf(branchi)),
+                ))),
 
-                    // DUP
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
+                // EXECUTE
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // DROP
-                    build(|b| {
-                        b.const_binary(Add, BSP, BSP, CELL);
-                    }, Ok(State::Root)),
+                // @EXECUTE
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // SWAP
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.store(R2, BSP);
-                        b.push(R3, BSP);
-                    }, Ok(State::Root)),
+                // CALL
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // OVER
-                    build(|b| {
-                        b.const_binary(Add, R1, BSP, CELL);
-                        b.load(R2, R1);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
+                // CALLI
+                build(|b| {
+                    b.push(BEP, BRP);
+                }, Ending::Leaf(branchi)),
 
-                    // ROT
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Add, R1, BSP, CELL);
-                        b.load(R3, R1);
-                        b.store(R2, R1);
-                        b.const_binary(Add, R1, BSP, 2 * CELL);
-                        b.load(R2, R1);
-                        b.store(R3, R1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                // EXIT
+                build(|b| {
+                    b.pop(BEP, BRP);
+                    b.pop(BA, BEP);
+                }, Ending::Leaf(root)),
 
-                    // -ROT
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Add, R1, BSP, 2 * CELL);
-                        b.load(R3, R1);
-                        b.store(R2, R1);
-                        b.const_binary(Add, R1, BSP, CELL);
-                        b.load(R2, R1);
-                        b.store(R3, R1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                // (DO)
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // TUCK
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Add, R1, BSP, CELL);
-                        b.load(R3, R1);
-                        b.store(R2, R1);
-                        b.store(R3, BSP);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
+                // (LOOP)
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // NIP
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
+                // (LOOP)I
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // PICK
-                    build(|_| {}, Ok(State::NotImplemented)),
+                // (+LOOP)
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // ROLL
-                    build(|_| {}, Ok(State::NotImplemented)),
+                // (+LOOP)I
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // ?DUP
-                    build(|_| {}, Ok(State::NotImplemented)),
+                // UNLOOP
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // >R
-                    build(|_| {}, Ok(State::NotImplemented)),
+                // J
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // R>
-                    build(|_| {}, Ok(State::NotImplemented)),
+                // (LITERAL)
+                build(|_| {}, Ending::Leaf(not_implemented)),
 
-                    // R@
-                    build(|_| {}, Ok(State::NotImplemented)),
+                // (LITERAL)I
+                build(|b| {
+                    b.push(BA, BSP);
+                    b.pop(BA, BEP);
+                }, Ending::Leaf(root)),
+            ]),
+            build(|_| {}, Ending::Leaf(not_implemented)),
+        ))));
 
-                    // <
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Lt, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // >
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Lt, R2, R2, R3);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // =
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Eq, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // <>
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Eq, R2, R3, R2);
-                        b.unary(Not, R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 0<
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Lt, R2, R2, 0);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 0>
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_(R3, 0);
-                        b.binary(Lt, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 0=
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Eq, R2, R2, 0);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 0<>
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Eq, R2, R2, 0);
-                        b.unary(Not, R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // U<
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Ult, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // U>
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Ult, R2, R2, R3);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 0
-                    build(|b| {
-                        b.const_(R2, 0);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 1
-                    build(|b| {
-                        b.const_(R2, 1);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // -1
-                    build(|b| {
-                        b.const_(R2, -1i32 as u32);
-                        b.push(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // CELL
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // -CELL
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // +
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Add, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // -
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Sub, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // >-<
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Sub, R2, R2, R3);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 1+
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Add, R2, R2, 1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // 1-
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.const_binary(Sub, R2, R2, 1);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // CELL+
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // CELL-
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // *
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Mul, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // /
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // MOD
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // /MOD
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // U/MOD
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // S/REM
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // 2/
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // CELLS
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // ABS
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.unary(Abs, R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // NEGATE
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.unary(Negate, R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // MAX
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Max, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // MIN
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.load(R3, BSP);
-                        b.binary(Min, R2, R3, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // INVERT
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.unary(Not, R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // AND
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // OR
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // XOR
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // LSHIFT
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // RSHIFT
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // 1LSHIFT
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // 1RSHIFT
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // @
-                    build(|b| {
-                        b.load(R2, BSP);
-                        b.load(R2, R2);
-                        b.store(R2, BSP);
-                    }, Ok(State::Root)),
-
-                    // !
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.pop(R3, BSP);
-                        b.store(R3, R2);
-                    }, Ok(State::Root)),
-
-                    // C@
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // C!
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // +!
-                    build(|b| {
-                        b.pop(R2, BSP);
-                        b.pop(R3, BSP);
-                        b.load(R1, R2);
-                        b.binary(Add, R3, R1, R3);
-                        b.store(R3, R2);
-                    }, Ok(State::Root)),
-
-                    // SP@
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // SP!
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // RP@
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // RP!
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // BRANCH
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // BRANCHI
-                    build(|_| {}, Ok(State::Branchi)),
-
-                    // ?BRANCH
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // ?BRANCHI
-                    build(|b| {
-                        b.pop(BI, BSP);
-                    }, Ok(State::Qbranchi)),
-
-                    // EXECUTE
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // @EXECUTE
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // CALL
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // CALLI
-                    build(|b| {
-                        b.push(BEP, BRP);
-                    }, Ok(State::Branchi)),
-
-                    // EXIT
-                    build(|b| {
-                        b.pop(BEP, BRP);
-                        b.pop(BA, BEP);
-                    }, Ok(State::Root)),
-
-                    // (DO)
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // (LOOP)
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // (LOOP)I
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // (+LOOP)
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // (+LOOP)I
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // UNLOOP
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // J
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // (LITERAL)
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // (LITERAL)I
-                    build(|b| {
-                        b.push(BA, BSP);
-                        b.pop(BA, BEP);
-                    }, Ok(State::Root)),
-
-                    // THROW
-                    build(|_| {}, Ok(State::NotImplemented)),
-
-                    // HALT
-                    build(|_| {}, Ok(State::NotImplemented)),
-                ]),
-                build(|_| {}, Ok(State::NotImplemented)),
-            ),
-        }
+        Self {jit, root}
     }
 
-    fn initial_states(&self) -> Vec<Self::State> {
-        vec![State::Root]
+    pub fn global_mut(&mut self, global: Global) -> &mut Word {
+        self.jit.global_mut(global)
+    }
+
+    pub fn run(mut self, registers: &mut Registers, m0: &mut[u32]) -> std::io::Result<Self> {
+        *self.jit.global_mut(Global(0)) = Word {mp: (registers as *mut Registers).cast()};
+        *self.jit.global_mut(Global(1)) = Word {mp: (m0.as_mut_ptr()).cast()};
+        let (jit, result) = unsafe {self.jit.run(self.root)}?;
+        assert_eq!(result, Word {s: NOT_IMPLEMENTED});
+        self.jit = jit;
+        Ok(self)
     }
 }
 

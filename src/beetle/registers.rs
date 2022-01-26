@@ -5,7 +5,6 @@ pub struct Registers {
     pub ep: u32,
     pub i: u32,
     pub a: u32,
-    pub memory: u32,
     pub sp: u32,
     pub rp: u32,
 }
@@ -16,7 +15,6 @@ impl std::fmt::Debug for Registers {
             .field("ep", &format!("{:#x}", self.ep))
             .field("i", &format!("{:#x}", self.i))
             .field("a", &format!("{:#x}", self.a))
-            .field("memory", &format!("{:#x}", self.memory))
             .field("sp", &format!("{:#x}", self.sp))
             .field("rp", &format!("{:#x}", self.rp))
             .finish()

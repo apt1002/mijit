@@ -2,12 +2,18 @@
  * A utility for generating Mijit code that understands Beetle's conventions.
  */
 
-use super::code::{self, Precision, UnaryOp, BinaryOp, Width, Register, Global, Action, Case};
+use std::collections::{HashSet};
+use memoffset::{offset_of};
+
+use super::code::{
+    self, Precision, UnaryOp, BinaryOp, Width, Register, Global,
+    Action, Marshal, EBB, Ending,
+};
 use Precision::*;
 use BinaryOp::*;
 use Width::*;
 use Action::*;
-use super::{CELL, State, NotImplemented, TEMP, M0};
+use super::{Registers, CELL, TEMP, BEP, BI, BA, BSP, BRP, M0};
 
 /**
  * Beetle's address space is unified, so we always use the same `AliasMask`.
@@ -160,13 +166,52 @@ impl Builder {
  *
  * For examples, see tests.
  */
-pub fn build(
+pub fn build<L: Clone>(
     callback: impl FnOnce(&mut Builder),
-    state_or_trap: Result<State, NotImplemented>,
-) -> Case<Result<State, NotImplemented>> {
+    ending: Ending<L>,
+) -> EBB<L> {
     let mut b = Builder::new();
     callback(&mut b);
-    Case {actions: b.0, new_state: state_or_trap}
+    EBB {actions: b.0, ending}
+}
+
+/** Returns the offset of `$field`. */
+macro_rules! register {
+    ($field: ident) => {
+        offset_of!(Registers, $field)
+    }
+}
+
+/** Build a `Marshal` given the subset of {BA, BI} that are dead. */
+pub fn marshal(dead_registers: impl IntoIterator<Item=Register>) -> Marshal {
+    let mut dead_registers: HashSet<Register> = dead_registers.into_iter().collect();
+    let prologue = {
+        let mut b = Builder::new();
+        b.load_register(BEP, register!(ep));
+        b.load_register(BI, register!(i));
+        b.load_register(BA, register!(a));
+        b.load_register(BSP, register!(sp));
+        b.load_register(BRP, register!(rp));
+        b.load_global(M0, Global(1));
+        b.finish()
+    };
+    let epilogue = {
+        let mut b = Builder::new();
+        for v in [BA, BI] {
+            if dead_registers.remove(&v) {
+                b.const64(v, 0xDEADDEADDEADDEADu64);
+            }
+        }
+        b.store_register(BEP, register!(ep));
+        b.store_register(BI, register!(i));
+        b.store_register(BA, register!(a));
+        b.store_register(BSP, register!(sp));
+        b.store_register(BRP, register!(rp));
+        b.store_global(M0, Global(1));
+        b.finish()
+    };
+    assert_eq!(dead_registers.len(), 0);
+    Marshal {prologue, epilogue}
 }
 
 //-----------------------------------------------------------------------------
@@ -195,11 +240,11 @@ mod tests {
             super::build(|b| {
                 b.binary(Lsl, R2, R3, R2);
                 b.store(R2, BSP);
-            }, Ok(State::Root)),
+            }, Ending::Leaf(0)),
             super::build(|b| {
                 b.const_(R2, 0);
                 b.store(R2, BSP);
-            }, Ok(State::Root)),
+            }, Ending::Leaf(0)),
         );
     }
 }
