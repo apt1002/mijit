@@ -90,19 +90,3 @@ impl<T: Target> Jit2<T> {
         Ok((self, ret))
     }
 }
-
-//-----------------------------------------------------------------------------
-
-#[cfg(test)]
-pub mod tests {
-    use super::super::target::{native};
-
-    use super::super::factorial::*;
-
-    #[test]
-    pub fn factorial() {
-        let jit = Factorial::new(native());
-        let (_, result) = jit.run(5).expect("Execute failed");
-        assert_eq!(result, 120);
-    }
-}

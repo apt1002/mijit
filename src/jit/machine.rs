@@ -128,3 +128,32 @@ impl<M: Machine, T: Target> Jit<M, T> {
         Ok((self, trap))
     }
 }
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    use target::{Word, native};
+
+    #[test]
+    pub fn factorial() {
+        use super::super::factorial::*;
+        use State::*;
+        use Trap::*;
+
+        let mut jit = Jit::new(&Machine, native());
+
+        // Check the `states` list.
+        assert_eq!(jit.states.len(), 2); // Start, Loop.
+
+        // Run some "code".
+        *jit.global_mut(Global::try_from(reg::N).unwrap()) = Word {u: 5};
+        let (mut jit, trap) = unsafe {
+            jit.execute(&Start).expect("Execute failed")
+        };
+        assert_eq!(trap, Halt);
+        assert_eq!(*jit.global_mut(Global::try_from(reg::RESULT).unwrap()), Word {u: 120});
+    }
+}
