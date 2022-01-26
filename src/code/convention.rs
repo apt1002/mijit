@@ -22,14 +22,26 @@ pub struct Convention {
     pub slots_used: usize,
 }
 
-/**
- * Returns a [`Convention`] with no [`Slot`]s, no live [`Register`]s, and the
- * specified number of [`Global`]s.
- */
-pub fn empty_convention(num_globals: usize) -> Convention {
-    Convention {
-        live_values: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
-        slots_used: 0,
+impl Convention {
+    /**
+     * Returns a [`Convention`] with no [`Slot`]s, no live [`Register`]s, and the
+     * specified number of [`Global`]s.
+     */
+    pub fn empty(num_globals: usize) -> Self {
+        Self {
+            live_values: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
+            slots_used: 0,
+        }
+    }
+
+    /**
+     * Checks whether code using `old` can jump to code using `self`.
+     * All `Variable`s live in `self` must also be live in `old`, and
+     * `self` and `old` must have the same `slots_used`.
+     */
+    pub fn refines(&self, old: &Self) -> bool {
+        let old_lives: HashSet<Variable> = old.live_values.iter().copied().collect();
+        self.live_values.iter().all(|v| old_lives.contains(v)) && self.slots_used == old.slots_used
     }
 }
 

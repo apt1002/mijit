@@ -34,7 +34,7 @@ mod switch;
 pub use switch::{Case, Switch};
 
 mod convention;
-pub use convention::{Convention, empty_convention, Propagator};
+pub use convention::{Convention, Propagator};
 
 mod ebb;
 pub use ebb::{EBB, Ending};

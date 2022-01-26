@@ -1,9 +1,8 @@
 use std::ops::{Index, IndexMut};
 
 use crate::util::{AsUsize};
-use super::{code};
 use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
-use code::{Precision, Global, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
+use super::code::{Precision, Global, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
 use Precision::*;
 
 // CaseId.
@@ -59,6 +58,18 @@ impl Case {
     pub fn convention(&self) -> &Convention {
         assert!(self.retire.is_some() || self.fetch.is_some());
         self.before.as_ref().expect("Incompletely constructed")
+    }
+
+    /**
+     * If `self.before` is `None`, replaces it with `new`.
+     * Otherwise, assert that `new` refines `self.before`.
+     */
+    fn set_convention(&mut self, new: Convention) {
+        if let Some(old) = &self.before {
+            assert!(new.refines(old));
+        } else {
+            self.before = Some(new);
+        }
     }
 }
 
@@ -132,7 +143,7 @@ impl Internals {
             // Jump to the root.
             lo.epilogue()
         }
-        self[id].before = Some(before);
+        self[id].set_convention(before);
         self[id].retire = Some(retire);
     }
 
@@ -178,7 +189,7 @@ impl Internals {
                 lo.jump(&mut self[**jump].label);
             },
         }
-        self[id].before = Some(before);
+        self[id].set_convention(before);
         self[id].fetch = Some(fetch);
     }
 }
@@ -231,7 +242,7 @@ impl<T: Target> Engine<T> {
         let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool);
         let i = Internals {
-            convention: code::empty_convention(num_globals),
+            convention: Convention::empty(num_globals),
             cases: Vec::new(),
         };
         Engine {_target: target, lowerer, i}
