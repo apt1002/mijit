@@ -105,11 +105,9 @@ impl Internals {
     }
 
     /**
-     * Add a [`Retire`] to a [`Case`] that doesn't have one, and that also
-     * doesn't have a [`Fetch`].
+     * Add a [`Retire`] to a [`Case`] that doesn't have a [`Fetch`].
      */
     fn add_retire(&mut self, lo: &mut impl Lower, id: CaseId, retire: Retire) {
-        assert!(self[id].retire.is_none());
         assert!(self[id].fetch.is_none());
         // Compute the `before` convention.
         let mut propagator = Propagator::new(self.convention(retire.jump));
@@ -119,7 +117,9 @@ impl Internals {
         let before = propagator.before();
         *lo.slots_used_mut() = before.slots_used;
         // Intercept all jumps to `id`.
-        lo.define(&mut self[id].label);
+        let mut here = lo.here();
+        lo.steal(&mut self[id].label, &mut here);
+        self[id].label = here;
         // Compile `retire`.
         lo.actions(&*retire.actions);
         let slots_used = *lo.slots_used_mut();
@@ -270,9 +270,7 @@ impl<T: Target> Engine<T> {
      * use [`build()`].
      *
      *  - marshal.prologue - executed on every entry to the compiled code.
-     *  - marshal.convention - the [`Convention`] used after `prologue` and
-     *    before `epilogue`.
-     *  - marshall.epilogue - executed on every exit from the compiled code.
+     *  - marshal.epilogue - executed on every exit from the compiled code.
      *  - exit_value - returned to the caller on exit. Must be non-negative.
      *
      * Returns:
