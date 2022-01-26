@@ -23,7 +23,6 @@ struct Entry {
 
 //-----------------------------------------------------------------------------
 
-#[derive(Debug)]
 pub struct Jit2<T: Target> {
     engine: Engine<T>,
     /** Indexed by `EntryId`. */
