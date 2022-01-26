@@ -68,6 +68,7 @@ impl Case {
  * This only exists to keep the borrow checker happy.
  * We might need to borrow these fields while generating code.
  */
+#[derive(Debug)]
 struct Internals {
     /** The [`Convention`] obeyed by the root. */
     convention: Convention,
@@ -210,6 +211,14 @@ pub struct Engine<T: Target> {
     lowerer: T::Lowerer,
     /** This nested struct can be borrowed independently of `lowerer`. */
     i: Internals,
+}
+
+impl<T: Target> std::fmt::Debug for Engine<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        f.debug_struct("Engine")
+            .field("cases", &self.i.cases)
+            .finish()
+    }
 }
 
 impl<T: Target> Engine<T> {

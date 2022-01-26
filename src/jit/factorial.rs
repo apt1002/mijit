@@ -14,6 +14,7 @@ pub mod reg {
 }
 
 /** An example that can be used as a test fixture. */
+#[derive(Debug)]
 pub struct Factorial<T: Target> {
     /** The state of the JIT compiler. */
     pub jit: Jit2<T>,
