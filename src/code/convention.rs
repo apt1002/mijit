@@ -154,7 +154,7 @@ impl Propagator {
                 self.slots_used += 2 * n;
             },
             Debug(src) => {
-                assert!(self.live_variables.contains(&src));
+                self.insert(src);
             },
         }
     }
