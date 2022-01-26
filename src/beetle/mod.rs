@@ -6,26 +6,27 @@
  */
 
 use memoffset::{offset_of};
-
-use super::code::{self, UnaryOp, BinaryOp, Width, Register, REGISTERS, Global, Marshal, Switch};
+use super::code::{
+    self, UnaryOp, BinaryOp, Global, Register, REGISTERS,
+    Switch, Case, Marshal,
+};
 use UnaryOp::*;
 use BinaryOp::*;
-use Width::*;
-use super::target::{Word, Target};
-use super::jit::{EntryId, Jit2};
-use super::code::builder::{build, build_block, Builder};
 
 mod registers;
 pub use registers::{Registers};
 
 /** The number of bytes in a cell. */
-pub const CELL: i32 = 4;
+pub const CELL: u32 = 4;
 
 /** The number of bits in a word. */
-pub const CELL_BITS: i32 = CELL * 8;
+pub const CELL_BITS: u32 = CELL * 8;
 
 //-----------------------------------------------------------------------------
 
+/* Register allocation. */
+
+const TEMP: Register = REGISTERS[0];
 const R1: Register = REGISTERS[1];
 const R2: Register = REGISTERS[2];
 const R3: Register = REGISTERS[3];
@@ -36,609 +37,549 @@ const BSP: Register = REGISTERS[7];
 const BRP: Register = REGISTERS[8];
 const M0: Register = REGISTERS[9];
 
-/** Returns the address of `Registers.$field`. */
-macro_rules! register {
-    ($field: ident) => {
-        (Global(0), offset_of!(Registers, $field) as i64)
-    }
+//-----------------------------------------------------------------------------
+
+/* Control-flow states. */
+
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub enum State {
+    Root,
+    Dispatch,
+    Branchi,
+    Qbranchi,
+    NotImplemented,
 }
 
-/** The return code used to indicate normal exit from the hot code. */
-const NOT_IMPLEMENTED: i64 = 0;
-/** Dummy return code which should never actually occur. */
-const UNDEFINED: i64 = i64::MAX;
-
-/**
- * Beetle's address space is unified, so we always use the same `AliasMask`.
- */
-const AM_MEMORY: code::AliasMask = code::AliasMask(0x1);
-
-/**
- * Beetle's registers are not in Beetle's memory, so we use a different
- * `AliasMask`.
- */
-const AM_REGISTER: code::AliasMask = code::AliasMask(0x2);
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct NotImplemented;
 
 //-----------------------------------------------------------------------------
 
-/** Computes into `BI` the native address corresponding to `addr`. */
-fn native_address(b: &mut Builder<EntryId>, addr: Register) {
-    b.binary64(Add, BI, M0, addr);
-}
+mod builder;
+use builder::{build, Builder};
 
-/** Loads `dest` from `addr`. `BI` is corrupted. */
-fn load(b: &mut Builder<EntryId>, dest: Register, addr: Register) {
-    native_address(b, addr);
-    b.load(dest, (BI, 0), Four, AM_MEMORY);
-}
-
-/** Stores `dest` at `addr`. `BI` is corrupted. */
-fn store(b: &mut Builder<EntryId>, src: Register, addr: Register) {
-    native_address(b, addr);
-    b.store(src, (BI, 0), Four, AM_MEMORY);
-}
-
-/** Pops `dest` from the stack at `sp`. `BI` is corrupted. */
-fn pop(b: &mut Builder<EntryId>, dest: Register, sp: Register) {
-    load(b, dest, sp);
-    b.const_binary32(Add, sp, sp, CELL);
-}
-
-/** Pushes `src` to the stack at `sp`. `BI` is corrupted. */
-fn push(b: &mut Builder<EntryId>, src: Register, sp: Register) {
-    b.const_binary32(Sub, sp, sp, CELL);
-    store(b, src, sp);
+/** Returns the offset of `$field`. */
+macro_rules! register {
+    ($field: ident) => {
+        offset_of!(Registers, $field)
+    }
 }
 
 /** The performance-critical part of the virtual machine. */
 #[derive(Debug)]
-pub struct Beetle<T: Target> {
-    pub jit: Jit2<T>,
-    pub root: EntryId,
-}
+pub struct Machine;
 
-impl<T: Target> Beetle<T> {
-    #[allow(clippy::too_many_lines)]
-    pub fn new(target: T) -> Self {
-        let mut jit = Jit2::new(target, 2);
-        let marshal = Marshal {
-            prologue: build_block(&|b| {
-                b.load(BEP, register!(ep), Four, AM_REGISTER);
-                b.load(BI, register!(i), Four, AM_REGISTER);
-                b.load(BA, register!(a), Four, AM_REGISTER);
-                b.load(BSP, register!(sp), Four, AM_REGISTER);
-                b.load(BRP, register!(rp), Four, AM_REGISTER);
-                b.move_(M0, Global(1));
-            }),
-            epilogue: build_block(&|b| {
-                b.store(BEP, register!(ep), Four, AM_REGISTER);
-                b.store(BI, register!(i), Four, AM_REGISTER);
-                b.store(BA, register!(a), Four, AM_REGISTER);
-                b.store(BSP, register!(sp), Four, AM_REGISTER);
-                b.store(BRP, register!(rp), Four, AM_REGISTER);
-                b.move_(Global(1), M0);
-            }),
+impl code::Machine for Machine {
+    type State = State;
+
+    type Trap = NotImplemented;
+
+    fn num_globals(&self) -> usize { 2 }
+
+    fn marshal(&self, state: Self::State) -> Marshal {
+        #[allow(clippy::match_same_arms)]
+        let live_registers = match state {
+            State::Root => vec![BA],
+            State::Branchi => vec![BA],
+            State::Qbranchi => vec![BA, BI],
+            State::Dispatch => vec![BA, BI],
+            State::NotImplemented => vec![BA, BI],
         };
-        let root = jit.new_entry(&marshal, UNDEFINED);
+        let prologue = {
+            let mut b = Builder::new();
+            b.load_register(BEP, register!(ep));
+            b.load_register(BI, register!(i));
+            b.load_register(BA, register!(a));
+            b.load_register(BSP, register!(sp));
+            b.load_register(BRP, register!(rp));
+            b.load_global(M0, Global(1));
+            b.finish()
+        };
+        let epilogue = {
+            let mut b = Builder::new();
+            for v in [BA, BI] {
+                if !live_registers.contains(&v) {
+                    b.const64(v, 0xDEADDEADDEADDEADu64);
+                }
+            }
+            b.store_register(BEP, register!(ep));
+            b.store_register(BI, register!(i));
+            b.store_register(BA, register!(a));
+            b.store_register(BSP, register!(sp));
+            b.store_register(BRP, register!(rp));
+            b.store_global(M0, Global(1));
+            b.finish()
+        };
+        Marshal {prologue, epilogue}
+    }
 
-        // Immediate branch.
-        let branchi = jit.new_entry(&marshal, UNDEFINED);
-        jit.define(branchi, &build(&|mut b| {
-            b.const_binary32(Mul, R1, BA, CELL);
-            b.binary32(Add, BEP, BEP, R1);
-            pop(&mut b, BA, BEP);
-            b.jump(root)
-        }));
-        
-        // Not implemented.
-        let not_implemented2 = jit.new_entry(&marshal, NOT_IMPLEMENTED);
-        let not_implemented = jit.new_entry(&marshal, UNDEFINED);
-        jit.define(not_implemented, &build(&|mut b| {
-            b.const_binary32(Lsl, BA, BA, 8);
-            b.binary32(Or, BA, BA, BI);
-            b.jump(not_implemented2)
-        }));
-
-        // Main dispatch loop.
-        jit.define(root, &build(&|mut b| {
-            b.const_binary32(And, BI, BA, 0xFF);
-            b.const_binary32(Asr, BA, BA, 8);
-            b.switch(Switch::new(
+    #[allow(clippy::too_many_lines)]
+    fn code(&self, state: Self::State) -> Switch<Case<Result<Self::State, Self::Trap>>> {
+        match state {
+            State::Root => Switch::always(build(|b| {
+                b.const_binary(And, BI, BA, 0xFF);
+                b.const_binary(Asr, BA, BA, 8);
+            }, Ok(State::Dispatch))),
+            State::Branchi => Switch::always(build(|b| {
+                b.const_binary(Mul, R1, BA, CELL);
+                b.binary(Add, BEP, BEP, R1);
+                b.pop(BA, BEP);
+            }, Ok(State::Root))),
+            State::Qbranchi => Switch::if_(
+                BI.into(), // Top of stack.
+                build(|b| {
+                    b.pop(BA, BEP);
+                }, Ok(State::Root)),
+                build(|_| {}, Ok(State::Branchi)),
+            ),
+            State::NotImplemented => Switch::always(build(|b| {
+                b.const_binary(Lsl, BA, BA, 8);
+                b.binary(Or, BA, BA, BI);
+            }, Err(NotImplemented))),
+            State::Dispatch => Switch::new(
                 BI.into(),
                 Box::new([
                     // NEXT
-                    build(&|mut b| {
-                        pop(&mut b, BA, BEP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(BA, BEP);
+                    }, Ok(State::Root)),
 
                     // DUP
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.push(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // DROP
-                    build(&|mut b| {
-                        b.const_binary32(Add, BSP, BSP, CELL);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.const_binary(Add, BSP, BSP, CELL);
+                    }, Ok(State::Root)),
 
                     // SWAP
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        store(&mut b, R2, BSP);
-                        push(&mut b, R3, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.store(R2, BSP);
+                        b.push(R3, BSP);
+                    }, Ok(State::Root)),
 
                     // OVER
-                    build(&|mut b| {
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R2, R1);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R2, R1);
+                        b.push(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // ROT
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R3, R1);
-                        store(&mut b, R2, R1);
-                        b.const_binary32(Add, R1, BSP, 2 * CELL);
-                        load(&mut b, R2, R1);
-                        store(&mut b, R3, R1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R3, R1);
+                        b.store(R2, R1);
+                        b.const_binary(Add, R1, BSP, 2 * CELL);
+                        b.load(R2, R1);
+                        b.store(R3, R1);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // -ROT
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R1, BSP, 2 * CELL);
-                        load(&mut b, R3, R1);
-                        store(&mut b, R2, R1);
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R2, R1);
-                        store(&mut b, R3, R1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Add, R1, BSP, 2 * CELL);
+                        b.load(R3, R1);
+                        b.store(R2, R1);
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R2, R1);
+                        b.store(R3, R1);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // TUCK
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R3, R1);
-                        store(&mut b, R2, R1);
-                        store(&mut b, R3, BSP);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Add, R1, BSP, CELL);
+                        b.load(R3, R1);
+                        b.store(R2, R1);
+                        b.store(R3, BSP);
+                        b.push(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // NIP
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // PICK
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // ROLL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // ?DUP
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // >R
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // R>
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // R@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // <
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Lt, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Lt, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // >
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Lt, R2, R2, R3);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Lt, R2, R2, R3);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // =
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Eq, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Eq, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // <>
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Eq, R2, R3, R2);
-                        b.unary32(Not, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Eq, R2, R3, R2);
+                        b.unary(Not, R2, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 0<
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Lt, R2, R2, 0);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Lt, R2, R2, 0);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 0>
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
+                    build(|b| {
+                        b.load(R2, BSP);
                         b.const_(R3, 0);
-                        b.binary32(Lt, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                        b.binary(Lt, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 0=
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Eq, R2, R2, 0);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Eq, R2, R2, 0);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 0<>
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Eq, R2, R2, 0);
-                        b.unary32(Not, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Eq, R2, R2, 0);
+                        b.unary(Not, R2, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // U<
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Ult, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Ult, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // U>
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Ult, R2, R2, R3);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Ult, R2, R2, R3);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 0
-                    build(&|mut b| {
+                    build(|b| {
                         b.const_(R2, 0);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                        b.push(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 1
-                    build(&|mut b| {
+                    build(|b| {
                         b.const_(R2, 1);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                        b.push(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // -1
-                    build(&|mut b| {
-                        b.const_(R2, -1i32 as u32 as i64);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.const_(R2, -1i32 as u32);
+                        b.push(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // CELL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // -CELL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // +
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Add, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Add, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // -
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Sub, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Sub, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // >-<
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Sub, R2, R2, R3);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Sub, R2, R2, R3);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 1+
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R2, R2, 1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Add, R2, R2, 1);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // 1-
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Sub, R2, R2, 1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.const_binary(Sub, R2, R2, 1);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // CELL+
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // CELL-
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // *
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Mul, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Mul, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // /
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // MOD
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // /MOD
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // U/MOD
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // S/REM
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // 2/
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // CELLS
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // ABS
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.unary32(Abs, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.unary(Abs, R2, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // NEGATE
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.unary32(Negate, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.unary(Negate, R2, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // MAX
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Max, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Max, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // MIN
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Min, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.load(R3, BSP);
+                        b.binary(Min, R2, R3, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // INVERT
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.unary32(Not, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.unary(Not, R2, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // AND
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // OR
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // XOR
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // LSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // RSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // 1LSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // 1RSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // @
-                    build(&|mut b| {
-                        load(&mut b, R2, BSP);
-                        load(&mut b, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.load(R2, BSP);
+                        b.load(R2, R2);
+                        b.store(R2, BSP);
+                    }, Ok(State::Root)),
 
                     // !
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        pop(&mut b, R3, BSP);
-                        store(&mut b, R3, R2);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.pop(R3, BSP);
+                        b.store(R3, R2);
+                    }, Ok(State::Root)),
 
                     // C@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // C!
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // +!
-                    build(&|mut b| {
-                        pop(&mut b, R2, BSP);
-                        pop(&mut b, R3, BSP);
-                        load(&mut b, R1, R2);
-                        b.binary32(Add, R3, R1, R3);
-                        store(&mut b, R3, R2);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(R2, BSP);
+                        b.pop(R3, BSP);
+                        b.load(R1, R2);
+                        b.binary(Add, R3, R1, R3);
+                        b.store(R3, R2);
+                    }, Ok(State::Root)),
 
                     // SP@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // SP!
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // RP@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // RP!
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // BRANCH
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // BRANCHI
-                    build(&|b| { b.jump(branchi) }),
+                    build(|_| {}, Ok(State::Branchi)),
 
                     // ?BRANCH
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // ?BRANCHI
-                    build(&|mut b| {
-                        pop(&mut b, BI, BSP);
-                        b.switch(Switch::if_(
-                            BI.into(),
-                            build(&|mut b| {
-                                pop(&mut b, BA, BEP);
-                                b.jump(root)
-                        }),
-                            build(&|b| { b.jump(branchi) }),
-                        ))
-                    }),
+                    build(|b| {
+                        b.pop(BI, BSP);
+                    }, Ok(State::Qbranchi)),
 
                     // EXECUTE
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // @EXECUTE
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // CALL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // CALLI
-                    build(&|mut b| {
-                        push(&mut b, BEP, BRP);
-                        b.jump(branchi)
-                    }),
+                    build(|b| {
+                        b.push(BEP, BRP);
+                    }, Ok(State::Branchi)),
 
                     // EXIT
-                    build(&|mut b| {
-                        pop(&mut b, BEP, BRP);
-                        pop(&mut b, BA, BEP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.pop(BEP, BRP);
+                        b.pop(BA, BEP);
+                    }, Ok(State::Root)),
 
                     // (DO)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // (LOOP)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // (LOOP)I
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // (+LOOP)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // (+LOOP)I
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // UNLOOP
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // J
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // (LITERAL)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(|_| {}, Ok(State::NotImplemented)),
 
                     // (LITERAL)I
-                    build(&|mut b| {
-                        push(&mut b, BA, BSP);
-                        pop(&mut b, BA, BEP);
-                        b.jump(root)
-                    }),
+                    build(|b| {
+                        b.push(BA, BSP);
+                        b.pop(BA, BEP);
+                    }, Ok(State::Root)),
+
+                    // THROW
+                    build(|_| {}, Ok(State::NotImplemented)),
+
+                    // HALT
+                    build(|_| {}, Ok(State::NotImplemented)),
                 ]),
-                build(&|b| { b.jump(not_implemented) }),
-            ))
-        }));
-
-        Self {jit, root}
+                build(|_| {}, Ok(State::NotImplemented)),
+            ),
+        }
     }
 
-    pub fn global_mut(&mut self, global: Global) -> &mut Word {
-        self.jit.global_mut(global)
-    }
-
-    pub fn run(mut self, registers: &mut Registers, m0: &mut[u32]) -> std::io::Result<Self> {
-        *self.jit.global_mut(Global(0)) = Word {mp: (registers as *mut Registers).cast()};
-        *self.jit.global_mut(Global(1)) = Word {mp: (m0.as_mut_ptr()).cast()};
-        let (jit, result) = unsafe {self.jit.run(self.root)}?;
-        assert_eq!(result, Word {s: NOT_IMPLEMENTED});
-        self.jit = jit;
-        Ok(self)
+    fn initial_states(&self) -> Vec<Self::State> {
+        vec![State::Root]
     }
 }
 
