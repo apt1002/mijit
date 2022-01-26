@@ -64,7 +64,10 @@ impl<M: Machine, T: Target> Jit<M, T> {
                     ending: Ending::Leaf(e),
                 }
             }));
-            jit2.define(entry, (&marshal.prologue, &ending));
+            jit2.define(entry, &EBB {
+                actions: marshal.prologue.iter().copied().collect(),
+                ending: ending.clone(),
+            });
             (entry, ending)
         }).collect();
 
@@ -86,16 +89,16 @@ impl<M: Machine, T: Target> Jit<M, T> {
             let _ = switch.map(|ce| {
                 match &ce.case.new_state {
                     Ok(new_state) => {
-                        jit2.define(ce.entry, (
-                            &ce.case.actions,
-                            &state_infos[state_index.get_index_of(new_state).unwrap()].1,
-                        ));
+                        jit2.define(ce.entry, &EBB {
+                            actions: ce.case.actions.iter().copied().collect(),
+                            ending: state_infos[state_index.get_index_of(new_state).unwrap()].1.clone(),
+                        });
                     },
                     Err(trap) => {
-                        jit2.define(ce.entry, (
-                            &Vec::from_iter(ce.case.actions.iter().chain(marshal.epilogue.iter()).copied()),
-                            &trap_infos[trap_index.get_index_of(trap).unwrap()],
-                        ));
+                        jit2.define(ce.entry, &EBB {
+                            actions: ce.case.actions.iter().chain(marshal.epilogue.iter()).copied().collect(),
+                            ending: trap_infos[trap_index.get_index_of(trap).unwrap()].clone(),
+                        });
                     },
                 }
             });

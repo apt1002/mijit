@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{code, Engine, CaseId};
 use super::target::{Label, Word, Target};
-use code::{Global, Action, Marshal, Ending};
+use code::{Global, Marshal, EBB};
 
 // EntryId.
 array_index! {
@@ -47,7 +47,14 @@ impl<T: Target> Jit2<T> {
         self.engine.global_mut(global)
     }
 
-    /** Constructs a new entry point. */
+    /**
+     * Constructs a new entry/exit point. Initially, the code at the entry
+     * point will immediately exit, returning `exit_value`. Use `define()` to
+     * change its behaviour.
+     *
+     *  - exit_value - `run()` will return this value to its caller if
+     *    execution ends at this entry/exit point. Must be non-negative.
+     */
     // TODO: Document `marshal` and `exit_value`.
     pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> EntryId {
         let (label, case) = self.engine.new_entry(marshal, exit_value);
@@ -62,7 +69,7 @@ impl<T: Target> Jit2<T> {
      *  - entry - the entry point to modify.
      *  - ebb - the extended basic block defining the desired behaviour.
      */
-    pub fn define(&mut self, entry: EntryId, ebb: (&[Action], &Ending<EntryId>)) {
+    pub fn define(&mut self, entry: EntryId, ebb: &EBB<EntryId>) {
         assert!(!get!(self, entry).is_defined);
         self.engine.build(get!(self, entry).case, ebb, &|e| get!(self, e).case);
         get!(self, entry).is_defined = true;

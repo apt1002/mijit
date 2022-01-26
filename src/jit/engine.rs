@@ -244,19 +244,19 @@ impl<T: Target> Engine<T> {
     pub fn build<L: Clone>(
         &mut self,
         id: CaseId,
-        ebb: (&[Action], &Ending<L>),
+        ebb: &EBB<L>,
         to_case: &impl Fn(L) -> CaseId,
     ) {
-        let ebb_actions = ebb.0.iter().copied().collect();
-        match ebb.1 {
+        let ebb_actions = ebb.actions.iter().copied().collect();
+        match &ebb.ending {
             Ending::Leaf(leaf) => {
                 let jump = to_case(leaf.clone());
                 self.i.add_retire(&mut self.lowerer, id, Retire {actions: ebb_actions, jump: Some(jump)});
             },
             Ending::Switch(switch) => {
-                let switch = switch.map(|EBB {actions, ending}| {
+                let switch = switch.map(|child_ebb| {
                     let child = self.i.new_case(Some(id));
-                    self.build(child, (actions, ending), to_case);
+                    self.build(child, child_ebb, to_case);
                     child
                 });
                 self.i.add_fetch(&mut self.lowerer, id, Fetch {actions: ebb_actions, switch});
@@ -351,7 +351,7 @@ impl<T: Target> Engine<T> {
         assert!(self.i[id].fetch.is_none());
         if let Some(ebb) = self.hot_path(id) {
             // TODO: Optimize `ebb`.
-            self.build(id, (&ebb.actions, &ebb.ending), &|c| c);
+            self.build(id, &ebb, &|c| c);
         }
     }
 
