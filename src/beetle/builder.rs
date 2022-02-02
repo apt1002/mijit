@@ -162,7 +162,7 @@ impl Builder {
 }
 
 /**
- * Build a [`Case`], in the form that `Machine::code()` returns.
+ * Build an [`EBB`].
  *
  * For examples, see tests.
  */

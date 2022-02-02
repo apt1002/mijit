@@ -10,7 +10,7 @@ pub const DATA_CELLS: u32 = 1 << 18;
 pub const RETURN_CELLS: u32 = 1 << 18;
 
 pub struct VM {
-    /** The compiled code, registers, and other compiler state. */
+    /** The compiled code. */
     beetle: Option<super::Beetle<Native>>,
     /** The Beetle state (other than the memory). */
     state: Registers,
