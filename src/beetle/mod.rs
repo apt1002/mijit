@@ -9,7 +9,7 @@ use super::code::{self, UnaryOp, BinaryOp, Register, REGISTERS, Global, Switch, 
 use UnaryOp::*;
 use BinaryOp::*;
 use super::target::{Word, Target};
-use super::jit::{EntryId, Jit2};
+use super::jit::{EntryId, Jit};
 
 mod registers;
 pub use registers::{Registers};
@@ -46,14 +46,14 @@ const UNDEFINED: i64 = i64::MAX;
 /** The performance-critical part of the virtual machine. */
 #[derive(Debug)]
 pub struct Beetle<T: Target> {
-    pub jit: Jit2<T>,
+    pub jit: Jit<T>,
     pub root: EntryId,
 }
 
 impl<T: Target> Beetle<T> {
     #[allow(clippy::too_many_lines)]
     pub fn new(target: T) -> Self {
-        let mut jit = Jit2::new(target, 2);
+        let mut jit = Jit::new(target, 2);
         let root = jit.new_entry(&marshal(vec![BI]), UNDEFINED);
 
         // Immediate branch.

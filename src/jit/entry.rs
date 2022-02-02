@@ -24,7 +24,7 @@ struct Entry {
 //-----------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub struct Jit2<T: Target> {
+pub struct Jit<T: Target> {
     engine: Engine<T>,
     /** Indexed by `EntryId`. */
     entries: Vec<Entry>,
@@ -35,7 +35,7 @@ macro_rules! get {
     ($self: expr, $id: expr) => ($self.entries[$id.as_usize()])
 }
 
-impl<T: Target> Jit2<T> {
+impl<T: Target> Jit<T> {
     pub fn new(target: T, num_globals: usize) -> Self {
         Self {
             engine: Engine::new(target, num_globals),
