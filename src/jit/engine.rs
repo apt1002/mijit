@@ -384,7 +384,7 @@ impl<T: Target> Engine<T> {
     pub unsafe fn run(mut self, label: &Label) -> std::io::Result<(Self, Word)> {
         let (lowerer, ret) = self.lowerer.execute(label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
-            // Here is a good place to set a gdb breakpoint.
+            // Here is a good place to set a debugger breakpoint.
             f(pool)
         })?;
         self.lowerer = lowerer;
