@@ -193,6 +193,7 @@ impl<'a> Allocator<'a> {
             // We can't be sure it's not still in a `Register`; this is a guess.
             resources += SLOT_COST;
         }
+        // FIXME: A long series of zero-cost nodes will crash the placer.
         self.placer.add_item(Node(node), resources, &mut time);
         // Record the node's placement.
         self.node_times[node] = Some(time);

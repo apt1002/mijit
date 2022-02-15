@@ -140,7 +140,10 @@ impl<'a> Builder<'a> {
                             default_: cft_switch.default_,
                         });
                     } else {
-                        cg.add_node(node);
+                        if self.dataflow.cost(node).resources != Resources::new(0) {
+                            // The node is not a no-op.
+                            cg.add_node(node);
+                        }
                     }
                     self.marks[node] = 0;
                 },
