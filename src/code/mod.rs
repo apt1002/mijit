@@ -39,6 +39,8 @@ pub use convention::{Convention, Propagator};
 mod ebb;
 pub use ebb::{EBB, Ending};
 
+pub mod builder;
+
 //-----------------------------------------------------------------------------
 
 /** Code to be run on entry and exit from a `Machine`. */
