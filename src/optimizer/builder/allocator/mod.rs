@@ -91,12 +91,25 @@ struct Allocator<'a> {
 }
 
 impl<'a> Allocator<'a> {
-    pub fn new(variables: &HashMap<Out, Variable>, dataflow: &'a Dataflow, usage: Usage<Node, Out>) -> Self {
+    /**
+     * Create a new `Allocator`.
+     *
+     *  - entry_node - The entry [`Node`], which has already been executed.
+     *  - variables - A mapping from the live [`Out`]s to [`Variable`]s.
+     *  - dataflow - The data flow graph.
+     *  - usage - The suggested execution order and usage information.
+     */
+    pub fn new(
+        entry_node: Node,
+        variables: &HashMap<Out, Variable>,
+        dataflow: &'a Dataflow,
+        usage: Usage<Node, Out>,
+    ) -> Self {
         // Initialize the data structures with the live registers of `variables`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
         let mut outs: ArrayMap<Out, OutInfo> = dataflow.out_map();
         let mut node_times: ArrayMap<Node, Option<Time>> = dataflow.node_map();
-        node_times[dataflow.entry_node()] = Some(EARLY);
+        node_times[entry_node] = Some(EARLY);
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (&out, &value) in variables.iter() {
             if usage.first(out).is_some() {
@@ -223,6 +236,7 @@ impl<'a> Allocator<'a> {
 /**
  * Choose the execution order and allocate [`Register`]s.
  *
+ * - entry_node - The entry [`Node`], which has already been executed.
  * - variables - The [`Variable`]s passed on entry to the hot path.
  * - dataflow - The dataflow graph.
  * - nodes - The [`Node`]s that need to be executed on the hot path,
@@ -233,6 +247,7 @@ impl<'a> Allocator<'a> {
  * - allocation - which `Register` each `Out` should be computed into.
  */
 pub fn allocate(
+    entry_node: Node,
     variables: &HashMap<Out, Variable>,
     dataflow: &Dataflow,
     nodes: &[Node],
@@ -244,7 +259,7 @@ pub fn allocate(
     for &node in nodes.iter().rev() {
         usage.push(node, dataflow.ins(node).iter().copied());
     }
-    let mut a = Allocator::new(variables, dataflow, usage);
+    let mut a = Allocator::new(entry_node, variables, dataflow, usage);
     // Call `add_node()` for all `Node`s except the exit node.
     while let Some(node) = a.usage.pop() {
         if !matches!(dataflow.op(node), Op::Convention) {

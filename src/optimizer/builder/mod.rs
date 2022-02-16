@@ -57,6 +57,7 @@ impl<'a> Builder<'a> {
      * `node` is before the guard from which `tree` diverges, and `0`
      * otherwise. `marks[entry_node]` must be `1`.
      *
+     * - entry_node - The entry [`Node`], which has already been executed.
      * - tree - the subtree to convert.
      * - coldness - 2 + the number of cold branches needed to reach `tree`.
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
@@ -67,6 +68,7 @@ impl<'a> Builder<'a> {
      */
     pub fn walk<L: Clone>(
         &mut self,
+        entry_node: Node,
         tree: &HotPathTree<L>,
         coldness: usize,
         slots_used: usize,
@@ -80,7 +82,7 @@ impl<'a> Builder<'a> {
             |(&out, &variable)| (out, variable)
         ).collect();
         let before: Convention = Convention {slots_used, live_values: input_variables};
-        let (instructions, allocation) = allocate(&variables, self.dataflow, &*nodes);
+        let (instructions, allocation) = allocate(entry_node, &variables, self.dataflow, &*nodes);
         // Allocate spill slots on the hot path.
         // Also, find the final location of each `Out`.
         let mut slots_used = before.slots_used;
@@ -123,6 +125,7 @@ impl<'a> Builder<'a> {
                         let hot = cg.ebb(ending);
                         let gf = tree.children.get(&node).expect("Missing GuardFailure");
                         let cold = gf.cold.map(|child| self.walk(
+                            node,
                             child,
                             coldness + 1,
                             cg.slots_used(),
@@ -170,6 +173,7 @@ pub fn build<L: Clone>(
     // Build the new `EBB`.
     let mut builder = Builder::new(dataflow);
     builder.walk(
+        entry_node,
         &tree,
         2,
         before.slots_used,
