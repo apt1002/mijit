@@ -91,7 +91,7 @@ impl<T> Builder<T> {
     }
 
     /** Assembles an `Action` to compute `op(src)` into `dest`. */
-    pub fn unary(
+    pub fn unary64(
         &mut self,
         op: UnaryOp,
         dest: impl Into<Register>,
@@ -100,8 +100,18 @@ impl<T> Builder<T> {
         self.actions.push(Action::Unary(op, P64, dest.into(), src.into()));
     }
 
+    /** Assembles an `Action` to compute `op(src)` into `dest`. */
+    pub fn unary32(
+        &mut self,
+        op: UnaryOp,
+        dest: impl Into<Register>,
+        src: impl Into<Variable>,
+    ) {
+        self.actions.push(Action::Unary(op, P32, dest.into(), src.into()));
+    }
+
     /** Assembles an `Action` to compute `op(src1, src2)` into `dest`. */
-    pub fn binary(
+    pub fn binary64(
         &mut self,
         op: BinaryOp,
         dest: impl Into<Register>,
@@ -111,11 +121,22 @@ impl<T> Builder<T> {
         self.actions.push(Action::Binary(op, P64, dest.into(), src1.into(), src2.into()));
     }
 
+    /** Assembles an `Action` to compute `op(src1, src2)` into `dest`. */
+    pub fn binary32(
+        &mut self,
+        op: BinaryOp,
+        dest: impl Into<Register>,
+        src1: impl Into<Variable>,
+        src2: impl Into<Variable>,
+    ) {
+        self.actions.push(Action::Binary(op, P32, dest.into(), src1.into(), src2.into()));
+    }
+
     /**
      * Assembles `Action`s to compute `op(src, value)` into `dest`.
      * [`TEMP`] is corrupted if `dest == src`.
      */
-    pub fn const_binary(
+    pub fn const_binary64(
         &mut self,
         op: BinaryOp,
         dest: impl Into<Register>,
@@ -132,7 +153,31 @@ impl<T> Builder<T> {
             panic!("dest and src cannot both be TEMP");
         };
         self.const_(temp, value);
-        self.binary(op, dest, src, temp);
+        self.binary64(op, dest, src, temp);
+    }
+
+    /**
+     * Assembles `Action`s to compute `op(src, value)` into `dest`.
+     * [`TEMP`] is corrupted if `dest == src`.
+     */
+    pub fn const_binary32(
+        &mut self,
+        op: BinaryOp,
+        dest: impl Into<Register>,
+        src: impl Into<Variable>,
+        value: i32,
+    ) {
+        let dest = dest.into();
+        let src = src.into();
+        let temp = if src != dest.into() {
+            dest
+        } else if src != TEMP.into() {
+            TEMP
+        } else {
+            panic!("dest and src cannot both be TEMP");
+        };
+        self.const_(temp, value as i64);
+        self.binary32(op, dest, src, temp);
     }
 
     /**
@@ -147,7 +192,7 @@ impl<T> Builder<T> {
         am: AliasMask,
     ) {
         let dest = dest.into();
-        self.const_binary(Add, dest, addr.0, addr.1);
+        self.const_binary64(Add, dest, addr.0, addr.1);
         self.actions.push(Action::Load(dest, (dest.into(), width), am));
     }
 
@@ -163,7 +208,7 @@ impl<T> Builder<T> {
         width: Width,
         am: AliasMask,
     ) {
-        self.const_binary(Add, TEMP, addr.0, addr.1);
+        self.const_binary64(Add, TEMP, addr.0, addr.1);
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width), am));
     }
 
@@ -178,8 +223,8 @@ impl<T> Builder<T> {
         width: Width,
         am: AliasMask,
     ) {
-        self.const_binary(Lsl, TEMP, addr.1, width as i64);
-        self.binary(Add, TEMP, addr.0, TEMP);
+        self.const_binary64(Lsl, TEMP, addr.1, width as i64);
+        self.binary64(Add, TEMP, addr.0, TEMP);
         self.actions.push(Action::Load(dest.into(), (TEMP.into(), width), am));
     }
 
@@ -195,8 +240,8 @@ impl<T> Builder<T> {
         width: Width,
         am: AliasMask,
     ) {
-        self.const_binary(Lsl, TEMP, addr.1, width as i64);
-        self.binary(Add, TEMP, addr.0, TEMP);
+        self.const_binary64(Lsl, TEMP, addr.1, width as i64);
+        self.binary64(Add, TEMP, addr.0, TEMP);
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width), am));
     }
 
@@ -208,14 +253,14 @@ impl<T> Builder<T> {
         callback: impl FnOnce(&mut Self),
     ) {
         match increment {
-            IB => { self.const_binary(Add, addr, addr, step); },
-            DB => { self.const_binary(Sub, addr, addr, step); },
+            IB => { self.const_binary64(Add, addr, addr, step); },
+            DB => { self.const_binary64(Sub, addr, addr, step); },
             _ => {},
         }
         callback(self);
         match increment {
-            IA => { self.const_binary(Add, addr, addr, step); },
-            DA => { self.const_binary(Sub, addr, addr, step); },
+            IA => { self.const_binary64(Add, addr, addr, step); },
+            DA => { self.const_binary64(Sub, addr, addr, step); },
             _ => {},
         }
     }
