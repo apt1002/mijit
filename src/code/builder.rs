@@ -12,7 +12,6 @@ use super::{
 };
 use Precision::*;
 use BinaryOp::*;
-use Width::*;
 
 /**
  * `REGISTERS[0]` is reserved for use by the `Builder`. Many methods of
@@ -43,6 +42,22 @@ struct Guard<T> {
     pub expected: bool,
     pub if_fail: EBB<T>,
 }
+
+//-----------------------------------------------------------------------------
+
+/** Specifies an auto-increment mode for memory accesses. */
+pub enum Increment {
+    /** Increment After. */
+    IA,
+    /** Increment Before. */
+    IB,
+    /** Decrement After. */
+    DA,
+    /** Decrement Before. */
+    DB,
+}
+
+use Increment::*;
 
 //-----------------------------------------------------------------------------
 
@@ -185,21 +200,44 @@ impl<T> Builder<T> {
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width), am));
     }
 
+    fn increment (
+        &mut self,
+        increment: Increment,
+        addr: Register,
+        step: i64,
+        callback: impl FnOnce(&mut Self),
+    ) {
+        match increment {
+            IB => { self.const_binary(Add, addr, addr, step); },
+            DB => { self.const_binary(Sub, addr, addr, step); },
+            _ => {},
+        }
+        callback(self);
+        match increment {
+            IA => { self.const_binary(Add, addr, addr, step); },
+            DA => { self.const_binary(Sub, addr, addr, step); },
+            _ => {},
+        }
+    }
+
     /**
      * Assembles `Action`s to load `dest` from `sp` and to increment `sp` by
      * one word (4 or 8 bytes).
      * [`TEMP`] is corrupted.
      */
-    pub fn pop(
+    pub fn increment_load(
         &mut self,
+        increment: Increment,
         dest: impl Into<Register>,
-        sp: impl Into<Register>,
+        addr: impl Into<Register>,
+        width: Width,
         am: AliasMask,
     ) {
         let dest = dest.into();
-        let sp = sp.into();
-        self.load(dest, (sp, 0), Eight, am);
-        self.const_binary(Add, sp, sp, 8);
+        let addr = addr.into();
+        self.increment(increment, addr, 1 << (width as usize), |b| {
+            b.load(dest, (addr, 0), width, am);
+        });
     }
 
     /**
@@ -207,16 +245,19 @@ impl<T> Builder<T> {
      * store `src` at `sp`.
      * [`TEMP`] is corrupted.
      */
-    pub fn push(
+    pub fn increment_store(
         &mut self,
+        increment: Increment,
         src: impl Into<Variable>,
-        sp: impl Into<Register>,
+        addr: impl Into<Register>,
+        width: Width,
         am: AliasMask,
     ) {
         let src = src.into();
-        let sp = sp.into();
-        self.const_binary(Sub, sp, sp, 8);
-        self.store(src, (sp, 0), Eight, am);
+        let addr = addr.into();
+        self.increment(increment, addr, 1 << (width as usize), |b| {
+            b.store(src, (addr, 0), width, am);
+        });
     }
 
     /** Assembles an action that prints out the value of `src`. */
