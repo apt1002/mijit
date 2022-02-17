@@ -70,11 +70,11 @@ impl VM {
      */
     pub fn allocate(&mut self, cells: u32) -> (u32, u32) {
         assert!(cells <= self.free_cells);
-        let end = self.free_cells.checked_mul(CELL)
+        let end = self.free_cells.checked_mul(CELL as u32)
             .expect("Address out of range");
         self.free_cells = self.free_cells.checked_sub(cells)
             .expect("Out of memory");
-        let start = self.free_cells.checked_mul(CELL)
+        let start = self.free_cells.checked_mul(CELL as u32)
             .expect("Address out of range");
         (start, end)
     }
@@ -103,20 +103,20 @@ impl VM {
 
     /** Push `item` onto the data stack. */
     pub fn push(&mut self, item: u32) {
-        self.registers_mut().sp -= CELL;
+        self.registers_mut().sp -= CELL as u32;
         self.store(self.registers().sp, item);
     }
 
     /** Pop an item from the data stack. */
     pub fn pop(&mut self) -> u32 {
         let item = self.load(self.registers().sp);
-        self.registers_mut().sp += CELL;
+        self.registers_mut().sp += CELL as u32;
         item
     }
 
     /** Push `item` onto the return stack. */
     pub fn rpush(&mut self, item: u32) {
-        self.registers_mut().rp -= CELL;
+        self.registers_mut().rp -= CELL as u32;
         self.store(self.registers().rp, item);
     }
 

@@ -199,7 +199,7 @@ impl<T> Builder<T> {
     /**
      * Assembles `Action`s to compute `addr.0 + addr.1` into `dest` and to
      * store `src` at that address.
-     * [`TEMP`] is corrupted if `dest == addr.0`.
+     * [`TEMP`] is corrupted.
      */
     pub fn store(
         &mut self,
