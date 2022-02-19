@@ -80,7 +80,7 @@ impl<'a> Builder<'a> {
             |(&out, &variable)| (out, variable)
         ).collect();
         let before: Convention = Convention {slots_used, live_values: input_variables};
-        let (instructions, allocation) = allocate(&before, self.dataflow, &*nodes);
+        let (instructions, allocation) = allocate(&variables, self.dataflow, &*nodes);
         // Allocate spill slots on the hot path.
         // Also, find the final location of each `Out`.
         let mut slots_used = before.slots_used;
