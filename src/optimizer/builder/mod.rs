@@ -62,7 +62,8 @@ impl<'a> Builder<'a> {
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
      * - slots_used - the number of [`Slot`]s on entry to `tree`.
      * - input - called once for each input to `tree`. It informs the caller
-     *   that the input is live, and returns the [`Variable`] that holds it.
+     *   of `walk()` that the input is live, and returns the [`Variable`] that
+     *   holds it.
      */
     pub fn walk<L: Clone>(
         &mut self,
@@ -74,12 +75,14 @@ impl<'a> Builder<'a> {
     ) -> EBB<L> {
         let mut inputs = HashSet::new();
         let nodes = flood(self.dataflow, &mut self.marks, coldness, &mut inputs, tree.exit);
-        let input_values = inputs.into_iter().map(input).collect();
-        let before: Convention = Convention {slots_used, live_values: input_values};
+        let input_variables: Box<[_]> = inputs.iter().copied().map(input).collect();
+        let mut variables: HashMap<Out, Variable> = inputs.iter().zip(&*input_variables).map(
+            |(&out, &variable)| (out, variable)
+        ).collect();
+        let before: Convention = Convention {slots_used, live_values: input_variables};
         let (instructions, allocation) = allocate(&before, self.dataflow, &*nodes);
         // Allocate spill slots on the hot path.
         // Also, find the final location of each `Out`.
-        let mut variables: HashMap<Out, Variable> = HashMap::new();
         let mut slots_used = before.slots_used;
         for &instruction in &instructions {
             match instruction {
