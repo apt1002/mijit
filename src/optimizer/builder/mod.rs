@@ -1,3 +1,4 @@
+use std::fmt::{Debug};
 use std::collections::{HashSet, HashMap};
 
 use super::{code, target, cost, cft, Dataflow, Node, Out, Cold, CFT, Op, Resources, LookupLeaf};
@@ -81,7 +82,13 @@ impl<'a> Builder<'a> {
             |(&out, &variable)| (out, variable)
         ).collect();
         let before: Convention = Convention {slots_used, live_values: input_variables};
-        let (instructions, allocation) = allocate(&effects, &variables, self.dataflow, &*nodes);
+        let (instructions, allocation) = allocate(
+            &effects,
+            &variables,
+            self.dataflow,
+            &*nodes,
+            |node| tree.children.get(&node).map(|child| &child.keep_alives),
+        );
         // Allocate spill slots on the hot path.
         // Also, find the final location of each `Out`.
         let mut slots_used = before.slots_used;
@@ -154,7 +161,7 @@ impl<'a> Builder<'a> {
     }
 }
 
-pub fn build<L: Clone>(
+pub fn build<L: Clone + Debug>(
     before: &Convention,
     dataflow: &Dataflow,
     cft: &CFT<L>,

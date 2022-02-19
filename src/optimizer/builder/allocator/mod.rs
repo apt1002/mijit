@@ -249,18 +249,23 @@ impl<'a> Allocator<'a> {
  * - instructions - the execution order. Excludes the exit node.
  * - allocation - which `Register` each `Out` should be computed into.
  */
-pub fn allocate(
+pub fn allocate<'a>(
     effects: &HashSet<Node>,
     variables: &HashMap<Out, Variable>,
     dataflow: &Dataflow,
     nodes: &[Node],
+    get_keep_alives: impl Fn(Node) -> Option<&'a HashSet<Out>>,
 ) -> (
     Vec<Instruction>,
     ArrayMap<Out, Option<Register>>
 ) {
     let mut usage = Usage::default();
     for &node in nodes.iter().rev() {
-        usage.push(node, dataflow.ins(node).iter().copied());
+        let mut keep_alives: Vec<_> = dataflow.ins(node).iter().copied().collect();
+        if let Some(x) = get_keep_alives(node) {
+            keep_alives.extend(x);
+        }
+        usage.push(node, keep_alives);
     }
     let mut a = Allocator::new(effects, variables, dataflow, usage);
     // Call `add_node()` for all `Node`s except the exit node.

@@ -1,3 +1,4 @@
+use std::fmt::{Debug};
 use super::{code, target};
 
 use code::{Convention, EBB};
@@ -34,7 +35,7 @@ pub trait LookupLeaf<L: Clone> {
 }
 
 /** Optimizes an [`EBB`]. */
-pub fn optimize<L: Clone>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
+pub fn optimize<L: Clone + Debug>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
 -> EBB<L> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(before, input, lookup_leaf);
