@@ -92,7 +92,7 @@ impl<I: Debug, V: Debug + Clone + Hash + Eq> Default for Usage<I, V> {
 
 impl<I: Debug, V: Debug + Clone + Hash + Eq> Debug for Usage<I, V> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        f.write_str("Usage")?;
+        f.write_str("Usage ")?;
         let mut dm = f.debug_map();
         let mut next = self.nexts.len();
         for &(ref instruction, length) in self.instructions.iter().rev() {
