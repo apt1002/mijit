@@ -68,7 +68,7 @@ impl<'a> CodeGen<'a> {
             if let Variable::Register(r) = src { uses[r] += 2; }
         }
         let temp = all_registers().min_by_key(|&r| uses[r]).unwrap();
-        let temp_replacement = Variable::from(Slot(slots_used));
+        let mut temp_replacement = Variable::from(Slot(slots_used));
 
         // If `temp` is used, spill it and replace all mentions of it.
         if uses[temp] == 1 {
@@ -79,6 +79,8 @@ impl<'a> CodeGen<'a> {
             // `temp` is used as a source.
             stored_actions.push(Action::Push(None, Some(temp.into())));
             slots_used += 2;
+        } else {
+            temp_replacement = Variable::from(temp);
         }
 
         assert_eq!(stored_actions.len() * 2, slots_used.wrapping_sub(self.slots_used));
