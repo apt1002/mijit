@@ -157,17 +157,15 @@ pub fn build<L: Clone>(
     lookup_leaf: &impl LookupLeaf<L>,
 ) -> EBB<L> {
     // Work out what is where.
-    let entry = dataflow.entry_node();
     let input_map: HashMap<Out, Variable> =
-        dataflow.ins(entry).iter()
+        dataflow.outs(dataflow.entry_node())
         .zip(&*before.live_values)
-        .map(|(&out, &variable)| (out, variable))
+        .map(|(out, &variable)| (out, variable))
         .collect();
     // Compute the keep-alive sets.
     let tree = keep_alive_sets(dataflow, cft);
     // Build the new `EBB`.
     let mut builder = Builder::new(dataflow);
-    builder.marks[entry] = 1;
     builder.walk(
         &tree,
         2,
