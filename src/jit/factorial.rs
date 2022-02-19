@@ -62,7 +62,7 @@ impl<T: Target> Factorial<T> {
         });
         Factorial {jit, start}
     }
-    
+
     pub fn run(mut self, n: u64) -> std::io::Result<(Self, u64)> {
         let n_global = Global::try_from(reg::N).unwrap();
         let result_global = Global::try_from(reg::RESULT).unwrap();
