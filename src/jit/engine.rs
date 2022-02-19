@@ -1,3 +1,4 @@
+use std::fmt::{Debug};
 use std::ops::{Index, IndexMut};
 
 use crate::util::{AsUsize};
@@ -261,7 +262,7 @@ impl<T: Target> Engine<T> {
      *  - to_case - called for every leaf of the EBB to determine where to
      *    jump to.
      */
-    pub fn build<L: Clone>(
+    pub fn build<L: Clone + Debug>(
         &mut self,
         id: CaseId,
         ebb: &EBB<L>,

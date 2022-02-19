@@ -14,6 +14,8 @@ struct Flood<'a> {
     marker: usize,
     /** Accumulates the live inputs. */
     inputs: &'a mut HashSet<Out>,
+    /** Accumulates the direct dependencies. */
+    effects: &'a mut HashSet<Node>,
     /** Accumulates the visited [`Node`]s, topologically sorted. */
     nodes: Vec<Node>,
 }
@@ -27,6 +29,10 @@ impl <'a> Flood<'a> {
         for &node in self.dataflow.deps(node) {
             if self.marks[node] == 0 {
                 self.visit(node);
+            } else if self.marks[node] < self.marker {
+                self.effects.insert(node);
+            } else {
+                assert_eq!(self.marks[node], self.marker);
             }
         }
         for &out in self.dataflow.ins(node) {
@@ -49,7 +55,8 @@ impl <'a> Flood<'a> {
  * The fill follows `dataflow` dependencies (both values and side-effects)
  * backwards in time. Visited `Node`s are marked with `marker`. The fill stops
  * at `Node`s that are marked with a non-zero value; the [`Out`]s by which they
- * are reached are added to `inputs`.
+ * are reached are added to `inputs` and those whose side-effects are needed
+ * are added to `effects`.
  *
  * Returns the `Node`s that were marked. The returned array is topologically
  * sorted into a possible execution order.
@@ -59,9 +66,10 @@ pub fn flood(
     marks: &mut ArrayMap<Node, usize>,
     marker: usize,
     inputs: &mut HashSet<Out>,
+    effects: &mut HashSet<Node>,
     exit_node: Node,
 ) -> Box<[Node]> {
-    let mut f = Flood {dataflow, marks, marker, inputs, nodes: Vec::new()};
+    let mut f = Flood {dataflow, marks, marker, inputs, effects, nodes: Vec::new()};
     f.visit(exit_node);
     f.nodes.into()
 }
@@ -97,18 +105,26 @@ mod tests {
         marks[entry] = 1;
         // Flood from `exit1` with colour `11`.
         let mut inputs1 = HashSet::new();
-        let nodes1 = flood(&df, &mut marks, 11, &mut inputs1, exit1);
+        let mut effects1 = HashSet::new();
+        let nodes1 = flood(&df, &mut marks, 11, &mut inputs1, &mut effects1, exit1);
         assert_eq!(&*nodes1, &[guard, constant, add, exit1]);
         let mut inputs1 = Vec::from_iter(inputs1);
         inputs1.sort_by_key(|out| out.as_usize());
         assert_eq!(&inputs1, &[a]);
+        let mut effects1 = Vec::from_iter(effects1);
+        effects1.sort_by_key(|node| node.as_usize());
+        assert_eq!(&effects1, &[entry]);
         // Flood from `exit2` with colour `12`.
         let mut inputs2 = HashSet::new();
-        let nodes2 = flood(&df, &mut marks, 12, &mut inputs2, exit2);
+        let mut effects2 = HashSet::new();
+        let nodes2 = flood(&df, &mut marks, 12, &mut inputs2, &mut effects2, exit2);
         assert_eq!(&*nodes2, &[store, exit2]);
         let mut inputs2 = Vec::from_iter(inputs2);
         inputs2.sort_by_key(|out| out.as_usize());
         assert_eq!(&inputs2, &[a, b]);
+        let mut effects2 = Vec::from_iter(effects2);
+        effects2.sort_by_key(|node| node.as_usize());
+        assert_eq!(&effects2, &[entry, guard]);
         // Check the marks.
         assert_eq!(marks.as_ref(), &[1, 11, 11, 11, 11, 12, 12, 0]);
     }

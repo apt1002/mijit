@@ -78,7 +78,7 @@ impl<'a> KeepAlive<'a> {
     -> HotPathTree<L> {
         let (colds, exit, leaf) = cft.hot_path();
         // Mark everything that `exit` depends on.
-        let nodes = flood(&self.dataflow, &mut self.marks, coldness, inputs, exit);
+        let nodes = flood(&self.dataflow, &mut self.marks, coldness, inputs, &mut HashSet::new(), exit);
         // For each guard we passed...
         let children: Vec<_> = colds.into_iter().map(|cold| {
             // Recurse to find all the inputs of any cold path.
