@@ -210,7 +210,6 @@ impl<'a> Allocator<'a> {
 
     /**
      * Returns the finished [`Instruction`] order and [`Register`] allocation.
-     * Also returns a [`Register`] that is unused at the end of the code.
      */
     pub fn finish(self) -> (Vec<Instruction>, ArrayMap<Out, Option<Register>>) {
         let instructions: Vec<_> = self.placer.iter().cloned().collect();
@@ -226,6 +225,10 @@ impl<'a> Allocator<'a> {
  * - dataflow - The dataflow graph.
  * - nodes - The [`Node`]s that need to be executed on the hot path,
  *   topologically sorted. Includes the exit node.
+ *
+ * Returns:
+ * - instructions - the execution order. Excludes the exit node.
+ * - allocation - which `Register` each `Out` should be computed into.
  */
 pub fn allocate(
     before: &Convention,
@@ -236,10 +239,11 @@ pub fn allocate(
     ArrayMap<Out, Option<Register>>
 ) {
     let mut usage = Usage::default();
-    for &node in nodes {
+    for &node in nodes.iter().rev() {
         usage.push(node, dataflow.ins(node).iter().copied());
     }
     let mut a = Allocator::new(before, dataflow, usage);
+    // Call `add_node()` for all `Node`s except the exit node.
     while let Some(node) = a.usage.pop() {
         if !matches!(dataflow.op(node), Op::Convention) {
             a.add_node(node);
