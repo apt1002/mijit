@@ -112,11 +112,8 @@ impl<'a> Builder<'a> {
 
         // Depth-first walk from the exits back to the entry.
         let mut ending = Ending::Leaf(tree.leaf.clone());
-        let mut rev_iter = instructions.iter().rev();
-        let last_instruction = rev_iter.next().expect("Missing exit node");
-        assert_eq!(last_instruction, &Instruction::Node(tree.exit));
         self.marks[tree.exit] = 0;
-        for &instruction in rev_iter {
+        for &instruction in instructions.iter().rev() {
             match instruction {
                 Instruction::Spill(out1, out2) => {
                     cg.add_spill(out1, out2);
