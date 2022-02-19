@@ -1,9 +1,11 @@
 use std::fmt::{Debug};
 use std::ops::{Index, IndexMut};
+use std::marker::{PhantomData};
 
 use crate::util::{AsUsize};
 use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
 use super::code::{Precision, Global, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
+use super::optimizer::{LookupLeaf, optimize};
 use Precision::*;
 
 // CaseId.
@@ -268,6 +270,17 @@ impl<T: Target> Engine<T> {
         ebb: &EBB<L>,
         to_case: &impl Fn(L) -> CaseId,
     ) {
+        let engine_wrapper = EngineWrapper {engine: &*self, to_case, _l: PhantomData};
+        let ebb = optimize(self.i.convention(id), ebb, &engine_wrapper);
+        self.build_inner(id, &ebb, to_case)
+    }
+
+    fn build_inner<L: Clone>(
+        &mut self,
+        id: CaseId,
+        ebb: &EBB<L>,
+        to_case: &impl Fn(L) -> CaseId,
+    ) {
         let ebb_actions = ebb.actions.iter().copied().collect();
         match &ebb.ending {
             Ending::Leaf(leaf) => {
@@ -277,7 +290,7 @@ impl<T: Target> Engine<T> {
             Ending::Switch(switch) => {
                 let switch = switch.map(|child_ebb| {
                     let child = self.i.new_case(Some(id));
-                    self.build(child, child_ebb, to_case);
+                    self.build_inner(child, child_ebb, to_case);
                     child
                 });
                 self.i.add_fetch(&mut self.lowerer, id, Fetch {actions: ebb_actions, switch});
@@ -369,7 +382,6 @@ impl<T: Target> Engine<T> {
     fn specialize(&mut self, id: CaseId) {
         assert!(self.i[id].fetch.is_none());
         if let Some(ebb) = self.hot_path(id) {
-            // TODO: Optimize `ebb`.
             self.build(id, &ebb, &|c| c);
         }
     }
@@ -390,5 +402,23 @@ impl<T: Target> Engine<T> {
         })?;
         self.lowerer = lowerer;
         Ok((self, ret))
+    }
+}
+
+struct EngineWrapper<'a, T: Target, L: Clone, F: Fn(L) -> CaseId> {
+    engine: &'a Engine<T>,
+    to_case: &'a F,
+    _l: PhantomData<L>,
+}
+
+impl<'a, T: Target, L: Clone, F: Fn(L) -> CaseId> LookupLeaf<L> for EngineWrapper<'a, T, L, F> {
+    /** Return the convention in effect at `leaf`. */
+    fn after(&self, leaf: &L) -> &Convention {
+        self.engine.i.convention((self.to_case)(leaf.clone()))
+    }
+
+    /** Return the estimated relative frequency of `leaf`. */
+    fn weight(&self, _leaf: &L) -> usize {
+        1  // FIXME
     }
 }
