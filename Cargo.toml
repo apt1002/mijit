@@ -1,6 +1,6 @@
 [package]
 name = "mijit"
-version = "0.1.7"
+version = "0.1.8"
 authors = ["apt1002"]
 edition = "2021"
 description = "Experimental JIT compiler generator"
