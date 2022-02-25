@@ -12,7 +12,7 @@ use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
 use super::target::{Word, Target};
-use super::jit::{EntryId, Jit};
+use super::jit::{EntryId, Jit2};
 use super::code::builder::{build, build_block, Builder};
 
 mod registers;
@@ -93,14 +93,14 @@ fn push(b: &mut Builder<EntryId>, src: Register, sp: Register) {
 /** The performance-critical part of the virtual machine. */
 #[derive(Debug)]
 pub struct Beetle<T: Target> {
-    pub jit: Jit<T>,
+    pub jit: Jit2<T>,
     pub root: EntryId,
 }
 
 impl<T: Target> Beetle<T> {
     #[allow(clippy::too_many_lines)]
     pub fn new(target: T) -> Self {
-        let mut jit = Jit::new(target, 2);
+        let mut jit = Jit2::new(target, 2);
         let marshal = Marshal {
             prologue: build_block(&|b| {
                 b.load(BEP, register!(ep), Four, AM_REGISTER);

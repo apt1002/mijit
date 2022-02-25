@@ -3,7 +3,7 @@ use Action::*;
 use BinaryOp::*;
 use Precision::*;
 use super::target::{Target, Word};
-use super::{EntryId, Jit};
+use super::{EntryId, Jit2};
 
 const R0: Register = REGISTERS[0];
 
@@ -17,7 +17,7 @@ pub mod reg {
 #[derive(Debug)]
 pub struct Factorial<T: Target> {
     /** The state of the JIT compiler. */
-    pub jit: Jit<T>,
+    pub jit: Jit2<T>,
     /** The entry point. */
     pub start: EntryId,
 }
@@ -28,7 +28,7 @@ const HALT: i64 = 2;
 
 impl<T: Target> Factorial<T> {
     pub fn new(target: T) -> Factorial<T> {
-        let mut jit = Jit::new(target, 2);
+        let mut jit = Jit2::new(target, 2);
         let marshal = Marshal {prologue: Box::new([]), epilogue: Box::new([])};
         let start = jit.new_entry(&marshal, START);
         let loop_ = jit.new_entry(&marshal, LOOP);
