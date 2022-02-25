@@ -115,6 +115,9 @@ impl<T: Debug> Placer<T> {
     }
 
     fn at(&mut self, time: Time) -> &mut Cycle<T> {
+        while self.len() <= time {
+            self.cycles.push(Cycle::new());
+        }
         &mut self.cycles[time.as_usize()]
     }
 
@@ -124,9 +127,6 @@ impl<T: Debug> Placer<T> {
      * cycle that can afford `cost`.
      */
     pub fn add_item(&mut self, item: T, cost: Resources, time: &mut Time) {
-        while self.len() <= *time {
-            self.cycles.push(Cycle::new());
-        }
         #[allow(clippy::neg_cmp_op_on_partial_ord)]
         while !(cost <= self.at(*time).remaining) {
             *time += 1;
@@ -138,5 +138,23 @@ impl<T: Debug> Placer<T> {
     /** Yields all the items in the chosen order. */
     pub fn iter(&self) -> impl Iterator<Item=&T> {
         self.cycles.iter().flat_map(|c| c.iter())
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use super::super::{SPILL_COST};
+
+    #[test]
+    fn grow() {
+        let mut p = Placer::new();
+        // Overflow `BUDGET` to force the Placer to grow.
+        for _ in 0..100 {
+            let mut time = LEAST;
+            p.add_item('A', SPILL_COST, &mut time);
+        }
     }
 }
