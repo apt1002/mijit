@@ -12,5 +12,3 @@ pub mod jit;
 pub mod beetle;
 
 pub mod buffer;
-
-mod c_bindings;
