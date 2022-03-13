@@ -67,10 +67,9 @@ mod tests {
             for (i, &global) in globals.iter().enumerate() {
                 self.lowerer.pool_mut()[Global(i)] = global;
             }
-            let (lowerer, observed_result) = self.lowerer.execute(&self.entry, |f, pool| {
+            let observed_result = self.lowerer.execute(&self.entry, |f, pool| {
                 f(pool.as_mut().as_mut_ptr())
-            }).expect("Couldn't change permissions");
-            self.lowerer = lowerer;
+            });
             if observed_result != expected_result {
                 println!("globals = {:?}", globals);
                 println!("observed = {:?}", observed_result);

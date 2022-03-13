@@ -63,14 +63,13 @@ impl<T: Target> Factorial<T> {
         Factorial {jit, start}
     }
 
-    pub fn run(mut self, n: u64) -> std::io::Result<(Self, u64)> {
+    pub fn run(&mut self, n: u64) -> u64 {
         let n_global = Global::try_from(reg::N).unwrap();
         let result_global = Global::try_from(reg::RESULT).unwrap();
         *self.jit.global_mut(n_global) = Word {u: n};
-        let (jit, exit_value) = unsafe {self.jit.run(self.start)}?;
+        let exit_value = unsafe {self.jit.run(self.start)};
         assert_eq!(exit_value, Word {s: HALT});
-        self.jit = jit;
         let result = *self.jit.global_mut(result_global);
-        Ok((self, unsafe {result.u}))
+        unsafe {result.u}
     }
 }

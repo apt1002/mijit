@@ -95,13 +95,8 @@ impl<B: Buffer> Assembler<B> {
     }
 
     /** Apply `callback` to the contained [`Buffer`]. */
-    pub fn use_buffer<T>(
-        mut self,
-        callback: impl FnOnce(B) -> std::io::Result<(B, T)>,
-    ) -> std::io::Result<(Self, T)> {
-        let (buffer, ret) = callback(self.buffer)?;
-        self.buffer = buffer;
-        Ok((self, ret))
+    pub fn use_buffer<T>(&mut self, callback: impl FnOnce(&mut B) -> T) -> T {
+        callback(&mut self.buffer)
     }
 
     /** Get the assembly pointer. */

@@ -84,11 +84,9 @@ impl<T: Target> Jit<T> {
      * This will crash if the code is compiled for the wrong [`Target`] or if
      * the code is invalid.
      */
-    pub unsafe fn run(mut self, entry: EntryId) -> std::io::Result<(Self, Word)> {
+    pub unsafe fn run(&mut self, entry: EntryId) -> Word {
         let label = &get!(self, entry).label;
-        let (engine, ret) = self.engine.run(label)?;
-        self.engine = engine;
-        Ok((self, ret))
+        self.engine.run(label)
     }
 }
 
@@ -102,8 +100,8 @@ pub mod tests {
 
     #[test]
     pub fn factorial() {
-        let jit = Factorial::new(native());
-        let (_, result) = jit.run(5).expect("Execute failed");
+        let mut jit = Factorial::new(native());
+        let result = jit.run(5);
         assert_eq!(result, 120);
     }
 }

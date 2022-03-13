@@ -11,7 +11,7 @@ pub const RETURN_CELLS: u32 = 1 << 18;
 
 pub struct VM {
     /** The compiled code. */
-    beetle: Option<super::Beetle<Native>>,
+    beetle: super::Beetle<Native>,
     /** The Beetle state (other than the memory). */
     state: Registers,
     /** The Beetle memory. */
@@ -37,7 +37,7 @@ impl VM {
         return_cells: u32,
     ) -> Self {
         let mut vm = VM {
-            beetle: Some(Beetle::new(native())),
+            beetle: Beetle::new(native()),
             state: Registers::default(),
             memory: vec![0; memory_cells as usize],
             free_cells: memory_cells,
@@ -124,9 +124,7 @@ impl VM {
     pub unsafe fn run(&mut self, ep: u32) -> Option<u32> {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
-        let beetle = self.beetle.take().expect("Trying to call run() after error");
-        let beetle = beetle.run(&mut self.state, self.memory.as_mut()).expect("Execute failed");
-        self.beetle = Some(beetle);
+        self.beetle.run(&mut self.state, self.memory.as_mut());
         if self.registers_mut().a & 0xFF == 0x55 {
             // Halt.
             self.registers_mut().a >>= 8;

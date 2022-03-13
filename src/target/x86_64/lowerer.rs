@@ -685,20 +685,18 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
 
 impl super::Execute for Lowerer<Mmap> {
     fn execute<T>(
-        mut self,
+        &mut self,
         label: &Label,
         callback: impl FnOnce(super::ExecuteFn, &mut Pool) -> T,
-    ) -> std::io::Result<(Self, T)> {
+    ) -> T {
         let target = label.target().expect("Label is not defined");
         let pool = &mut self.pool;
-        let (a, ret) = self.a.use_buffer(|b| {
+        self.a.use_buffer(|b| {
             b.execute(|bytes| {
                 let f = unsafe { std::mem::transmute(&bytes[target]) };
                 callback(f, pool)
             })
-        })?;
-        self.a = a;
-        Ok((self, ret))
+        })
     }
 }
 

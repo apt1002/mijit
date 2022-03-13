@@ -6,8 +6,9 @@ use super::{Buffer};
  * Represents a block of memory claimed from the operating system using
  * `mmap()`. Memory allocated in this way can be made executable.
  */
-pub struct Mmap {
-    memory: MmapMut,
+pub enum Mmap {
+    Mut(MmapMut),
+    Poisoned,
 }
 
 impl Mmap {
@@ -19,12 +20,28 @@ impl Mmap {
      * is gone. T can itself be a Result if necessary to represent errors
      * returned by `callback`
      */
-    pub fn execute<T>(mut self, callback: impl FnOnce(&[u8]) -> T)
-    -> std::io::Result<(Self, T)> {
-        let executable_memory = self.memory.make_exec()?;
-        let result = callback(&executable_memory);
-        self.memory = executable_memory.make_mut()?;
-        Ok((self, result))
+    pub fn execute<T>(&mut self, callback: impl FnOnce(&[u8]) -> T) -> T {
+        let mut new_self = Self::Poisoned;
+        std::mem::swap(self, &mut new_self);
+        match new_self {
+            Self::Mut(mut memory) => {
+                let executable_memory = memory.make_exec().expect("mprotect failed");
+                let result = callback(&executable_memory);
+                memory = executable_memory.make_mut().expect("mprotect failed");
+                *self = Self::Mut(memory);
+                result
+            },
+            Self::Poisoned => panic!("Poisoned by an earlier error"),
+        }
+    }
+}
+
+impl AsMut<MmapMut> for Mmap {
+    fn as_mut(&mut self) -> &mut MmapMut {
+        match self {
+            Self::Mut(ref mut m) => m,
+            Self::Poisoned => panic!("Poisoned by an earlier error"),
+        }
     }
 }
 
@@ -32,27 +49,31 @@ impl Deref for Mmap {
     type Target = [u8];
 
     fn deref(&self) -> &Self::Target {
-        &*self.memory
+        match self {
+            Self::Mut(ref m) => &*m,
+            Self::Poisoned => panic!("Poisoned by an earlier error"),
+        }
     }
 }
 
 impl DerefMut for Mmap {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.memory
+        &mut *self.as_mut()
     }
 }
 
 impl Buffer for Mmap {
     fn new() -> Self {
         let memory = MmapMut::map_anon(0x1000).expect("Out of memory");
-        Mmap {memory}
+        Self::Mut(memory)
     }
 
     fn resize(&mut self, min_length: usize) {
-        if min_length > self.len() {
+        let memory: &mut MmapMut = self.as_mut();
+        if min_length > memory.len() {
             let mut new_memory = MmapMut::map_anon(min_length).expect("Out of memory");
-            new_memory[..self.len()].copy_from_slice(&self.memory);
-            self.memory = new_memory;
+            new_memory[..memory.len()].copy_from_slice(memory);
+            *memory = new_memory;
         }
     }
 }
@@ -71,9 +92,8 @@ pub mod tests {
 
     #[test]
     fn execute() {
-        let buffer = Mmap::new();
-        let (_buffer, result) = buffer.execute(|_bytes| 42)
-            .expect("Couldn't change permissions");
+        let mut buffer = Mmap::new();
+        let result = buffer.execute(|_bytes| 42);
         assert_eq!(result, 42);
     }
 }

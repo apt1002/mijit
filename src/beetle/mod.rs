@@ -632,13 +632,11 @@ impl<T: Target> Beetle<T> {
         self.jit.global_mut(global)
     }
 
-    pub unsafe fn run(mut self, registers: &mut Registers, m0: &mut[u32]) -> std::io::Result<Self> {
+    pub unsafe fn run(&mut self, registers: &mut Registers, m0: &mut[u32]) {
         *self.jit.global_mut(Global(0)) = Word {mp: (registers as *mut Registers).cast()};
         *self.jit.global_mut(Global(1)) = Word {mp: (m0.as_mut_ptr()).cast()};
-        let (jit, result) = self.jit.run(self.root)?;
+        let result = self.jit.run(self.root);
         assert_eq!(result, Word {s: NOT_IMPLEMENTED});
-        self.jit = jit;
-        Ok(self)
     }
 }
 

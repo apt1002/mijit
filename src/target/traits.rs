@@ -130,10 +130,10 @@ pub trait Execute: Sized + Lower {
      * is gone.
      */
     fn execute<T>(
-        self,
+        &mut self,
         label: &Label,
         callback: impl FnOnce(ExecuteFn, &mut Pool) -> T,
-    ) -> std::io::Result<(Self, T)>;
+    ) -> T;
 }
 
 //-----------------------------------------------------------------------------

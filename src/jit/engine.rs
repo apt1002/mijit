@@ -394,14 +394,12 @@ impl<T: Target> Engine<T> {
      * This will crash if the code is compiled for the wrong [`Target`] or if
      * the code is invalid.
      */
-    pub unsafe fn run(mut self, label: &Label) -> std::io::Result<(Self, Word)> {
-        let (lowerer, ret) = self.lowerer.execute(label, |f, pool| {
+    pub unsafe fn run(&mut self, label: &Label) -> Word {
+        self.lowerer.execute(label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
             // Here is a good place to set a debugger breakpoint.
             f(pool)
-        })?;
-        self.lowerer = lowerer;
-        Ok((self, ret))
+        })
     }
 }
 
