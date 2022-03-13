@@ -1,5 +1,5 @@
 use std::ops::{Deref, DerefMut};
-use memmap::{MmapMut};
+use memmap::{MmapMut, Mmap as MmapExec};
 use super::{Buffer};
 
 /**
@@ -8,6 +8,7 @@ use super::{Buffer};
  */
 pub enum Mmap {
     Mut(MmapMut),
+    Exec(MmapExec),
     Poisoned,
 }
 
@@ -21,26 +22,37 @@ impl Mmap {
      * returned by `callback`
      */
     pub fn execute<T>(&mut self, callback: impl FnOnce(&[u8]) -> T) -> T {
-        let mut new_self = Self::Poisoned;
-        std::mem::swap(self, &mut new_self);
-        match new_self {
-            Self::Mut(mut memory) => {
-                let executable_memory = memory.make_exec().expect("mprotect failed");
-                let result = callback(&executable_memory);
-                memory = executable_memory.make_mut().expect("mprotect failed");
-                *self = Self::Mut(memory);
-                result
-            },
-            Self::Poisoned => panic!("Poisoned by an earlier error"),
-        }
+        let m: &mut MmapExec = self.as_mut();
+        callback(&*m)
     }
 }
 
 impl AsMut<MmapMut> for Mmap {
     fn as_mut(&mut self) -> &mut MmapMut {
+        let mut new_self = Self::Poisoned;
+        std::mem::swap(self, &mut new_self);
+        *self = match new_self {
+            Self::Exec(m) => Self::Mut(m.make_mut().expect("mprotect failed")),
+            x => x,
+        };
         match self {
             Self::Mut(ref mut m) => m,
-            Self::Poisoned => panic!("Poisoned by an earlier error"),
+            _ => panic!("Poisoned by an earlier error"),
+        }
+    }
+}
+
+impl AsMut<MmapExec> for Mmap {
+    fn as_mut(&mut self) -> &mut MmapExec {
+        let mut new_self = Self::Poisoned;
+        std::mem::swap(self, &mut new_self);
+        *self = match new_self {
+            Self::Mut(m) => Self::Exec(m.make_exec().expect("mprotect failed")),
+            x => x,
+        };
+        match self {
+            Self::Exec(ref mut m) => m,
+            _ => panic!("Poisoned by an earlier error"),
         }
     }
 }
@@ -51,6 +63,7 @@ impl Deref for Mmap {
     fn deref(&self) -> &Self::Target {
         match self {
             Self::Mut(ref m) => &*m,
+            Self::Exec(ref m) => &*m,
             Self::Poisoned => panic!("Poisoned by an earlier error"),
         }
     }
@@ -58,7 +71,8 @@ impl Deref for Mmap {
 
 impl DerefMut for Mmap {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut *self.as_mut()
+        let m: &mut MmapMut = self.as_mut();
+        &mut *m
     }
 }
 
