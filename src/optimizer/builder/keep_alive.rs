@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
 use crate::util::{ArrayMap};
-use super::{Dataflow, Node, Out, flood, Cold, CFT};
+use super::{Op, Dataflow, Node, Out, flood, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
@@ -101,8 +101,16 @@ impl<'a> KeepAlive<'a> {
             assert_eq!(self.marks[node], coldness);
             self.marks[node] = 0;
         }
-        // Construct and return a HotPathTree.
-        HotPathTree::new(exit, leaf.clone(), children)
+        // Construct a HotPathTree.
+        let hpt = HotPathTree::new(exit, leaf.clone(), children);
+        // Check that all guard [`Node`]s in `nodes` are in `children`.
+        for &node in &*nodes {
+            if self.dataflow.op(node) == Op::Guard {
+                assert!(hpt.children.contains_key(&node));
+            }
+        }
+        // Return.
+        hpt
     }
 }
 
