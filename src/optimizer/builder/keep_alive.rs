@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::fmt::{Debug};
 
 use crate::util::{ArrayMap};
 use super::{Dataflow, Node, Out, flood, Cold, CFT};
@@ -7,7 +8,7 @@ use super::{Dataflow, Node, Out, flood, Cold, CFT};
 
 /** Represents what happens when a particular [`Op::Guard`] fails. */
 #[derive(Debug, PartialEq, Eq)]
-pub struct GuardFailure<L: Clone> {
+pub struct GuardFailure<L: Debug + Clone> {
     /**
      * The HotPathTrees that could be entered as a result of this
      * `GuardFailure`.
@@ -28,7 +29,7 @@ pub struct GuardFailure<L: Clone> {
  * structure.
  */
 #[derive(Debug, PartialEq, Eq)]
-pub struct HotPathTree<L: Clone> {
+pub struct HotPathTree<L: Debug + Clone> {
     /** The exit [`Node`] of the hot path. */
     pub exit: Node,
     /** The leaf of the hot path. */
@@ -37,7 +38,7 @@ pub struct HotPathTree<L: Clone> {
     pub children: HashMap<Node, GuardFailure<L>>,
 }
 
-impl<L: Clone> HotPathTree<L> {
+impl<L: Debug + Clone> HotPathTree<L> {
     pub fn new(
         exit: Node,
         leaf: L,
@@ -74,7 +75,7 @@ impl<'a> KeepAlive<'a> {
      * - coldness - 2 + the number of cold branches needed to reach `cft`.
      *   (`0` is used for unmarked nodes, and `1` for the entry node).
      */
-    fn walk<L: Clone>(&mut self, cft: &'a CFT<L>, inputs: &mut HashSet<Out>, coldness: usize)
+    fn walk<L: Debug + Clone>(&mut self, cft: &'a CFT<L>, inputs: &mut HashSet<Out>, coldness: usize)
     -> HotPathTree<L> {
         let (colds, exit, leaf) = cft.hot_path();
         // Mark everything that `exit` depends on.
@@ -110,7 +111,7 @@ impl<'a> KeepAlive<'a> {
  * are computed on the hot path but which must outlive the `Guard` because they
  * are also needed on at least one cold path.
  */
-pub fn keep_alive_sets<L: Clone>(dataflow: &Dataflow, cft: &CFT<L>) -> HotPathTree<L> {
+pub fn keep_alive_sets<L: Debug + Clone>(dataflow: &Dataflow, cft: &CFT<L>) -> HotPathTree<L> {
     let mut ka = KeepAlive::new(dataflow);
     ka.walk(cft, &mut HashSet::new(), 2)
 }
@@ -122,7 +123,7 @@ mod tests {
     use super::*;
     use super::super::{CFT, Dataflow, Op};
 
-    impl<L: Clone> GuardFailure<L> {
+    impl<L: Debug + Clone> GuardFailure<L> {
         pub fn new(
             guard: Node,
             hot_index: usize,

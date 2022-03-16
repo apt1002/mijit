@@ -56,7 +56,7 @@ impl<'a> Builder<'a> {
      *
      * On entry and on exit, `marks[node]` must be in `1..coldness` if
      * `node` is before the guard from which `tree` diverges, and `0`
-     * otherwise. `marks[entry_node]` must be `1`.
+     * otherwise. `marks[dataflow.entry_node()]` must be `1`.
      *
      * - tree - the subtree to convert.
      * - coldness - 2 + the number of cold branches needed to reach `tree`.
@@ -66,7 +66,7 @@ impl<'a> Builder<'a> {
      *   of `walk()` that the input is live, and returns the [`Variable`] that
      *   holds it.
      */
-    pub fn walk<L: Clone>(
+    pub fn walk<L: Debug + Clone>(
         &mut self,
         tree: &HotPathTree<L>,
         coldness: usize,
@@ -161,7 +161,7 @@ impl<'a> Builder<'a> {
     }
 }
 
-pub fn build<L: Clone + Debug>(
+pub fn build<L: Debug + Clone>(
     before: &Convention,
     dataflow: &Dataflow,
     cft: &CFT<L>,
