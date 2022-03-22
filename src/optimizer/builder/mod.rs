@@ -200,3 +200,71 @@ pub fn build<L: Debug + Clone>(
         lookup_leaf,
     )
 }
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use code::{Register, REGISTERS, Precision, BinaryOp};
+    use BinaryOp::*;
+    use Precision::*;
+    use crate::util::{ArrayMap, AsUsize};
+
+    #[test]
+    fn reorder_guards() {
+        // Each leaf will return a single `Register`.
+        // Weight = register number.
+        let afters: ArrayMap<Register, _> = REGISTERS.iter().map(
+            |&r| Convention {live_values: Box::new([r.into()]), slots_used: 0}
+        ).collect();
+        impl LookupLeaf<Register> for ArrayMap<Register, Convention> {
+            fn after(&self, leaf: &Register) -> &Convention {
+                &self[*leaf]
+            }
+            fn weight(&self, leaf: &Register) -> usize {
+                leaf.as_usize()
+            }
+        }
+        // Make a `before` Convention.
+        let before = Convention {
+            live_values: Box::new([
+                REGISTERS[0].into(),
+                REGISTERS[1].into(),
+                REGISTERS[2].into(),
+                REGISTERS[3].into(),
+            ]),
+            slots_used: 0,
+        };
+        // Make a dataflow graph.
+        // x_1, x_2, x_3, x_4 are computed in that order,
+        // but tested in reverse order.
+        let mut df = Dataflow::new(4);
+        let entry = df.entry_node();
+        let inputs: Vec<Out> = df.outs(entry).collect();
+        let x_0 = inputs[0];
+        let m_1 = df.add_node(Op::Binary(P64, Mul), &[], &[x_0, x_0], 1);
+        let x_1 = df.outs(m_1).next().unwrap();
+        let m_2 = df.add_node(Op::Binary(P64,  Mul), &[], &[x_1, x_1], 1);
+        let x_2 = df.outs(m_2).next().unwrap();
+        let m_3 = df.add_node(Op::Binary(P64, Mul), &[], &[x_2, x_2], 1);
+        let x_3 = df.outs(m_3).next().unwrap();
+        let m_4 = df.add_node(Op::Binary(P64, Mul), &[], &[x_3, x_3], 1);
+        let x_4 = df.outs(m_4).next().unwrap();
+        let g_1 = df.add_node(Op::Guard, &[entry], &[x_4], 0);
+        let e_1 = df.add_node(Op::Convention, &[g_1], &[inputs[1]], 0);
+        let g_2 = df.add_node(Op::Guard, &[entry], &[x_3], 0);
+        let e_2 = df.add_node(Op::Convention, &[g_1, g_2], &[inputs[2]], 0);
+        let g_3 = df.add_node(Op::Guard, &[entry], &[x_2], 0);
+        let e_3 = df.add_node(Op::Convention, &[g_1, g_2, g_3], &[inputs[3]], 0);
+        let e_x = df.add_node(Op::Convention, &[g_1, g_2, g_3], &[x_1], 0);
+        // Make a CFT.
+        let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
+        cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: REGISTERS[3]}, 0);
+        cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: REGISTERS[2]}, 0);
+        cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: REGISTERS[1]}, 0);
+        // Call `build()`.
+        let ebb = build(&before, &df, &cft, &afters);
+        println!("ebb = {:#?}", ebb);
+    }
+}
