@@ -83,6 +83,16 @@ impl<'a> Builder<'a> {
         let mut inputs = HashSet::new();
         let mut effects = HashSet::new();
         let nodes = flood(self.dataflow, &mut self.marks, coldness, &mut inputs, &mut effects, exit);
+        for &node in &*nodes {
+            if self.is_guard(node) {
+                for &out in &guard_failure(node).keep_alives {
+                    if self.marks[self.dataflow.out(out).0] < coldness {
+                        println!("Extra input: {:?}", out);
+                        inputs.insert(out);
+                    }
+                }
+            }
+        }
         let inputs: Box<[_]> = inputs.into_iter().collect(); // Define an order.
         let input_variables: Box<[_]> = inputs.iter().copied().map(input).collect();
         let mut variables: HashMap<Out, Variable> = inputs.iter().zip(&*input_variables).map(
