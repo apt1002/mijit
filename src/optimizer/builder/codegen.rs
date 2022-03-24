@@ -164,7 +164,7 @@ impl<'a> CodeGen<'a> {
 
     /**
      * Constructs an [`EBB`] from the [`Action`]s generated so far and from
-     * `switch`. The list of `Action`s is cleared.
+     * `ending`. The list of `Action`s is cleared.
      */
     pub fn ebb<L: Clone>(&mut self, ending: Ending<L>) -> EBB<L> {
         let actions = self.actions_rev.drain(..).rev().collect();

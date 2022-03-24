@@ -183,7 +183,9 @@ impl<'a> Allocator<'a> {
         for &in_ in df.ins(node) {
             if self.usage.first(in_).is_none() {
                 if let Some(reg) = self.current_reg(in_) {
-                    self.pool.free(reg);
+                    if !self.pool.is_clean(reg) {
+                        self.pool.free(reg);
+                    }
                 }
             }
         }

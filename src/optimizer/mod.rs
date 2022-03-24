@@ -39,6 +39,7 @@ pub fn optimize<L: Clone + Debug>(before: &Convention, input: &EBB<L>, lookup_le
 -> EBB<L> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(before, input, lookup_leaf);
+    // Turn it back into an EBB.
     build(before, &dataflow, &cft, lookup_leaf)
 }
 

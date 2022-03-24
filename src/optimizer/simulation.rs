@@ -1,4 +1,5 @@
 use std::collections::{HashMap};
+use std::fmt::{Debug};
 use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch, EBB, Ending};
 use super::{CFT, Op, Dataflow, Node, Out, LookupLeaf};
 
@@ -217,7 +218,7 @@ impl Simulation {
  * Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
  * `input`.
  */
-pub fn simulate<L: Clone>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
+pub fn simulate<L: Debug + Clone>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
 -> (Dataflow, CFT<L>) {
     let mut dataflow = Dataflow::new(before.live_values.len());
     let simulation = Simulation::new(&dataflow, &before);
