@@ -152,7 +152,7 @@ impl<'a> Builder<'a> {
                         let cold = gf.cold.map(|child| self.walk(
                             child.exit,
                             &child.leaf,
-                            &|guard_node| child.children.get(&node).unwrap_or_else(|| guard_failure(guard_node)),
+                            &|guard_node| child.children.get(&guard_node).unwrap_or_else(|| guard_failure(guard_node)),
                             coldness + 1,
                             cg.slots_used(),
                             &mut |out| cg.read(out),
@@ -215,7 +215,7 @@ pub fn build<L: Debug + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Precision, BinaryOp};
+    use code::{Register, REGISTERS, Global, Precision, BinaryOp, builder};
     use BinaryOp::*;
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
@@ -274,6 +274,48 @@ mod tests {
         cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: REGISTERS[1]}, 0);
         // Call `build()`.
         let _observed = build(&before, &df, &cft, &afters);
+        // TODO: Expected output.
+    }
+
+    /** Regression test from Bee. */
+    #[test]
+    fn bee_1() {
+        let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};
+        // Represent leaves as integers.
+        impl LookupLeaf<usize> for Convention {
+            fn after(&self, _leaf: &usize) -> &Convention {
+                self
+            }
+            fn weight(&self, leaf: &usize) -> usize {
+                *leaf
+            }
+        }
+        let lookup_leaf = &convention;
+        // Make an `EBB`.
+        let ebb = builder::build(&|b| {
+            b.index(
+                Global(0),
+                Box::new([
+                    builder::build(&|mut b| {
+                        b.guard(Global(0), false, builder::build(&|b| {
+                            b.jump(5)
+                        }));
+                        b.jump(4)
+                    }),
+                    builder::build(&|mut b| {
+                        b.guard(Global(0), true, builder::build(&|b| {
+                            b.jump(3)
+                        }));
+                        b.jump(2)
+                    }),
+                ]),
+                builder::build(&|b| { b.jump(1) }),
+            )
+        });
+        // Optimize it.
+        // inline let _observed = super::super::optimize(&convention, &ebb, &lookup_leaf);
+        let (dataflow, cft) = super::super::simulate(&convention, &ebb, lookup_leaf);
+        let _observed = build(&convention, &dataflow, &cft, lookup_leaf);
         // TODO: Expected output.
     }
 }
