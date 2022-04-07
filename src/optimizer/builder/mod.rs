@@ -152,7 +152,7 @@ impl<'a> Builder<'a> {
                         let cold = gf.cold.map(|child| self.walk(
                             child.exit,
                             &child.leaf,
-                            &|guard_node| child.children.get(&node).unwrap_or_else(|| guard_failure(guard_node)),
+                            &|guard_node| child.children.get(&guard_node).unwrap_or_else(|| guard_failure(guard_node)),
                             coldness + 1,
                             cg.slots_used(),
                             &mut |out| cg.read(out),
@@ -315,21 +315,7 @@ mod tests {
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &lookup_leaf);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, lookup_leaf);
-        println!("dataflow = {:#?}", dataflow);
-        println!("cft = {:#?}", cft);
-        // inline let _observed = build(&convention, &dataflow, &cft, lookup_leaf);
-        let tree = keep_alive_sets(&dataflow, &cft);
-        println!("tree = {:#?}", tree);
-        let mut builder = Builder::new(&dataflow);
-        let _observed = builder.walk(
-            tree.exit,
-            &tree.leaf,
-            &|guard_node| tree.children.get(&guard_node).expect("Missing GuardFailure"),
-            2,
-            convention.slots_used,
-            &mut |_| Global(0).into(),
-            lookup_leaf,
-        );
+        let _observed = build(&convention, &dataflow, &cft, lookup_leaf);
         // TODO: Expected output.
     }
 }
