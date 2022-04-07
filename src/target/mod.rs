@@ -284,7 +284,6 @@ mod tests {
     fn clobber_unary() {
         for op in [Abs, Negate, Not] {
             for prec in [P32, P64] {
-                println!("Clobbering {:?} {:?}", op, prec);
                 unsafe {test_clobber(|lo, dest, src1, _| {
                     lo.action(Unary(op, prec, dest, src1.into()));
                 })};
@@ -584,7 +583,6 @@ mod tests {
             Max, Min,
         ] {
             for prec in [P32, P64] {
-                println!("Clobbering {:?} {:?}", op, prec);
                 unsafe {test_clobber(|lo, dest, src1, src2| {
                     lo.action(Binary(op, prec, dest, src1.into(), src2.into()));
                 })};

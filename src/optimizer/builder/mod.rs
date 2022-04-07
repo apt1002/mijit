@@ -87,7 +87,6 @@ impl<'a> Builder<'a> {
             if self.is_guard(node) {
                 for &out in &guard_failure(node).keep_alives {
                     if self.marks[self.dataflow.out(out).0] < coldness {
-                        println!("Extra input: {:?}", out);
                         inputs.insert(out);
                     }
                 }
@@ -274,7 +273,7 @@ mod tests {
         cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: REGISTERS[2]}, 0);
         cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: REGISTERS[1]}, 0);
         // Call `build()`.
-        let ebb = build(&before, &df, &cft, &afters);
-        println!("ebb = {:#?}", ebb);
+        let _observed = build(&before, &df, &cft, &afters);
+        // TODO: Expected output.
     }
 }

@@ -1,3 +1,4 @@
+use std::fmt::{Debug};
 use super::{Node};
 
 //-----------------------------------------------------------------------------
@@ -89,6 +90,7 @@ impl<C> Cold<C> {
 //-----------------------------------------------------------------------------
 
 /** Represents a control-flow tree. */
+#[derive(Debug, Clone)]
 pub enum CFT<L: Clone> {
     Merge {
         /** The exit [`Node`] of the dataflow graph for this path. */

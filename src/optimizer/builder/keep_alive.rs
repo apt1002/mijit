@@ -6,8 +6,26 @@ use super::{Op, Dataflow, Node, Out, flood, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
+/** Helper for formatting [`Cold`]s. */
+enum CaseAdapter<C> {
+    Hot,
+    Cold(C),
+}
+
+impl<C: Debug> Debug for CaseAdapter<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if let CaseAdapter::Cold(ref c) = self {
+            c.fmt(f)
+        } else {
+            f.write_str("(hot path)")
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 /** Represents what happens when a particular [`Op::Guard`] fails. */
-#[derive(Debug, PartialEq, Eq)]
+#[derive(PartialEq, Eq)]
 pub struct GuardFailure<L: Debug + Clone> {
     /**
      * The HotPathTrees that could be entered as a result of this
@@ -19,6 +37,17 @@ pub struct GuardFailure<L: Debug + Clone> {
      * `Out`s must be kept alive at least until the [`Op::Guard`] is executed.
      */
     pub keep_alives: HashSet<Out>,
+}
+
+impl<L: Debug + Clone> Debug for GuardFailure<L> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let switch = self.cold.map(|c| CaseAdapter::Cold(c)).insert_hot(CaseAdapter::Hot);
+        f.debug_struct("GuardFailure")
+            .field("keep_alives", &self.keep_alives)
+            .field("cases", &switch.cases)
+            .field("default_", &switch.default_)
+            .finish()
+    }
 }
 
 /**
