@@ -77,6 +77,7 @@ impl<'a> Builder<'a> {
         input: &mut dyn FnMut(Out) -> Variable,
         lookup_leaf: &L,
     ) -> EBB<L::Leaf> {
+        println!("\n*** Entering walk({:?}, {:?}) ***", exit, leaf);
         let mut inputs = HashSet::new();
         let mut effects = HashSet::new();
         let nodes = flood(self.dataflow, &mut self.marks, coldness, &mut inputs, &mut effects, exit);
@@ -89,11 +90,13 @@ impl<'a> Builder<'a> {
                 }
             }
         }
+        println!("nodes = {:?}", nodes);
         let inputs: Box<[_]> = inputs.into_iter().collect(); // Define an order.
         let input_variables: Box<[_]> = inputs.iter().copied().map(input).collect();
         let mut variables: HashMap<Out, Variable> = inputs.iter().zip(&*input_variables).map(
             |(&out, &variable)| (out, variable)
         ).collect();
+        println!("Based on inputs, variables = {:#?}", variables);
         let before: Convention = Convention {slots_used, live_values: input_variables};
         let (instructions, allocation) = allocate(
             &effects,
@@ -102,6 +105,8 @@ impl<'a> Builder<'a> {
             &*nodes,
             |node| if self.is_guard(node) { Some(&guard_failure(node).keep_alives) } else { None },
         );
+        println!("instructions = {:?}", instructions);
+        println!("allocation = {:#?}", allocation);
 
         // Allocate spill slots on the hot path.
         // Also, find the final location of each `Out`.
@@ -122,6 +127,7 @@ impl<'a> Builder<'a> {
                 },
             }
         }
+        println!("Including instructions, variables = {:#?}", variables);
 
         let mut cg = CodeGen::new(
             self.dataflow,
@@ -136,6 +142,7 @@ impl<'a> Builder<'a> {
         let mut ending = Ending::Leaf(leaf.clone());
         self.marks[exit] = 0;
         for &instruction in instructions.iter().rev() {
+            println!("instruction = {:?}", instruction);
             match instruction {
                 Instruction::Spill(out1, out2) => {
                     cg.add_spill(out1, out2);
@@ -152,7 +159,10 @@ impl<'a> Builder<'a> {
                             &|guard_node| child.children.get(&guard_node).unwrap_or_else(|| guard_failure(guard_node)),
                             coldness + 1,
                             cg.slots_used(),
-                            &mut |out| cg.read(out),
+                            &mut |out| {
+                                println!("nested walk() asked about {:?}", out);
+                                cg.read(out)
+                            },
                             lookup_leaf,
                         ));
                         // Combine the hot and cold paths and update `ending`.
@@ -169,6 +179,7 @@ impl<'a> Builder<'a> {
                 },
             }
         }
+        println!("*** Leaving walk({:?}, {:?}) ***\n", exit, leaf);
         cg.ebb(ending)
     }
 }
@@ -179,14 +190,17 @@ pub fn build<L: LookupLeaf>(
     cft: &CFT<L::Leaf>,
     lookup_leaf: &L,
 ) -> EBB<L::Leaf> {
+    println!("dataflow = {:#?}", dataflow);
     // Work out what is where.
     let input_map: HashMap<Out, Variable> =
         dataflow.outs(dataflow.entry_node())
         .zip(&*before.live_values)
         .map(|(out, &variable)| (out, variable))
         .collect();
+    println!("input_map = {:#?}", input_map);
     // Compute the keep-alive sets.
     let tree = keep_alive_sets(dataflow, cft);
+    println!("tree = {:#?}", tree);
     // Build the new `EBB`.
     let mut builder = Builder::new(dataflow);
     builder.walk(
@@ -283,7 +297,6 @@ mod tests {
     #[test]
     fn bee_1() {
         let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};
-        let lookup_leaf = &convention;
         // Make an `EBB`.
         let ebb = builder::build(&|b| {
             b.index(
@@ -306,9 +319,34 @@ mod tests {
             )
         });
         // Optimize it.
-        // inline let _observed = super::super::optimize(&convention, &ebb, &lookup_leaf);
-        let (dataflow, cft) = super::super::simulate(&convention, &ebb, lookup_leaf);
-        let _observed = build(&convention, &dataflow, &cft, lookup_leaf);
+        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
+        let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
+        let _observed = build(&convention, &dataflow, &cft, &convention);
+        // TODO: Expected output.
+    }
+
+    /** Regression test from Bee. */
+    #[test]
+    fn bee_2() {
+        let convention = Convention {
+            slots_used: 0,
+            live_values: Box::new([
+                Variable::Global(Global(0)),
+                Variable::Register(REGISTERS[3]),
+            ]),
+        };
+        // Make an `EBB`.
+        let ebb = builder::build(&|mut b| {
+            b.binary64(Or, REGISTERS[3], Global(0), Global(0));
+            b.guard(Global(0), false, builder::build(&|b| { b.jump(2) }));
+            b.guard(Global(0), false, builder::build(&|b| { b.jump(3) }));
+            b.binary64(And, REGISTERS[3], Global(0), Global(0));
+            b.jump(1)
+        });
+        // Optimize it.
+        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
+        let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
+        let _observed = build(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
     }
 }
