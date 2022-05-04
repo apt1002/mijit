@@ -14,7 +14,7 @@ use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
 
-/** The constants that [`Lowerer`] requires to be in the [`Pool`]. */
+/// The constants that [`Lowerer`] requires to be in the [`Pool`].
 pub const CONSTANTS: [Word; 8] = [
     Word {u: 0},
     Word {u: 0}, // unused
@@ -26,20 +26,18 @@ pub const CONSTANTS: [Word; 8] = [
     Word {u: 0}, // unused
 ];
 
-/** The address of zero. */
+/// The address of zero.
 const ZERO_ADDRESS: usize = 0;
 
-/** The [`Register`] used for the pool pointer. */
+/// The [`Register`] used for the pool pointer.
 const POOL: Register = R8;
 
-/** The [`Register`] used as a temporary variable. */
+/// The [`Register`] used as a temporary variable.
 const TEMP: Register = R12;
 
-/**
- * The registers available for allocation. This omits:
- *  - `POOL`, which holds the pool base address.
- *  - `TEMP`, which is used as temporary workspace.
- */
+/// The registers available for allocation. This omits:
+///  - `POOL`, which holds the pool base address.
+///  - `TEMP`, which is used as temporary workspace.
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 13] =
     [RA, RD, RC, RB, RBP, RSI, RDI, R9, R10, R11, R13, R14, R15];
@@ -64,10 +62,8 @@ impl From<code::Width> for Width {
 
 //-----------------------------------------------------------------------------
 
-/**
- * A low-level analogue of `code::Variable`, which can hold unallocatable
- * [`Register`]s.
- */
+/// A low-level analogue of `code::Variable`, which can hold unallocatable
+/// [`Register`]s.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 enum Value {
     Register(Register),
@@ -112,11 +108,11 @@ impl From<code::Variable> for Value {
 //-----------------------------------------------------------------------------
 
 pub struct Lowerer<B: Buffer> {
-    /** The underlying [`Assembler`]. */
+    /// The underlying [`Assembler`].
     a: Assembler<B>,
-    /** The [`Pool`]. */
+    /// The [`Pool`].
     pool: Pool,
-    /** The number of stack-allocated spill [`Slot`]s. */
+    /// The number of stack-allocated spill [`Slot`]s.
     slots_used: usize,
 }
 
@@ -130,7 +126,7 @@ impl<B: Buffer> Lowerer<B> {
         Self {a, pool, slots_used: 0}
     }
 
-    /** Apply `callback` to the contained [`Assembler`]. */
+    /// Apply `callback` to the contained [`Assembler`].
     pub fn use_assembler<T>(
         mut self,
         callback: impl FnOnce(Assembler<B>) -> std::io::Result<(Assembler<B>, T)>,
@@ -140,38 +136,38 @@ impl<B: Buffer> Lowerer<B> {
         Ok((self, ret))
     }
 
-    /** Put `value` in `dest`. */
+    /// Put `value` in `dest`.
     fn const_(&mut self, prec: Precision, dest: impl Into<Register>, value: i64) {
         let dest = dest.into();
         self.a.const_(prec, dest, value);
     }
 
-    /** Apply `op` to `dest` and `value`. */
+    /// Apply `op` to `dest` and `value`.
     fn const_op(&mut self, op: BinaryOp, prec: Precision, dest: impl Into<Register>, value: i32) {
         let dest = dest.into();
         self.a.const_op(op, prec, dest, value);
     }
 
-    /** Conditional branch. */
+    /// Conditional branch.
     fn jump_if(&mut self, cc: Condition, target: &mut Label) {
         let patch = self.a.jump_if(cc, target.target());
         target.push(patch);
     }
 
-    /** Unconditional jump to a constant. */
+    /// Unconditional jump to a constant.
     fn const_jump(&mut self, target: &mut Label) {
         let patch = self.a.const_jump(target.target());
         target.push(patch);
     }
 
-    /** Unconditional call to a constant. */
+    /// Unconditional call to a constant.
     #[allow(dead_code)]
     fn const_call(&mut self, target: &mut Label) {
         let patch = self.a.const_call(target.target());
         target.push(patch);
     }
 
-    /** Move `src` to `dest` if they are different. */
+    /// Move `src` to `dest` if they are different.
     fn move_(&mut self, dest: impl Into<Register>, src: impl Into<Register>) {
         let dest = dest.into();
         let src = src.into();
@@ -180,7 +176,7 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Move `src` to `TEMP` if `src` is `dest`. */
+    /// Move `src` to `TEMP` if `src` is `dest`.
     fn move_away_from(&mut self, src: impl Into<Value>, dest: impl Into<Register>) -> Value {
         let src = src.into();
         let dest = dest.into();
@@ -192,21 +188,19 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Returns the base and offset of `global`. */
+    /// Returns the base and offset of `global`.
     fn global_address(&self, global: Global) -> (Register, i32) {
         (POOL, (self.pool.index_of_global(global) * 8) as i32)
     }
 
-    /** Returns the base and offset of `slot` in the stack-allocated data. */
+    /// Returns the base and offset of `slot` in the stack-allocated data.
     fn slot_address(&self, slot: Slot) -> (Register, i32) {
         assert!(slot.0 < self.slots_used);
         (RSP, (((self.slots_used - 1) - slot.0) * 8) as i32)
     }
 
-    /**
-     * If `src` is a Register, returns it, otherwise loads it into `reg` and
-     * returns `reg`.
-     */
+    /// If `src` is a Register, returns it, otherwise loads it into `reg` and
+    /// returns `reg`.
     fn src_to_register(&mut self, src: impl Into<Value>, reg: impl Into<Register>) -> Register {
         let src = src.into();
         let reg = reg.into();
@@ -223,10 +217,8 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /**
-     * Calls `a.op()` or `a.load_op()` depending on whether `src` is a Register
-     * or a Slot.
-     */
+    /// Calls `a.op()` or `a.load_op()` depending on whether `src` is a Register
+    /// or a Slot.
     fn value_op(&mut self, op: BinaryOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Value>) {
         let dest = dest.into();
         let src = src.into();
@@ -259,7 +251,7 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Select how to assemble an asymmetric `BinaryOp` such as `Sub`. */
+    /// Select how to assemble an asymmetric `BinaryOp` such as `Sub`.
     fn asymmetric_binary(
         &mut self,
         dest: impl Into<Register>,
@@ -274,7 +266,7 @@ impl<B: Buffer> Lowerer<B> {
         callback(self, dest, src2);
     }
 
-    /** Select how to assemble a symmetric `BinaryOp` such as `Add`. */
+    /// Select how to assemble a symmetric `BinaryOp` such as `Add`.
     fn symmetric_binary(
         &mut self,
         dest: impl Into<Register>,
@@ -297,16 +289,14 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /**
-     * Assembles the instructions that surround a division operation.
-     * `callback` assembles the operation itself. On entry:
-     *  - The numerator is in `RA`.
-     *  - The denominator is in `TEMP`.
-     *  - `RD` is undefined.
-     * On exit:
-     *  - The result is in `RA`.
-     *  - `RD` is corrupted.
-     */
+    /// Assembles the instructions that surround a division operation.
+    /// `callback` assembles the operation itself. On entry:
+    ///  - The numerator is in `RA`.
+    ///  - The denominator is in `TEMP`.
+    ///  - `RD` is undefined.
+    /// On exit:
+    ///  - The result is in `RA`.
+    ///  - `RD` is corrupted.
     fn div(
         &mut self,
         dest: impl Into<Register>,
@@ -329,7 +319,7 @@ impl<B: Buffer> Lowerer<B> {
         self.move_(dest, TEMP);
     }
 
-    /** Select how to assemble a shift `BinaryOp` such as `Shl`. */
+    /// Select how to assemble a shift `BinaryOp` such as `Shl`.
     fn shift_binary(&mut self, op: ShiftOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Value>, src2: impl Into<Value>) {
         let mut dest = dest.into();
         let mut src1 = src1.into();
@@ -356,7 +346,7 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Select how to assemble a conditional `BinaryOp` such as `Lt` or `Max`. */
+    /// Select how to assemble a conditional `BinaryOp` such as `Lt` or `Max`.
     fn compare_binary(
         &mut self,
         prec: Precision,
@@ -372,7 +362,7 @@ impl<B: Buffer> Lowerer<B> {
         callback(self, dest, src1);
     }
 
-    /** Assemble code to perform the given `unary_op`. */
+    /// Assemble code to perform the given `unary_op`.
     fn unary_op(
         &mut self,
         unary_op: code::UnaryOp,
@@ -400,7 +390,7 @@ impl<B: Buffer> Lowerer<B> {
         };
     }
 
-    /** Assemble code to perform the given `binary_op`. */
+    /// Assemble code to perform the given `binary_op`.
     fn binary_op(
         &mut self,
         binary_op: code::BinaryOp,
@@ -721,7 +711,7 @@ pub mod tests {
         }
     }
 
-    /** Test that we can patch jumps and calls. */
+    /// Test that we can patch jumps and calls.
     #[test]
     fn steal() {
         let pool = Pool::new(0);

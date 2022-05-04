@@ -15,23 +15,21 @@ use buffer::{Buffer, Mmap};
 use code::{Precision, Variable, Action, UnaryOp, BinaryOp, Width, Global, Slot, debug_word};
 use Precision::*;
 
-/** The [`Register`] used for the pool pointer. */
+/// The [`Register`] used for the pool pointer.
 const POOL: Register = RLR;
 
-/** A [`Register`] used as a temporary variable. */
+/// A [`Register`] used as a temporary variable.
 const TEMP0: Register = R16;
 
-/** A [`Register`] used as a temporary variable. */
+/// A [`Register`] used as a temporary variable.
 const TEMP1: Register = R17;
 
-/**
- * The registers available for allocation. This omits:
- *  - `POOL`, which holds the pool base address.
- *  - `TEMP0`, which is used as temporary workspace.
- *  - `TEMP1`, which is used as temporary workspace.
- *  - `RFP`, which is used as a frame pointer.
- *  - `RZR`, obviously.
- */
+/// The registers available for allocation. This omits:
+///  - `POOL`, which holds the pool base address.
+///  - `TEMP0`, which is used as temporary workspace.
+///  - `TEMP1`, which is used as temporary workspace.
+///  - `RFP`, which is used as a frame pointer.
+///  - `RZR`, obviously.
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 27] = [
     R0, R1, R2, R3, R4, R5, R6, R7,
@@ -48,10 +46,8 @@ impl From<code::Register> for Register {
 
 //-----------------------------------------------------------------------------
 
-/**
- * A low-level analogue of `code::Variable`, which can hold unallocatable
- * [`Register`]s.
- */
+/// A low-level analogue of `code::Variable`, which can hold unallocatable
+/// [`Register`]s.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 enum Value {
     Register(Register),
@@ -96,11 +92,11 @@ impl From<code::Variable> for Value {
 //-----------------------------------------------------------------------------
 
 pub struct Lowerer<B: Buffer> {
-    /** The underlying [`Assembler`]. */
+    /// The underlying [`Assembler`].
     a: Assembler<B>,
-    /** The [`Pool`]. */
+    /// The [`Pool`].
     pool: Pool,
-    /** The number of stack-allocated spill [`Slot`]s. */
+    /// The number of stack-allocated spill [`Slot`]s.
     slots_used: usize,
 }
 
@@ -109,7 +105,7 @@ impl<B: Buffer> Lowerer<B> {
         Self {a: Assembler::new(), pool, slots_used: 0}
     }
 
-    /** Apply `callback` to the contained [`Assembler`]. */
+    /// Apply `callback` to the contained [`Assembler`].
     pub fn use_assembler<T>(
         mut self,
         callback: impl FnOnce(Assembler<B>) -> std::io::Result<(Assembler<B>, T)>,
@@ -119,37 +115,37 @@ impl<B: Buffer> Lowerer<B> {
         Ok((self, ret))
     }
 
-    /** Put `value` in `dest`. */
+    /// Put `value` in `dest`.
     fn const_(&mut self, dest: impl Into<Register>, value: u64) {
         let dest = dest.into();
         self.a.const_(dest, value);
     }
 
-    /** Conditional branch. */
+    /// Conditional branch.
     fn jump_if(&mut self, cc: Condition, target: &mut Label) {
         let patch = self.a.jump_if(cc, target.target());
         target.push(patch);
     }
 
-    /** Unconditional jump to a constant. */
+    /// Unconditional jump to a constant.
     fn const_jump(&mut self, target: &mut Label) {
         let patch = self.a.const_jump(target.target());
         target.push(patch);
     }
 
-    /** Unconditional call to a constant. */
+    /// Unconditional call to a constant.
     #[allow(dead_code)]
     fn const_call(&mut self, target: &mut Label) {
         let patch = self.a.const_call(target.target());
         target.push(patch);
     }
 
-    /** Assemble `op` with no shift. */
+    /// Assemble `op` with no shift.
     fn add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
         self.a.shift_add(op, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
     }
 
-    /** Apply `op` to `src` and `constant`. */
+    /// Apply `op` to `src` and `constant`.
     fn const_add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: u64, temp: Register) {
         if let Ok(x) = Unsigned::new(constant) {
             self.a.const_add(op, prec, dest.into(), src.into(), x);
@@ -161,25 +157,23 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Compare `src1` to `src2` and set condition flags. */
+    /// Compare `src1` to `src2` and set condition flags.
     fn cmp(&mut self, prec: Precision, src1: impl Into<Register>, src2: impl Into<Register>) {
         self.add(SUBS, prec, RZR, src1, src2);
     }
 
-    /**
-     * Compare `src` to `constant` and set condition flags.
-     * `temp` is corrupted.
-     */
+    /// Compare `src` to `constant` and set condition flags.
+    /// `temp` is corrupted.
     fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: u64, temp: Register) {
         self.const_add(SUBS, prec, RZR, src, constant, temp);
     }
 
-    /** Assemble `op` with no shift. */
+    /// Assemble `op` with no shift.
     fn logic(&mut self, op: LogicOp, prec: Precision, not: bool, dest: impl Into<Register>, src1: impl Into<Register>, src2: impl Into<Register>) {
         self.a.shift_logic(op, not, dest.into(), src1.into(), src2.into(), Shift::new(prec, 0).unwrap());
     }
 
-    /** Move `src` to `dest` if they are different. */
+    /// Move `src` to `dest` if they are different.
     fn move_(&mut self, dest: impl Into<Register>, src: impl Into<Register>) {
         let dest = dest.into();
         let src = src.into();
@@ -188,10 +182,8 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /**
-     * Constructs a (Register, Offset) pair representing `base + offset`.
-     * Corrupts `temp`.
-     */
+    /// Constructs a (Register, Offset) pair representing `base + offset`.
+    /// Corrupts `temp`.
     fn address(&mut self, width: Width, base: Register, offset: u64, temp: Register) -> (Register, Offset) {
         if let Ok(imm) = Offset::new(width, offset) {
             // `offset` fits in an immediate constant.
@@ -208,30 +200,26 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /**
-     * Access 8 bytes at `address`, which must be 8-byte aligned.
-     * Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `dest`.
-     */
+    /// Access 8 bytes at `address`, which must be 8-byte aligned.
+    /// Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `dest`.
     fn mem(&mut self, op: MemOp, data: Register, address: (Register, u64), temp: Register) {
         let address = self.address(Width::Eight, address.0, address.1, temp);
         self.a.mem(op, data, address);
     }
 
-    /** Returns the base and offset of `global`. */
+    /// Returns the base and offset of `global`.
     fn global_address(&self, global: Global) -> (Register, u64) {
         (POOL, (self.pool.index_of_global(global) * 8) as u64)
     }
 
-    /** Returns the base and offset of `slot` in the stack-allocated data. */
+    /// Returns the base and offset of `slot` in the stack-allocated data.
     fn slot_address(&self, slot: Slot) -> (Register, u64) {
         assert!(slot.0 < self.slots_used);
         (RSP, (((self.slots_used - 1) - slot.0) * 8) as u64)
     }
 
-    /**
-     * If `src` is a Register, returns it, otherwise loads it into `reg` and
-     * returns `reg`.
-     */
+    /// If `src` is a Register, returns it, otherwise loads it into `reg` and
+    /// returns `reg`.
     fn src_to_register(&mut self, src: impl Into<Value>, reg: impl Into<Register>) -> Register {
         let src = src.into();
         let reg = reg.into();
@@ -248,7 +236,7 @@ impl<B: Buffer> Lowerer<B> {
         }
     }
 
-    /** Assemble code to perform the given `unary_op`. */
+    /// Assemble code to perform the given `unary_op`.
     fn unary_op(
         &mut self,
         unary_op: UnaryOp,
@@ -274,7 +262,7 @@ impl<B: Buffer> Lowerer<B> {
         };
     }
 
-    /** Assemble code to perform the given `binary_op`. */
+    /// Assemble code to perform the given `binary_op`.
     fn binary_op(
         &mut self,
         binary_op: BinaryOp,
@@ -543,7 +531,7 @@ pub mod tests {
         }
     }
 
-    /** Test that we can patch jumps and calls. */
+    /// Test that we can patch jumps and calls.
     #[test]
     fn steal() {
         let pool = Pool::new(0);

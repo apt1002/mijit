@@ -2,10 +2,8 @@ use std::ops::{Deref, DerefMut};
 use memmap::{MmapMut, Mmap as MmapExec};
 use super::{Buffer};
 
-/**
- * Represents a block of memory claimed from the operating system using
- * `mmap()`. Memory allocated in this way can be made executable.
- */
+/// Represents a block of memory claimed from the operating system using
+/// `mmap()`. Memory allocated in this way can be made executable.
 pub enum Mmap {
     Mut(MmapMut),
     Exec(MmapExec),
@@ -13,14 +11,12 @@ pub enum Mmap {
 }
 
 impl Mmap {
-    /**
-     * Make this [`Mmap`] executable, pass it to `callback`, then make it
-     * writeable again.
-     *
-     * If we can't change the buffer permissions, you get an [`Err`] and the [`Mmap`]
-     * is gone. T can itself be a Result if necessary to represent errors
-     * returned by `callback`
-     */
+    /// Make this [`Mmap`] executable, pass it to `callback`, then make it
+    /// writeable again.
+    ///
+    /// If we can't change the buffer permissions, you get an [`Err`] and the [`Mmap`]
+    /// is gone. T can itself be a Result if necessary to represent errors
+    /// returned by `callback`
     pub fn execute<T>(&mut self, callback: impl FnOnce(&[u8]) -> T) -> T {
         let m: &mut MmapExec = self.as_mut();
         callback(&*m)

@@ -10,7 +10,7 @@ use Precision::*;
 
 // CaseId.
 array_index! {
-    /** Identifies a [`Case`] of an [`Engine`]. */
+    /// Identifies a [`Case`] of an [`Engine`].
     #[derive(Copy, Clone, Hash, PartialEq, Eq)]
     pub struct CaseId(std::num::NonZeroUsize) {
         debug_name: "CaseId",
@@ -18,42 +18,40 @@ array_index! {
     }
 }
 
-/** A branch that merges with a [`Case`] that is less specialized. */
+/// A branch that merges with a [`Case`] that is less specialized.
 #[derive(Debug)]
 struct Retire {
-    /** The code to run. */
+    /// The code to run.
     actions: Box<[Action]>,
-    /** The [`Case`] to jump to. `None` means the root. */
+    /// The [`Case`] to jump to. `None` means the root.
     jump: Option<CaseId>,
 }
 
-/** A branch to [`Case`]s that are more specialized. */
+/// A branch to [`Case`]s that are more specialized.
 #[derive(Debug)]
 struct Fetch {
-    /** The code to run. */
+    /// The code to run.
     actions: Box<[Action]>,
-    /** The control-flow decision. */
+    /// The control-flow decision.
     switch: Switch<CaseId>,
 }
 
-/**
- * Represents a basic block ending with some kind of branch.
- * See `doc/engine/structure.md`.
- *
- * One or both of `fetch` and `retire` must be non-`None` for every reachable
- * `Case`, as must `convention` (they can all be `None` during construction).
- */
+/// Represents a basic block ending with some kind of branch.
+/// See `doc/engine/structure.md`.
+///
+/// One or both of `fetch` and `retire` must be non-`None` for every reachable
+/// `Case`, as must `convention` (they can all be `None` during construction).
 #[derive(Debug)]
 struct Case {
-    /** The unique [`Switch`] that can jump directly to this `Case`. */
+    /// The unique [`Switch`] that can jump directly to this `Case`.
     fetch_parent: Option<CaseId>,
-    /** The [`Convention`] on entry (i.e. at `label`). */
+    /// The [`Convention`] on entry (i.e. at `label`).
     before: Option<Convention>,
-    /** The address of the code. */
+    /// The address of the code.
     label: Label,
-    /** The `Retire`, if any. */
+    /// The `Retire`, if any.
     retire: Option<Retire>,
-    /** The `Fetch`, if any. */
+    /// The `Fetch`, if any.
     fetch: Option<Fetch>,
 }
 
@@ -63,10 +61,8 @@ impl Case {
         self.before.as_ref().expect("Incompletely constructed")
     }
 
-    /**
-     * If `self.before` is `None`, replaces it with `new`.
-     * Otherwise, assert that `new` refines `self.before`.
-     */
+    /// If `self.before` is `None`, replaces it with `new`.
+    /// Otherwise, assert that `new` refines `self.before`.
     fn set_convention(&mut self, new: Convention) {
         if let Some(old) = &self.before {
             assert!(new.refines(old));
@@ -78,30 +74,24 @@ impl Case {
 
 //-----------------------------------------------------------------------------
 
-/**
- * This only exists to keep the borrow checker happy.
- * We might need to borrow these fields while generating code.
- */
+/// This only exists to keep the borrow checker happy.
+/// We might need to borrow these fields while generating code.
 #[derive(Debug)]
 struct Internals {
-    /** The [`Convention`] obeyed by the root. */
+    /// The [`Convention`] obeyed by the root.
     convention: Convention,
-    /**
-     * The [`Case`]s in the order they were compiled, excluding the root.
-     * Indexed by [`CaseId`].
-     */
+    /// The [`Case`]s in the order they were compiled, excluding the root.
+    /// Indexed by [`CaseId`].
     cases: Vec<Case>,
 }
 
 impl Internals {
-    /**
-     * Constructs a new [`Case`], initially with an undefined `label` and with
-     * neither a [`Retire`] nor a [`Fetch`]. Call at least one of
-     * `add_retire()` and `add_fetch()` before using the new `Case`.
-     *  - fetch_parent - the `Case` whose `Fetch` will eventually jump to the
-     *    new `Case`.
-     *  - convention - the [`Convention`] in effect on entry to the new `Case`.
-     */
+    /// Constructs a new [`Case`], initially with an undefined `label` and with
+    /// neither a [`Retire`] nor a [`Fetch`]. Call at least one of
+    /// `add_retire()` and `add_fetch()` before using the new `Case`.
+    ///  - fetch_parent - the `Case` whose `Fetch` will eventually jump to the
+    ///    new `Case`.
+    ///  - convention - the [`Convention`] in effect on entry to the new `Case`.
     fn new_case(&mut self, fetch_parent: impl Into<Option<CaseId>>) -> CaseId {
         let id = CaseId::new(self.cases.len()).unwrap();
         self.cases.push(Case {
@@ -114,14 +104,12 @@ impl Internals {
         id
     }
 
-    /** Find the [`Convention`] for a [`CaseId`] allowing for `None`. */
+    /// Find the [`Convention`] for a [`CaseId`] allowing for `None`.
     fn convention(&self, id: impl Into<Option<CaseId>>) -> &Convention {
         id.into().map_or(&self.convention, |id| self[id].convention())
     }
 
-    /**
-     * Add a [`Retire`] to a [`Case`] that doesn't have a [`Fetch`].
-     */
+    /// Add a [`Retire`] to a [`Case`] that doesn't have a [`Fetch`].
     fn add_retire(&mut self, lo: &mut impl Lower, id: CaseId, retire: Retire) {
         assert!(self[id].fetch.is_none());
         // Compute the `before` convention.
@@ -150,11 +138,9 @@ impl Internals {
         self[id].retire = Some(retire);
     }
 
-    /**
-     * Add a [`Fetch`] to a [`Case`] that doesn't have one.
-     *
-     * Every child `Case` must have `id` as its `fetch_parent`.
-     */
+    /// Add a [`Fetch`] to a [`Case`] that doesn't have one.
+    ///
+    /// Every child `Case` must have `id` as its `fetch_parent`.
     fn add_fetch(&mut self, lo: &mut impl Lower, id: CaseId, fetch: Fetch) {
         assert!(self[id].fetch.is_none());
         // Compute the `before` convention.
@@ -213,17 +199,15 @@ impl IndexMut<CaseId> for Internals {
 
 //-----------------------------------------------------------------------------
 
-/**
- * The state of the JIT compilation engine. This includes the memory allocated
- * for the compiled code, and all house-keeping data.
- */
+/// The state of the JIT compilation engine. This includes the memory allocated
+/// for the compiled code, and all house-keeping data.
 #[allow(clippy::module_name_repetitions)]
 pub struct Engine<T: Target> {
-    /** The compilation target. */
+    /// The compilation target.
     _target: T,
-    /** The code compiled so far. */
+    /// The code compiled so far.
     lowerer: T::Lowerer,
-    /** This nested struct can be borrowed independently of `lowerer`. */
+    /// This nested struct can be borrowed independently of `lowerer`.
     i: Internals,
 }
 
@@ -236,11 +220,9 @@ impl<T: Target> std::fmt::Debug for Engine<T> {
 }
 
 impl<T: Target> Engine<T> {
-    /**
-     * Constructs an `Engine`, initially with no entries.
-     *  - num_globals - the number of [`Global`]s needed to pass values to and
-     *    from the compiled code.
-     */
+    /// Constructs an `Engine`, initially with no entries.
+    ///  - num_globals - the number of [`Global`]s needed to pass values to and
+    ///    from the compiled code.
     pub fn new(target: T, num_globals: usize) -> Self {
         let pool = Pool::new(num_globals);
         let lowerer = target.lowerer(pool);
@@ -251,19 +233,17 @@ impl<T: Target> Engine<T> {
         Engine {_target: target, lowerer, i}
     }
 
-    /** Borrows the value of variable `global`. */
+    /// Borrows the value of variable `global`.
     pub fn global_mut(&mut self, global: Global) -> &mut Word {
         &mut self.lowerer.pool_mut()[global]
     }
 
-    /**
-     * Define the code for case `id`.
-     *
-     *  - id - the case to modify.
-     *  - ebb - the extended basic block defining the desired behaviour.
-     *  - to_case - called for every leaf of the EBB to determine where to
-     *    jump to.
-     */
+    /// Define the code for case `id`.
+    ///
+    ///  - id - the case to modify.
+    ///  - ebb - the extended basic block defining the desired behaviour.
+    ///  - to_case - called for every leaf of the EBB to determine where to
+    ///    jump to.
     pub fn build<L: Clone + Debug>(
         &mut self,
         id: CaseId,
@@ -298,19 +278,17 @@ impl<T: Target> Engine<T> {
         }
     }
 
-    /**
-     * Construct an entry to this [`Engine`]. Initially, the code at the
-     * entry will immediately return `exit_value`. To change this behaviour,
-     * use [`build()`].
-     *
-     *  - marshal.prologue - executed on every entry to the compiled code.
-     *  - marshal.epilogue - executed on every exit from the compiled code.
-     *  - exit_value - returned to the caller on exit. Must be non-negative.
-     *
-     * Returns:
-     *  - label - the external entry point, which can be passed to `run()`.
-     *  - id - the `CaseId` corresponding to the entry.
-     */
+    /// Construct an entry to this [`Engine`]. Initially, the code at the
+    /// entry will immediately return `exit_value`. To change this behaviour,
+    /// use [`build()`].
+    ///
+    ///  - marshal.prologue - executed on every entry to the compiled code.
+    ///  - marshal.epilogue - executed on every exit from the compiled code.
+    ///  - exit_value - returned to the caller on exit. Must be non-negative.
+    ///
+    /// Returns:
+    ///  - label - the external entry point, which can be passed to `run()`.
+    ///  - id - the `CaseId` corresponding to the entry.
     pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> (Label, CaseId) {
         assert!(exit_value >= 0);
         let id = self.i.new_case(None);
@@ -331,11 +309,9 @@ impl<T: Target> Engine<T> {
         (label, id)
     }
 
-    /**
-     * Returns a copy of the hot path starting at `id` up to the next
-     * [`Switch`]. Returns `None` if the hot path exits Mijit without reaching
-     * a `Switch`.
-     */
+    /// Returns a copy of the hot path starting at `id` up to the next
+    /// [`Switch`]. Returns `None` if the hot path exits Mijit without reaching
+    /// a `Switch`.
     fn hot_path(&self, mut id: CaseId) -> Option<EBB<CaseId>> {
         let mut actions = Vec::new();
         loop {
@@ -374,10 +350,8 @@ impl<T: Target> Engine<T> {
         }
     }
 
-    /**
-     * Find the hot path starting at `id`, which must be a [`Retire`].
-     * Clone it, optimize it, and replace `id` with a [`Fetch`].
-     */
+    /// Find the hot path starting at `id`, which must be a [`Retire`].
+    /// Clone it, optimize it, and replace `id` with a [`Fetch`].
     #[allow(unused)] // TODO.
     fn specialize(&mut self, id: CaseId) {
         assert!(self.i[id].fetch.is_none());
@@ -386,14 +360,12 @@ impl<T: Target> Engine<T> {
         }
     }
 
-    /**
-     * Call the compiled code starting at `label`, passing the [`Pool`].
-     *
-     * # Safety
-     *
-     * This will crash if the code is compiled for the wrong [`Target`] or if
-     * the code is invalid.
-     */
+    /// Call the compiled code starting at `label`, passing the [`Pool`].
+    ///
+    /// # Safety
+    ///
+    /// This will crash if the code is compiled for the wrong [`Target`] or if
+    /// the code is invalid.
     pub unsafe fn run(&mut self, label: &Label) -> Word {
         self.lowerer.execute(label, |f, pool| {
             let pool = pool.as_mut().as_mut_ptr();
@@ -410,12 +382,12 @@ struct EngineWrapper<'a, T: Target, L: Clone, F: Fn(L) -> CaseId> {
 }
 
 impl<'a, T: Target, L: Clone, F: Fn(L) -> CaseId> LookupLeaf<L> for EngineWrapper<'a, T, L, F> {
-    /** Return the convention in effect at `leaf`. */
+    /// Return the convention in effect at `leaf`.
     fn after(&self, leaf: &L) -> &Convention {
         self.engine.i.convention((self.to_case)(leaf.clone()))
     }
 
-    /** Return the estimated relative frequency of `leaf`. */
+    /// Return the estimated relative frequency of `leaf`.
     fn weight(&self, _leaf: &L) -> usize {
         1  // FIXME
     }

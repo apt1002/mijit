@@ -1,23 +1,19 @@
 use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
 
-/**
- * Annotates a [`Node`] of a [`Dataflow`] graph.
- *
- * `Node`: super::Node
- * `Dataflow`: super::Dataflow
- */
+/// Annotates a [`Node`] of a [`Dataflow`] graph.
+///
+/// `Node`: super::Node
+/// `Dataflow`: super::Dataflow
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Op {
-    /** Represents a control-flow decision. */
+    /// Represents a control-flow decision.
     Guard,
-    /**
-     * Represents a sequence point. A [`Node`] with this `Op` depends on a
-     * `Node` with a side-effect and on the previous [`Op::Sequence`] `Node`
-     * (or the entry node).
-     */
+    /// Represents a sequence point. A [`Node`] with this `Op` depends on a
+    /// `Node` with a side-effect and on the previous [`Op::Sequence`] `Node`
+    /// (or the entry node).
     Sequence,
-    /** A no-op used at the external boundaries of a Dataflow graph. */
+    /// A no-op used at the external boundaries of a Dataflow graph.
     Convention,
     Constant(i64),
     Unary(Precision, UnaryOp),
@@ -28,11 +24,9 @@ pub enum Op {
 }
 
 impl Op {
-    /**
-     * Aggregates this [`Op`] with the specified outputs and inputs to make an
-     * [`Action`].
-     * Panics if the `Op` is a `Guard`, `Sequence` or `Convention`.
-     */
+    /// Aggregates this [`Op`] with the specified outputs and inputs to make an
+    /// [`Action`].
+    /// Panics if the `Op` is a `Guard`, `Sequence` or `Convention`.
     pub fn to_action(self, outs: &[Register], ins: &[Variable]) -> Action {
         match self {
             Op::Guard => panic!("Cannot convert a guard to an action"),

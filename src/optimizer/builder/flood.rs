@@ -3,25 +3,25 @@ use std::collections::{HashSet};
 use super::{Dataflow, Node, Out};
 use crate::util::{ArrayMap};
 
-/** The state of a LIFO flood fill through a [`Dataflow`] graph. */
+/// The state of a LIFO flood fill through a [`Dataflow`] graph.
 #[derive(Debug)]
 struct Flood<'a> {
-    /** The graph to flood fill. */
+    /// The graph to flood fill.
     dataflow: &'a Dataflow,
-    /** Records which [`Node`]s have been visited. */
+    /// Records which [`Node`]s have been visited.
     marks: &'a mut ArrayMap<Node, usize>,
-    /** The value to store in `marks` when we visit a [`Node`]. */
+    /// The value to store in `marks` when we visit a [`Node`].
     marker: usize,
-    /** Accumulates the live inputs. */
+    /// Accumulates the live inputs.
     inputs: &'a mut HashSet<Out>,
-    /** Accumulates the direct dependencies. */
+    /// Accumulates the direct dependencies.
     effects: &'a mut HashSet<Node>,
-    /** Accumulates the visited [`Node`]s, topologically sorted. */
+    /// Accumulates the visited [`Node`]s, topologically sorted.
     nodes: Vec<Node>,
 }
 
 impl <'a> Flood<'a> {
-    /** The recursive part of `flood()`. */
+    /// The recursive part of `flood()`.
     pub fn visit(&mut self, node: Node) {
         assert_eq!(self.marks[node], 0);
         self.marks[node] = self.marker;
@@ -49,18 +49,16 @@ impl <'a> Flood<'a> {
     }
 }
 
-/**
- * Flood fill the unmarked [`Node`]s on which `exit_node` depends.
- *
- * The fill follows `dataflow` dependencies (both values and side-effects)
- * backwards in time. Visited `Node`s are marked with `marker`. The fill stops
- * at `Node`s that are marked with a non-zero value; the [`Out`]s by which they
- * are reached are added to `inputs` and those whose side-effects are needed
- * are added to `effects`.
- *
- * Returns the `Node`s that were marked. The returned array is topologically
- * sorted into a possible execution order.
- */
+/// Flood fill the unmarked [`Node`]s on which `exit_node` depends.
+///
+/// The fill follows `dataflow` dependencies (both values and side-effects)
+/// backwards in time. Visited `Node`s are marked with `marker`. The fill stops
+/// at `Node`s that are marked with a non-zero value; the [`Out`]s by which they
+/// are reached are added to `inputs` and those whose side-effects are needed
+/// are added to `effects`.
+///
+/// Returns the `Node`s that were marked. The returned array is topologically
+/// sorted into a possible execution order.
 pub fn flood(
     dataflow: &Dataflow,
     marks: &mut ArrayMap<Node, usize>,

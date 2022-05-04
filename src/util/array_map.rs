@@ -2,17 +2,13 @@ use std::fmt::{self, Debug, Formatter};
 use std::hash::{Hash};
 use std::marker::{PhantomData};
 
-/**
- * Internally represented as a small integer that is usable as an array index.
- */
+/// Internally represented as a small integer that is usable as an array index.
 pub trait AsUsize: Debug + Copy + Hash + Eq {
     fn as_usize(self) -> usize;
 }
 
-/**
- * A map that is implemented as an array.
- * This is preferable to a `HashMap` when possible.
- */
+/// A map that is implemented as an array.
+/// This is preferable to a `HashMap` when possible.
 #[derive(Clone)]
 pub struct ArrayMap<K: AsUsize, V>(
     Box<[V]>,
@@ -87,23 +83,21 @@ impl<K: AsUsize, V> std::ops::IndexMut<K> for ArrayMap<K, V> {
 
 //-----------------------------------------------------------------------------
 
-/**
- * Declares a new type that wraps an array index but such that `Option<Self>`
- * is the same size as `Self`. This is similar to `std::num::NonZeroXXX` except
- * that the excluded value is the maximum value, not zero.
- *
- * Usage:
- * ```
- * array_index! {
- *     /// Documentation.
- *     #[attributes]
- *     pub struct MyStruct(NonZeroU16) {
- *         debug_name: "MyStruct",
- *         UInt: u16,
- *     }
- * }
- * ```
- */
+/// Declares a new type that wraps an array index but such that `Option<Self>`
+/// is the same size as `Self`. This is similar to `std::num::NonZeroXXX` except
+/// that the excluded value is the maximum value, not zero.
+///
+/// Usage:
+/// ```
+/// array_index! {
+///     /// Documentation.
+///     #[attributes]
+///     pub struct MyStruct(NonZeroU16) {
+///         debug_name: "MyStruct",
+///         UInt: u16,
+///     }
+/// }
+/// ```
 macro_rules! array_index {
     (
         $(#[$struct_attributes: meta])*
@@ -123,13 +117,11 @@ macro_rules! array_index {
         );
 
         impl $Name {
-            /**
-             * Safety
-             *
-             * We reserve the maximum value rather than zero.
-             * The maximum value is not usable as an array index anyway,
-             * because it is not less than the maximum length.
-             */
+            /// Safety
+            ///
+            /// We reserve the maximum value rather than zero.
+            /// The maximum value is not usable as an array index anyway,
+            /// because it is not less than the maximum length.
             #[allow(clippy::missing_safety_doc)] // Work around bug in clippy.
             #[allow(dead_code)]
             pub const unsafe fn new_unchecked(index: $UInt) -> Self {

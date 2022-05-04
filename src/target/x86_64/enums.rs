@@ -1,11 +1,9 @@
-/**
- * All x86_64 registers that can be used interchangeably in our chosen subset
- * of x86_64.
- *
- * All register names include a leading `R`, and omit a trailing `X`. This is
- * not intended to imply anything about the operand width, which is specified
- * in another way.
- */
+/// All x86_64 registers that can be used interchangeably in our chosen subset
+/// of x86_64.
+///
+/// All register names include a leading `R`, and omit a trailing `X`. This is
+/// not intended to imply anything about the operand width, which is specified
+/// in another way.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
@@ -33,7 +31,7 @@ use Register::*;
 pub const ALL_REGISTERS: [Register; 16] = [RA, RC, RD, RB, RSP, RBP, RSI, RDI, R8, R9, R10, R11, R12, R13, R14, R15];
 
 impl Register {
-    /** Returns a bit pattern which includes `self` in all useful positions. */
+    /// Returns a bit pattern which includes `self` in all useful positions.
     pub fn mask(self) -> u64 {
         [
             0x0000000000,

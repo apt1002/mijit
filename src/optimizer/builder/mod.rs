@@ -44,32 +44,30 @@ impl<'a> Builder<'a> {
         Builder {dataflow, marks}
     }
 
-    /** Tests whether `node` is a [`Op::Guard`]. */
+    /// Tests whether `node` is a [`Op::Guard`].
     fn is_guard(&self, node: Node) -> bool {
         matches!(self.dataflow.op(node), Op::Guard)
     }
 
-    /**
-     * Converts a [`HotPathTree`] into an [`EBB`]. Optimises the hot path in
-     * isolation, and recurses on the cold paths, passing information about
-     * [`Variable`] allocation and instruction scheduling.
-     *
-     * On entry and on exit, `marks[node]` must be in `1..coldness` if
-     * `node` is before the guard from which the `HotPathTree` diverges, and
-     * `0` otherwise. `marks[dataflow.entry_node()]` must be `1`.
-     *
-     * - exit - the exit [`Node`] of the hot path.
-     * - leaf - the merge point of the hot path.
-     * - guard_failure - called for each [`Op::Guard`] to find out what to do
-     *   if the guard fails.
-     * - coldness - 2 + the number of cold branches needed to reach the
-     *   `HotPathTree`. (`0` is used for unmarked nodes, and `1` for
-     *   `dataflow.entry_node()`.
-     * - slots_used - the number of [`Slot`]s on entry to the `HotPathTree`.
-     * - input - called once for each input to the `HotPathTree`. It informs
-     *   the caller of `walk()` that the input is live, and returns the
-     *   [`Variable`] that holds it.
-     */
+    /// Converts a [`HotPathTree`] into an [`EBB`]. Optimises the hot path in
+    /// isolation, and recurses on the cold paths, passing information about
+    /// [`Variable`] allocation and instruction scheduling.
+    ///
+    /// On entry and on exit, `marks[node]` must be in `1..coldness` if
+    /// `node` is before the guard from which the `HotPathTree` diverges, and
+    /// `0` otherwise. `marks[dataflow.entry_node()]` must be `1`.
+    ///
+    /// - exit - the exit [`Node`] of the hot path.
+    /// - leaf - the merge point of the hot path.
+    /// - guard_failure - called for each [`Op::Guard`] to find out what to do
+    ///   if the guard fails.
+    /// - coldness - 2 + the number of cold branches needed to reach the
+    ///   `HotPathTree`. (`0` is used for unmarked nodes, and `1` for
+    ///   `dataflow.entry_node()`.
+    /// - slots_used - the number of [`Slot`]s on entry to the `HotPathTree`.
+    /// - input - called once for each input to the `HotPathTree`. It informs
+    ///   the caller of `walk()` that the input is live, and returns the
+    ///   [`Variable`] that holds it.
     pub fn walk<'w, L: Debug + Clone>(
         &'w mut self,
         exit: Node,
@@ -277,7 +275,7 @@ mod tests {
         // TODO: Expected output.
     }
 
-    /** Regression test from Bee. */
+    /// Regression test from Bee.
     #[test]
     fn bee_1() {
         let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};

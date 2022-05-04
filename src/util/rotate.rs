@@ -1,4 +1,4 @@
-/** Bitwise left rotate. */
+/// Bitwise left rotate.
 pub fn rotate_left(x: u64, shift: u32) -> u64 {
     let shift = shift & 0x3F;
     if shift == 0 {
@@ -8,7 +8,7 @@ pub fn rotate_left(x: u64, shift: u32) -> u64 {
     (x << shift) | (x >> (64 - shift))
 }
 
-/** Bitwise right rotate. */
+/// Bitwise right rotate.
 pub fn rotate_right(x: u64, shift: u32) -> u64 {
     let shift = shift & 0x3F;
     if shift == 0 {

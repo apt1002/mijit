@@ -12,10 +12,8 @@ pub use traits::{Lower, ExecuteFn, Execute, Target};
 pub mod x86_64;
 pub mod aarch64;
 
-/**
- * The [`Register`] which holds the exit code on exit from Mijit.
- * This is guaranteed to be [`REGISTERS`][[`0`]].
- */
+/// The [`Register`] which holds the exit code on exit from Mijit.
+/// This is guaranteed to be [`REGISTERS`][[`0`]].
 pub const RESULT: code::Register = code::REGISTERS[0];
 
 #[cfg(target_arch="x86_64")]
@@ -23,7 +21,7 @@ pub type Native = x86_64::Target;
 #[cfg(target_arch="aarch64")]
 pub type Native = aarch64::Target;
 
-/** Returns the current [`Target`]. Equivalent to [`Default::default()`]. */
+/// Returns the current [`Target`]. Equivalent to [`Default::default()`].
 pub fn native() -> Native {
     Default::default()
 }
@@ -41,14 +39,14 @@ mod tests {
     use Width::*;
     use Action::*;
 
-    /** A test harness for a `Native::Lowerer`. */
+    /// A test harness for a `Native::Lowerer`.
     pub struct VM {
         pub lowerer: <Native as Target>::Lowerer,
         pub entry: Label,
     }
 
     impl VM {
-        /** Constructs a `Native::Lowerer` and passes it to `compile()`. */
+        /// Constructs a `Native::Lowerer` and passes it to `compile()`.
         pub fn new(num_globals: usize, compile: impl FnOnce(&mut dyn Lower)) -> Self {
             let mut lowerer = native().lowerer(Pool::new(num_globals));
             let entry = lowerer.here();
@@ -58,10 +56,8 @@ mod tests {
             Self {lowerer, entry}
         }
 
-        /**
-         * Calls the compiled code after setting the `Global`s to the specified
-         * values, and checks that the return value is `expected_result`.
-         */
+        /// Calls the compiled code after setting the `Global`s to the specified
+        /// values, and checks that the return value is `expected_result`.
         pub unsafe fn run(mut self, globals: &[Word], expected_result: Word) -> Self {
             assert_eq!(globals.len(), self.lowerer.pool().num_globals());
             for (i, &global) in globals.iter().enumerate() {
@@ -109,7 +105,7 @@ mod tests {
         0xFFFFFFFFFFFFFFFF,
     ];
 
-    /** Constructs a [`VM`], then calls it passing example values. */
+    /// Constructs a [`VM`], then calls it passing example values.
     pub unsafe fn test_unary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64) -> u64) {
         let mut vm = VM::new(1, |lo| compile(lo));
         for x in TEST_VALUES {
@@ -117,7 +113,7 @@ mod tests {
         }
     }
 
-    /** Constructs a [`VM`], then calls it passing example pairs of values. */
+    /// Constructs a [`VM`], then calls it passing example pairs of values.
     pub unsafe fn test_binary(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, u64) -> u64) {
         let mut vm = VM::new(2, |lo| compile(lo));
         for x in TEST_VALUES {
@@ -127,7 +123,7 @@ mod tests {
         }
     }
 
-    /** Constructs a [`VM`], then calls it passing a pointer. */
+    /// Constructs a [`VM`], then calls it passing a pointer.
     pub unsafe fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 1]) -> u64) {
         let mut vm = VM::new(1, |lo| compile(lo));
         for x in TEST_VALUES {
@@ -136,11 +132,9 @@ mod tests {
         }        
     }
 
-    /**
-     * Test that the results of arithmetic operations do not depend on which
-     * registers are used to compute them.
-     *  - compile - Takes (lo, dest, src1, src2).
-     */
+    /// Test that the results of arithmetic operations do not depend on which
+    /// registers are used to compute them.
+    ///  - compile - Takes (lo, dest, src1, src2).
     pub unsafe fn test_clobber(
         compile: impl Fn(&mut dyn Lower, Register, Register, Register),
     ) {
@@ -405,10 +399,8 @@ mod tests {
         }
     }
 
-    /**
-     * Representative shift amounts.
-     * Shifts < 0 or >= word size are undefined.
-     */
+    /// Representative shift amounts.
+    /// Shifts < 0 or >= word size are undefined.
     const SHIFTS: [usize; 5] = [0, 1, 21, 31, 63];
 
     #[test]
@@ -714,7 +706,7 @@ mod tests {
 
     // Test extremes.
 
-    /** Generate a pseudo-random permutation of size `size`. */
+    /// Generate a pseudo-random permutation of size `size`.
     fn permutation(size: usize) -> Vec<usize> {
         let mut nats: Vec<usize> = (0..size).collect();
         let mut seed: u32 = 1;

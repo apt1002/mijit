@@ -6,7 +6,7 @@ use super::{Op, Dataflow, Node, Out, flood, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
-/** Helper for formatting [`Cold`]s. */
+/// Helper for formatting [`Cold`]s.
 enum CaseAdapter<C> {
     Hot,
     Cold(C),
@@ -24,18 +24,14 @@ impl<C: Debug> Debug for CaseAdapter<C> {
 
 //-----------------------------------------------------------------------------
 
-/** Represents what happens when a particular [`Op::Guard`] fails. */
+/// Represents what happens when a particular [`Op::Guard`] fails.
 #[derive(PartialEq, Eq)]
 pub struct GuardFailure<L: Debug + Clone> {
-    /**
-     * The HotPathTrees that could be entered as a result of this
-     * `GuardFailure`.
-     */
+    /// The HotPathTrees that could be entered as a result of this
+    /// `GuardFailure`.
     pub cold: Cold<HotPathTree<L>>,
-    /**
-     * The set of `Out`s that any of `cases` depends on. On the hot path, the
-     * `Out`s must be kept alive at least until the [`Op::Guard`] is executed.
-     */
+    /// The set of `Out`s that any of `cases` depends on. On the hot path, the
+    /// `Out`s must be kept alive at least until the [`Op::Guard`] is executed.
     pub keep_alives: HashSet<Out>,
 }
 
@@ -50,20 +46,18 @@ impl<L: Debug + Clone> Debug for GuardFailure<L> {
     }
 }
 
-/**
- * Represents a tree of (acyclic) hot paths. A hot path is defined to be the
- * set of [`Node`]s that will be executed if all [`Op::Guard`]s have their
- * expected outcomes. If a `Guard` fails, then we end up on a new hot path,
- * which we consider to be a child of the original. This gives a tree
- * structure.
- */
+/// Represents a tree of (acyclic) hot paths. A hot path is defined to be the
+/// set of [`Node`]s that will be executed if all [`Op::Guard`]s have their
+/// expected outcomes. If a `Guard` fails, then we end up on a new hot path,
+/// which we consider to be a child of the original. This gives a tree
+/// structure.
 #[derive(Debug, PartialEq, Eq)]
 pub struct HotPathTree<L: Debug + Clone> {
-    /** The exit [`Node`] of the hot path. */
+    /// The exit [`Node`] of the hot path.
     pub exit: Node,
-    /** The leaf of the hot path. */
+    /// The leaf of the hot path.
     pub leaf: L,
-    /** A [`GuardFailure`] for each [`Op::Guard`] on the root hot path. */
+    /// A [`GuardFailure`] for each [`Op::Guard`] on the root hot path.
     pub children: HashMap<Node, GuardFailure<L>>,
 }
 
@@ -94,16 +88,14 @@ impl<'a> KeepAlive<'a> {
         KeepAlive {dataflow, marks}
     }
 
-    /**
-     * Convert `cft` into a [`HotPathTree`].
-     *
-     * On entry and on exit, `marks[node]` must be in `1..coldness` if
-     * `node` is on the hotter path from which `cft` diverges, and `0`
-     * otherwise. `marks[entry_node]` must be `1`.
-     *
-     * - coldness - 2 + the number of cold branches needed to reach `cft`.
-     *   (`0` is used for unmarked nodes, and `1` for the entry node).
-     */
+    /// Convert `cft` into a [`HotPathTree`].
+    ///
+    /// On entry and on exit, `marks[node]` must be in `1..coldness` if
+    /// `node` is on the hotter path from which `cft` diverges, and `0`
+    /// otherwise. `marks[entry_node]` must be `1`.
+    ///
+    /// - coldness - 2 + the number of cold branches needed to reach `cft`.
+    ///   (`0` is used for unmarked nodes, and `1` for the entry node).
     fn walk<L: Debug + Clone>(&mut self, cft: &'a CFT<L>, inputs: &mut HashSet<Out>, coldness: usize)
     -> HotPathTree<L> {
         let (colds, exit, leaf) = cft.hot_path();
@@ -143,11 +135,9 @@ impl<'a> KeepAlive<'a> {
     }
 }
 
-/**
- * For each [`Op::Guard`] in `cft`, finds the set of [`Out`]s that
- * are computed on the hot path but which must outlive the `Guard` because they
- * are also needed on at least one cold path.
- */
+/// For each [`Op::Guard`] in `cft`, finds the set of [`Out`]s that
+/// are computed on the hot path but which must outlive the `Guard` because they
+/// are also needed on at least one cold path.
 pub fn keep_alive_sets<L: Debug + Clone>(dataflow: &Dataflow, cft: &CFT<L>) -> HotPathTree<L> {
     let mut ka = KeepAlive::new(dataflow);
     ka.walk(cft, &mut HashSet::new(), 2)
@@ -173,23 +163,21 @@ mod tests {
         }
     }
 
-    /**
-     * ```
-     * if a { // guard1, switch1. kas: [c, r, s]
-     *     if b { // guard2, switch2. kas: [q]
-     *         return p; // hot_hot, merge4
-     *     } else {
-     *         return q; // hot_cold, merge5
-     *     }
-     * } else {
-     *     if c { // guard3, switch3. kas: [s]
-     *         return r; // cold_hot, merge6
-     *     } else {
-     *         return s; // cold_cold, merge7
-     *     }
-     * }
-     * ```
-     */
+    /// ```
+    /// if a { // guard1, switch1. kas: [c, r, s]
+    ///     if b { // guard2, switch2. kas: [q]
+    ///         return p; // hot_hot, merge4
+    ///     } else {
+    ///         return q; // hot_cold, merge5
+    ///     }
+    /// } else {
+    ///     if c { // guard3, switch3. kas: [s]
+    ///         return r; // cold_hot, merge6
+    ///     } else {
+    ///         return s; // cold_cold, merge7
+    ///     }
+    /// }
+    /// ```
     #[test]
     fn binary_tree() {
         // Dummy `Leaf`.

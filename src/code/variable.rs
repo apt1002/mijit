@@ -4,17 +4,15 @@ use std::hash::{Hash};
 pub use crate::util::{AsUsize};
 
 array_index! {
-    /**
-     * Names an allocatable register. The mapping of [`Register`]s onto CPU
-     * registers is an implementation detail of a [`Target`], which may also
-     * reserve a few CPU registers for special purposes.
-     *
-     * Mijit guarantees a minimum set of [`REGISTERS`]. More are available
-     * non-portably: for example, by invoking the optimizer passing a
-     * particular [`Target`].
-     *
-     * [`Target`]: super::target::Target
-     */
+    /// Names an allocatable register. The mapping of [`Register`]s onto CPU
+    /// registers is an implementation detail of a [`Target`], which may also
+    /// reserve a few CPU registers for special purposes.
+    ///
+    /// Mijit guarantees a minimum set of [`REGISTERS`]. More are available
+    /// non-portably: for example, by invoking the optimizer passing a
+    /// particular [`Target`].
+    ///
+    /// [`Target`]: super::target::Target
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct Register(std::num::NonZeroU8) {
         debug_name: "Register",
@@ -22,7 +20,7 @@ array_index! {
     }
 }
 
-/** Some [`Register`]s that are guaranteed to exist on all targets. */
+/// Some [`Register`]s that are guaranteed to exist on all targets.
 pub const REGISTERS: [Register; 12] = unsafe {[
     Register::new_unchecked(0), Register::new_unchecked(1),
     Register::new_unchecked(2), Register::new_unchecked(3),
@@ -32,7 +30,7 @@ pub const REGISTERS: [Register; 12] = unsafe {[
     Register::new_unchecked(10), Register::new_unchecked(11),
 ]};
 
-/** Names a value that persists when Mijit is not running. */
+/// Names a value that persists when Mijit is not running.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Global(pub usize);
 
@@ -42,7 +40,7 @@ impl Debug for Global {
     }
 }
 
-/** A stack-allocated spill slot. */
+/// A stack-allocated spill slot.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct Slot(pub usize);
 
@@ -52,7 +50,7 @@ impl Debug for Slot {
     }
 }
 
-/** A spill slot or register. */
+/// A spill slot or register.
 // TODO: Reorder cases for consistency: Register, Global, Slot.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Variable {
@@ -110,10 +108,8 @@ impl TryFrom<Variable> for Register {
     }
 }
 
-/**
- * `impl IntoVariable` is useful as the type of function arguments. It accepts
- * both [`Register`]s and [`Variable`]s.
- */
+/// `impl IntoVariable` is useful as the type of function arguments. It accepts
+/// both [`Register`]s and [`Variable`]s.
 pub trait IntoVariable: Copy + Into<Variable> {}
 
 impl<T: Copy + Into<Variable>> IntoVariable for T {}

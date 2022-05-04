@@ -11,31 +11,23 @@ pub use assembler::{Assembler};
 mod lowerer;
 pub use lowerer::{Lowerer, ALLOCATABLE_REGISTERS};
 
-/**
- * In the System V amd64 calling convention, these registers must be preserved
- * by subroutines, as must `RSP`.
- */
+/// In the System V amd64 calling convention, these registers must be preserved
+/// by subroutines, as must `RSP`.
 pub const CALLEE_SAVES: [Register; 6] = [RB, RBP, R12, R13, R14, R15];
 
-/**
- * In the System V amd64 calling convention, these registers may be
- * corrupted by subroutines.
- */
+/// In the System V amd64 calling convention, these registers may be
+/// corrupted by subroutines.
 pub const CALLER_SAVES: [Register; 9] = [RDI, RSI, RD, RC, R8, R9, R10, R11, RA];
 
-/**
- * In the System V amd64 calling convention, these registers hold the integer-
- * or pointer-type function arguments.
- */
+/// In the System V amd64 calling convention, these registers hold the integer-
+/// or pointer-type function arguments.
 pub const ARGUMENTS: [Register; 6] = [RDI, RSI, RD, RC, R8, R9];
 
-/**
- * In the System V amd64 calling convention, these registers hold the integer-
- * or pointer-type function results.
- */
+/// In the System V amd64 calling convention, these registers hold the integer-
+/// or pointer-type function results.
 pub const RESULTS: [Register; 2] = [RA, RD];
 
-/** The x86_64/libc compilation target. */
+/// The x86_64/libc compilation target.
 #[derive(Default)]
 pub struct Target;
 

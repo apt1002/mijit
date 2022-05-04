@@ -1,7 +1,5 @@
-/**
- * Return the index in `it` of the element for which `f` gives the largest
- * non-None result.
- */
+/// Return the index in `it` of the element for which `f` gives the largest
+/// non-None result.
 pub fn map_filter_max<I: IntoIterator, T: Ord> (
     it: I,
     mut f: impl FnMut(I::Item) -> Option<T>,

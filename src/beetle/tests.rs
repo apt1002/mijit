@@ -2,35 +2,33 @@ use super::super::target::{Native, native};
 
 use super::{Registers, CELL, Beetle};
 
-/** The suggested size of the Beetle memory, in cells. */
+/// The suggested size of the Beetle memory, in cells.
 pub const MEMORY_CELLS: u32 = 1 << 20;
-/** The suggested size of the Beetle data stack, in cells. */
+/// The suggested size of the Beetle data stack, in cells.
 pub const DATA_CELLS: u32 = 1 << 18;
-/** The suggested size of the Beetle return stack, in cells. */
+/// The suggested size of the Beetle return stack, in cells.
 pub const RETURN_CELLS: u32 = 1 << 18;
 
 pub struct VM {
-    /** The compiled code. */
+    /// The compiled code.
     beetle: super::Beetle<Native>,
-    /** The Beetle state (other than the memory). */
+    /// The Beetle state (other than the memory).
     state: Registers,
-    /** The Beetle memory. */
+    /// The Beetle memory.
     memory: Vec<u32>,
-    /** The amount of unallocated memory, in cells. */
+    /// The amount of unallocated memory, in cells.
     free_cells: u32,
-    /** The address of a HALT instruction. */
+    /// The address of a HALT instruction.
     halt_addr: u32,
 }
 
 impl VM {
-    /**
-     * Constructs a Beetle virtual machine with the specified parameters.
-     *
-     * The memory is `memory_cells` cells. The data stack occupies the last
-     * `data_cells` cells of the memory, and the return stack occupies
-     * the last `return_cells` cells before that. The cells before that
-     * are free for the program's use.
-     */
+    /// Constructs a Beetle virtual machine with the specified parameters.
+    ///
+    /// The memory is `memory_cells` cells. The data stack occupies the last
+    /// `data_cells` cells of the memory, and the return stack occupies
+    /// the last `return_cells` cells before that. The cells before that
+    /// are free for the program's use.
     pub fn new(
         memory_cells: u32,
         data_cells: u32,
@@ -55,19 +53,17 @@ impl VM {
         vm
     }
 
-    /** Read the public registers. */
+    /// Read the public registers.
     pub fn registers(&self) -> &Registers { &self.state }
 
-    /** Read or write the public registers. */
+    /// Read or write the public registers.
     pub fn registers_mut(&mut self) -> &mut Registers { &mut self.state }
 
-    /** Read the `M0` register. */
+    /// Read the `M0` register.
     pub fn memory(&self) -> &[u32] { &self.memory }
 
-    /**
-     * Allocate `cells` cells and return a (start, end) Beetle pointer pair.
-     * Allocation starts at the top of memory and is permanent.
-     */
+    /// Allocate `cells` cells and return a (start, end) Beetle pointer pair.
+    /// Allocation starts at the top of memory and is permanent.
     pub fn allocate(&mut self, cells: u32) -> (u32, u32) {
         assert!(cells <= self.free_cells);
         let end = self.free_cells.checked_mul(CELL as u32)
@@ -79,9 +75,7 @@ impl VM {
         (start, end)
     }
 
-    /**
-     * Load `object` at address zero, i.e. in the unallocated memory.
-     */
+    /// Load `object` at address zero, i.e. in the unallocated memory.
     pub fn load_object(&mut self, object: &[u32]) {
         assert!(object.len() <= self.free_cells as usize);
         for (i, &cell) in object.iter().enumerate() {
@@ -89,38 +83,38 @@ impl VM {
         }
     }
 
-    /** Return the value of the word at address `addr`. */
+    /// Return the value of the word at address `addr`.
     pub fn load(&self, addr: u32) -> u32 {
         assert_eq!(addr & 0x3, 0);
         self.memory[(addr >> 2) as usize]
     }
 
-    /** Set the word at address `addr` to `value`. */
+    /// Set the word at address `addr` to `value`.
     pub fn store(&mut self, addr: u32, value: u32) {
         assert_eq!(addr & 0x3, 0);
         self.memory[(addr >> 2) as usize] = value;
     }
 
-    /** Push `item` onto the data stack. */
+    /// Push `item` onto the data stack.
     pub fn push(&mut self, item: u32) {
         self.registers_mut().sp -= CELL as u32;
         self.store(self.registers().sp, item);
     }
 
-    /** Pop an item from the data stack. */
+    /// Pop an item from the data stack.
     pub fn pop(&mut self) -> u32 {
         let item = self.load(self.registers().sp);
         self.registers_mut().sp += CELL as u32;
         item
     }
 
-    /** Push `item` onto the return stack. */
+    /// Push `item` onto the return stack.
     pub fn rpush(&mut self, item: u32) {
         self.registers_mut().rp -= CELL as u32;
         self.store(self.registers().rp, item);
     }
 
-    /** Run the code at address `ep`. If it `HALT`s, return the code. */
+    /// Run the code at address `ep`. If it `HALT`s, return the code.
     pub unsafe fn run(&mut self, ep: u32) -> Option<u32> {
         assert!(Self::is_aligned(ep));
         self.registers_mut().ep = ep;
@@ -135,7 +129,7 @@ impl VM {
         }
     }
 
-    /** Indicate whether an address is cell-aligned. */
+    /// Indicate whether an address is cell-aligned.
     pub fn is_aligned(addr: u32) -> bool {
         addr & 0x3 == 0
     }

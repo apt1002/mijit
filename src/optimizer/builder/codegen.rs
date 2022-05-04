@@ -4,21 +4,21 @@ use super::{NUM_REGISTERS, all_registers, EBB, Ending, Op, Dataflow, Node, Out, 
 use super::code::{Register, Slot, Variable, Convention, Action};
 use crate::util::{ArrayMap};
 
-/** The state of an algorithm that builds a list of [`Action`]s in reverse. */
+/// The state of an algorithm that builds a list of [`Action`]s in reverse.
 #[derive(Debug)]
 pub struct CodeGen<'a> {
-    /** The [`Dataflow`] graph of the code. */
+    /// The [`Dataflow`] graph of the code.
     dataflow: &'a Dataflow,
-    /** For each `out`, the [`Register`] it should be computed into. */
+    /// For each `out`, the [`Register`] it should be computed into.
     allocation: ArrayMap<Out, Option<Register>>,
-    /** The current number of stack [`Slot`]s. */
+    /// The current number of stack [`Slot`]s.
     slots_used: usize,
-    /** For each [`Out`], the [`Variable`] it is currently held in. */
+    /// For each [`Out`], the [`Variable`] it is currently held in.
     variables: HashMap<Out, Variable>,
-    /** The live [`Out`]s. */
+    /// The live [`Out`]s.
     // TODO: Can this be removed?
     live_outs: HashSet<Out>,
-    /** The list of [`Action`]s so far. Stored in reverse order. */
+    /// The list of [`Action`]s so far. Stored in reverse order.
     actions_rev: Vec<Action>,
 }
 
@@ -113,12 +113,12 @@ impl<'a> CodeGen<'a> {
         self
     }
 
-    /** Returns the number of [`Slot`]s in use. */
+    /// Returns the number of [`Slot`]s in use.
     pub fn slots_used(&self) -> usize {
         self.slots_used
     }
 
-    /** Remove `out` from `live_outs` and return its [`Register`]. */
+    /// Remove `out` from `live_outs` and return its [`Register`].
     fn write(&mut self, out: Out) -> Register {
         let r = self.allocation[out].expect("Wrote a non-register");
         let v = self.variables.remove(&out);
@@ -127,7 +127,7 @@ impl<'a> CodeGen<'a> {
         r
     }
 
-    /** Remove `out` from `variables`. Returns `out`'s [`Register`] if live. */
+    /// Remove `out` from `variables`. Returns `out`'s [`Register`] if live.
     fn spill(&mut self, out: Out) -> Option<Register> {
         let r = self.allocation[out].expect("Spilled a non-register");
         let old_value = self.variables.insert(out, r.into());
@@ -139,13 +139,13 @@ impl<'a> CodeGen<'a> {
         }
     }
 
-    /** Adds `out` to `live_outs`, and returns its [`Variable`]. */
+    /// Adds `out` to `live_outs`, and returns its [`Variable`].
     pub fn read(&mut self, out: Out) -> Variable {
         self.live_outs.insert(out);
         self.variables[&out]
     }
 
-    /** Generate an [`Action`] to spill `out_x` and `out_y`. */
+    /// Generate an [`Action`] to spill `out_x` and `out_y`.
     pub fn add_spill(&mut self, out1: Out, out2: Out) {
         self.slots_used -= 1;
         let r2 = self.spill(out2).map(|r| r.into());
@@ -154,7 +154,7 @@ impl<'a> CodeGen<'a> {
         self.actions_rev.push(Action::Push(r1.into(), r2.into()));
     }
 
-    /** Generate an [`Action`] to execute `n`. */
+    /// Generate an [`Action`] to execute `n`.
     pub fn add_node(&mut self, n: Node) {
         let df = self.dataflow;
         let outs: Vec<Register> = df.outs(n).map(|out| self.write(out)).collect();
@@ -162,10 +162,8 @@ impl<'a> CodeGen<'a> {
         self.actions_rev.push(Op::to_action(df.op(n), &outs, &ins));
     }
 
-    /**
-     * Constructs an [`EBB`] from the [`Action`]s generated so far and from
-     * `ending`. The list of `Action`s is cleared.
-     */
+    /// Constructs an [`EBB`] from the [`Action`]s generated so far and from
+    /// `ending`. The list of `Action`s is cleared.
     pub fn ebb<L: Clone>(&mut self, ending: Ending<L>) -> EBB<L> {
         let actions = self.actions_rev.drain(..).rev().collect();
         EBB {actions, ending}

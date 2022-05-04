@@ -1,12 +1,10 @@
-/**
- * All AArch64 registers. For our purposes, `IP0` (=`R16`) and `IP1` (=`R17`)
- * are ordinary registers. We also include R18, despite [ARM's advice].
- *
- * [ARM's advice]: https://github.com/ARM-software/abi-aa/blob/2bcab1e3b22d55170c563c3c7940134089176746/aapcs64/aapcs64.rst#general-purpose-registers
- *
- * All register names include a leading `R`. This is not intended to imply
- * anything about the operand width, which is specified in another way.
- */
+/// All AArch64 registers. For our purposes, `IP0` (=`R16`) and `IP1` (=`R17`)
+/// are ordinary registers. We also include R18, despite [ARM's advice].
+///
+/// [ARM's advice]: https://github.com/ARM-software/abi-aa/blob/2bcab1e3b22d55170c563c3c7940134089176746/aapcs64/aapcs64.rst#general-purpose-registers
+///
+/// All register names include a leading `R`. This is not intended to imply
+/// anything about the operand width, which is specified in another way.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
@@ -17,18 +15,14 @@ pub enum Register {
     R24 = 0x18, R25 = 0x19, R26 = 0x1A, R27 = 0x1B, R28 = 0x1C, RFP = 0x1D, RLR = 0x1E, RZR = 0x1F,
 }
 
-/**
- * The stack pointer register `RSP` shares an encoding with the zero register
- * `RZR`.
- */
+/// The stack pointer register `RSP` shares an encoding with the zero register
+/// `RZR`.
 pub const RSP: Register = Register::RZR;
 
 //-----------------------------------------------------------------------------
 
-/**
- * All AArch64 conditions except `AL` (and `NV`).
- * For `HS`, use `CS`. For `LO`, use `CC`.
- */
+/// All AArch64 conditions except `AL` (and `NV`).
+/// For `HS`, use `CS`. For `LO`, use `CC`.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
@@ -44,11 +38,11 @@ pub enum Condition {
 
 use Condition::*;
 
-/** All `Condition`s. */
+/// All `Condition`s.
 pub const ALL_CONDITIONS: [Condition; 14] = [EQ, NE, CS, CC, MI, PL, VS, VC, HI, LS, GE, LT, GT, LE];
 
 impl Condition {
-    /** Changes `EQ` into `NE` and vice versa, and so on. */
+    /// Changes `EQ` into `NE` and vice versa, and so on.
     pub fn invert(self) -> Self {
         ALL_CONDITIONS[(self as usize) ^ 1]
     }
@@ -56,62 +50,62 @@ impl Condition {
 
 //-----------------------------------------------------------------------------
 
-/** All memory access operations. */
+/// All memory access operations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum MemOp {
-    /** Truncate and store. */
+    /// Truncate and store.
     STR = 0,
-    /** Load and zero-extend to 64 bits. */
+    /// Load and zero-extend to 64 bits.
     LDR = 1,
-    /** Load and sign-extend to 64 bits. */
+    /// Load and sign-extend to 64 bits.
     LDRS64 = 2,
-    /** Load, sign-extend to 32 bits and zero-extend to 64 bits. */
+    /// Load, sign-extend to 32 bits and zero-extend to 64 bits.
     LDRS32 = 3,
 }
 
 //-----------------------------------------------------------------------------
 
-/** All shift operations. */
+/// All shift operations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum ShiftOp {
-    /** Left shift. */
+    /// Left shift.
     LSL = 0,
-    /** Right shift and zero-extend. */
+    /// Right shift and zero-extend.
     LSR = 1,
-    /** Right shift and sign-extend. */
+    /// Right shift and sign-extend.
     ASR = 2,
-    /** Rotate right. */
+    /// Rotate right.
     ROR = 3,
 }
 
 //-----------------------------------------------------------------------------
 
-/** All addition operations. */
+/// All addition operations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum AddOp {
-    /** Add. */
+    /// Add.
     ADD = 0,
-    /** Add and set flags. */
+    /// Add and set flags.
     ADDS = 1,
-    /** Subtract. */
+    /// Subtract.
     SUB = 2,
-    /** Subtract and set the condition flags. */
+    /// Subtract and set the condition flags.
     SUBS = 3,
 }
 
 use AddOp::*;
 
-/** All `Condition`s. */
+/// All `Condition`s.
 pub const ALL_ADD_OPS: [AddOp; 4] = [ADD, ADDS, SUB, SUBS];
 
 impl AddOp {
-    /** Changes `ADD` into `SUB` and vice versa, and so on. */
+    /// Changes `ADD` into `SUB` and vice versa, and so on.
     pub fn negate(self) -> Self {
         ALL_ADD_OPS[(self as usize) ^ 2]
     }
@@ -120,18 +114,18 @@ impl AddOp {
 
 //-----------------------------------------------------------------------------
 
-/** All logic operations. */
+/// All logic operations.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 #[repr(u8)]
 #[allow(clippy::upper_case_acronyms)]
 pub enum LogicOp {
-    /** Bitwise AND. */
+    /// Bitwise AND.
     AND = 0,
-    /** Bitwise OR. */
+    /// Bitwise OR.
     ORR = 1,
-    /** Bitwise exclusive OR. */
+    /// Bitwise exclusive OR.
     EOR = 2,
-    /** Bitwise AND setting the condition flags. */
+    /// Bitwise AND setting the condition flags.
     ANDS = 3,
 }
 

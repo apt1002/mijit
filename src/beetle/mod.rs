@@ -1,9 +1,7 @@
-/*!
- * A partial implementation of the [Beetle] virtual machine in Mijit.
- * This serves as an illustrative example as an integration test.
- *
- * [Beetle]: https://github.com/rrthomas/beetle
- */
+//! A partial implementation of the [Beetle] virtual machine in Mijit.
+//! This serves as an illustrative example as an integration test.
+//! 
+//! [Beetle]: https://github.com/rrthomas/beetle
 
 use memoffset::{offset_of};
 
@@ -18,10 +16,10 @@ use super::code::builder::{build, build_block, Builder};
 mod registers;
 pub use registers::{Registers};
 
-/** The number of bytes in a cell. */
+/// The number of bytes in a cell.
 pub const CELL: i32 = 4;
 
-/** The number of bits in a word. */
+/// The number of bits in a word.
 pub const CELL_BITS: i32 = CELL * 8;
 
 //-----------------------------------------------------------------------------
@@ -36,61 +34,57 @@ const BSP: Register = REGISTERS[7];
 const BRP: Register = REGISTERS[8];
 const M0: Register = REGISTERS[9];
 
-/** Returns the address of `Registers.$field`. */
+/// Returns the address of `Registers.$field`.
 macro_rules! register {
     ($field: ident) => {
         (Global(0), offset_of!(Registers, $field) as i64)
     }
 }
 
-/** The return code used to indicate normal exit from the hot code. */
+/// The return code used to indicate normal exit from the hot code.
 const NOT_IMPLEMENTED: i64 = 0;
-/** Dummy return code which should never actually occur. */
+/// Dummy return code which should never actually occur.
 const UNDEFINED: i64 = i64::MAX;
 
-/**
- * Beetle's address space is unified, so we always use the same `AliasMask`.
- */
+/// Beetle's address space is unified, so we always use the same `AliasMask`.
 const AM_MEMORY: code::AliasMask = code::AliasMask(0x1);
 
-/**
- * Beetle's registers are not in Beetle's memory, so we use a different
- * `AliasMask`.
- */
+/// Beetle's registers are not in Beetle's memory, so we use a different
+/// `AliasMask`.
 const AM_REGISTER: code::AliasMask = code::AliasMask(0x2);
 
 //-----------------------------------------------------------------------------
 
-/** Computes into `BI` the native address corresponding to `addr`. */
+/// Computes into `BI` the native address corresponding to `addr`.
 fn native_address(b: &mut Builder<EntryId>, addr: Register) {
     b.binary64(Add, BI, M0, addr);
 }
 
-/** Loads `dest` from `addr`. `BI` is corrupted. */
+/// Loads `dest` from `addr`. `BI` is corrupted.
 fn load(b: &mut Builder<EntryId>, dest: Register, addr: Register) {
     native_address(b, addr);
     b.load(dest, (BI, 0), Four, AM_MEMORY);
 }
 
-/** Stores `dest` at `addr`. `BI` is corrupted. */
+/// Stores `dest` at `addr`. `BI` is corrupted.
 fn store(b: &mut Builder<EntryId>, src: Register, addr: Register) {
     native_address(b, addr);
     b.store(src, (BI, 0), Four, AM_MEMORY);
 }
 
-/** Pops `dest` from the stack at `sp`. `BI` is corrupted. */
+/// Pops `dest` from the stack at `sp`. `BI` is corrupted.
 fn pop(b: &mut Builder<EntryId>, dest: Register, sp: Register) {
     load(b, dest, sp);
     b.const_binary32(Add, sp, sp, CELL);
 }
 
-/** Pushes `src` to the stack at `sp`. `BI` is corrupted. */
+/// Pushes `src` to the stack at `sp`. `BI` is corrupted.
 fn push(b: &mut Builder<EntryId>, src: Register, sp: Register) {
     b.const_binary32(Sub, sp, sp, CELL);
     store(b, src, sp);
 }
 
-/** The performance-critical part of the virtual machine. */
+/// The performance-critical part of the virtual machine.
 #[derive(Debug)]
 pub struct Beetle<T: Target> {
     pub jit: Jit<T>,

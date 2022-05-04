@@ -6,7 +6,7 @@ use super::code::{Global};
 
 //-----------------------------------------------------------------------------
 
-/** An untyped 64-bit value. */
+/// An untyped 64-bit value.
 #[repr(C)]
 #[derive(Copy, Clone, Eq)]
 pub union Word {
@@ -37,33 +37,29 @@ impl PartialEq for Word {
 
 //-----------------------------------------------------------------------------
 
-/**
- * A contiguous array of 64-bit words, rewriteable at runtime by the compiled
- * code, providing storage to a virtual machine instance.
- *
- * A pool contains [`Global`]s.
- */
+/// A contiguous array of 64-bit words, rewriteable at runtime by the compiled
+/// code, providing storage to a virtual machine instance.
+///
+/// A pool contains [`Global`]s.
 pub struct Pool {
-    /** The number of [`Global`]s used by the [`code::Machine`]. */
+    /// The number of [`Global`]s used by the [`code::Machine`].
     num_globals: usize,
-    /** The words. */
+    /// The words.
     pool: Vec<Word>,
 }
 
 impl Pool {
-    /** Allocate a new `Pool`. */
+    /// Allocate a new `Pool`.
     pub fn new(num_globals: usize) -> Self {
         let pool = vec![Word::default(); num_globals];
         Pool {num_globals, pool}
     }
 
-    /**
-     * The number of [`Global`]s that persist when Mijit is not running.
-     * This is the value passed to [`Target::lowerer()`].
-     */
+    /// The number of [`Global`]s that persist when Mijit is not running.
+    /// This is the value passed to [`Target::lowerer()`].
     pub fn num_globals(&self) -> usize { self.num_globals }
 
-    /** The position in the pool of the given [`Global`]. */
+    /// The position in the pool of the given [`Global`].
     pub fn index_of_global(&self, global: Global) -> usize {
         assert!(global.0 < self.num_globals);
         global.0

@@ -1,27 +1,25 @@
 use super::{Variable, Action};
 
-/** Represents straight-line code ending with a jump. */
+/// Represents straight-line code ending with a jump.
 #[derive(Debug, Clone)]
 pub struct Case<S> {
-    /** The straight-line code. */
+    /// The straight-line code.
     pub actions: Vec<Action>,
-    /** The jump. */
+    /// The jump.
     pub new_state: S,
 }
 
-/** Represents a control-flow decision. `C` is the thing being chosen. */
+/// Represents a control-flow decision. `C` is the thing being chosen.
 #[derive(Debug, Clone)]
 pub enum Switch<C> {
-    /**
-     * If `discriminant` is `i` and `i < cases.len()` choose `cases[i]`.
-     * Otherwise choose `default_`.
-     */
+    /// If `discriminant` is `i` and `i < cases.len()` choose `cases[i]`.
+    /// Otherwise choose `default_`.
     Index {
         discriminant: Variable,
         cases: Box<[C]>,
         default_: Box<C>,
     },
-    /** Always does the same thing. */
+    /// Always does the same thing.
     Always(Box<C>),
 }
 
@@ -45,7 +43,7 @@ impl<C> Switch<C> {
         }
     }
 
-    /** Apply `callback` to every `C` and return a fresh `Switch`. */
+    /// Apply `callback` to every `C` and return a fresh `Switch`.
     pub fn map<D>(&self, mut callback: impl FnMut(&C) -> D) -> Switch<D> {
         match self {
             Switch::Index {discriminant, cases, default_} => {

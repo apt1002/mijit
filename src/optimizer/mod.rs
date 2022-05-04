@@ -26,15 +26,15 @@ pub use simulation::{Simulation, simulate};
 mod builder;
 pub use builder::{build};
 
-/** Look up information about a control-flow merge point. */
+/// Look up information about a control-flow merge point.
 pub trait LookupLeaf<L: Clone> {
-    /** Return the convention in effect at `leaf`. */
+    /// Return the convention in effect at `leaf`.
     fn after(&self, leaf: &L) -> &Convention;
-    /** Return the estimated relative frequency of `leaf`. */
+    /// Return the estimated relative frequency of `leaf`.
     fn weight(&self, leaf: &L) -> usize;
 }
 
-/** Optimizes an [`EBB`]. */
+/// Optimizes an [`EBB`].
 pub fn optimize<L: Clone + Debug>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
 -> EBB<L> {
     // Generate the [`Dataflow`] graph.

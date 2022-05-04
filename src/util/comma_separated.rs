@@ -1,6 +1,6 @@
 use std::fmt::{self, Debug, Formatter};
 
-/** Helper for printing comma-separated items. */
+/// Helper for printing comma-separated items.
 pub struct CommaSeparated<I: IntoIterator, F: Fn() -> I>(pub F) where I::Item: Debug;
 
 impl<I: IntoIterator, F: Fn() -> I> Debug for CommaSeparated<I, F> where I::Item: Debug {

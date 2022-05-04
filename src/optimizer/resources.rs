@@ -3,14 +3,12 @@ use std::cmp::{PartialOrd, Ordering};
 use std::num::{Wrapping};
 use std::ops::{Add, AddAssign, Sub, SubAssign};
 
-/** Has ones above the top bit of each hexadecimal digit. */
+/// Has ones above the top bit of each hexadecimal digit.
 const CARRY_MASK: Wrapping<u64> = Wrapping(0x1111111111111110);
 
-/**
- * Represents a collection of finite resources.
- * A Resources can record up to 15 units of each of 15 distinct resources,
- * using the hexadecimal digits of a 64-bit integer.
- */
+/// Represents a collection of finite resources.
+/// A Resources can record up to 15 units of each of 15 distinct resources,
+/// using the hexadecimal digits of a 64-bit integer.
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Resources(std::num::Wrapping<u64>);
 

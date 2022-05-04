@@ -3,28 +3,22 @@ use std::ops::{DerefMut};
 mod mmap;
 pub use mmap::{Mmap};
 
-/**
- * An auto-growing array of bytes. In addition to the usual slice API, methods
- * are provided for reading or writing up to 8 bytes at a time using a `u64`.
- *
- * [`Vec<u8>`] implements this trait, which is useful for testing.
- *
- * [`Mmap`] implements this trait and allows the bytes to be executed as code.
- */
+/// An auto-growing array of bytes. In addition to the usual slice API, methods
+/// are provided for reading or writing up to 8 bytes at a time using a `u64`.
+///
+/// [`Vec<u8>`] implements this trait, which is useful for testing.
+///
+/// [`Mmap`] implements this trait and allows the bytes to be executed as code.
 pub trait Buffer: Sized + DerefMut<Target=[u8]> {
-    /** Allocates a fresh `Buffer` with a default (small) length. */
+    /// Allocates a fresh `Buffer` with a default (small) length.
     fn new() -> Self;
 
-    /**
-     * Reallocate this `Buffer` if necessary to ensure that it holds at
-     * least `min_length` bytes. Panics if the reallocation fails.
-     */
+    /// Reallocate this `Buffer` if necessary to ensure that it holds at
+    /// least `min_length` bytes. Panics if the reallocation fails.
     fn resize(&mut self, min_length: usize);
 
-    /**
-     * Writes a single byte at `pos`.
-     * Writes beyond [`len()`] resize the buffer to a power-of-two length.
-     */
+    /// Writes a single byte at `pos`.
+    /// Writes beyond [`len()`] resize the buffer to a power-of-two length.
     fn write_byte(&mut self, pos: usize, byte: u8) {
         if pos >= self.len() {
             self.resize(std::cmp::max(pos + 1, 0x1000).checked_next_power_of_two().unwrap());
@@ -32,10 +26,8 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
         self[pos] = byte;
     }
 
-    /**
-     * Writes up to 8 bytes at `pos`, as if using [`write_byte()`] repeatedly,
-     * incrementing `pos` after each call.
-     */
+    /// Writes up to 8 bytes at `pos`, as if using [`write_byte()`] repeatedly,
+    /// incrementing `pos` after each call.
     fn write(&mut self, pos: usize, mut bytes: u64, len: usize) {
         assert!(len <= 8);
         for i in 0..len {
@@ -45,7 +37,7 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
         assert_eq!(bytes, 0);
     }
 
-    /** Reads a single byte. Reading beyond [`len()`] gives `0`. */
+    /// Reads a single byte. Reading beyond [`len()`] gives `0`.
     fn read_byte(&self, pos: usize) -> u8 {
         if pos < self.len() {
             self[pos]
@@ -54,7 +46,7 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
         }
     }
 
-    /** Reads up to 8 bytes, as if using [`read_byte()`] repeatedly. */
+    /// Reads up to 8 bytes, as if using [`read_byte()`] repeatedly.
     fn read(&self, pos: usize, len: usize) -> u64 {
         assert!(len <= 8);
         let mut bytes: u64 = 0;
@@ -80,7 +72,7 @@ impl Buffer for Vec<u8> {
 pub mod tests {
     use super::*;
 
-    /** Any tests of the [`Buffer`] API, for use by submodule tests. */
+    /// Any tests of the [`Buffer`] API, for use by submodule tests.
     pub fn api(mut buffer: impl Buffer) {
         buffer.resize(16);
         let len = buffer.len();

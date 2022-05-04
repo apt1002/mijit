@@ -2,13 +2,11 @@ use std::collections::{HashMap};
 use std::fmt::{Debug};
 use std::hash::{Hash};
 
-/**
- * Find a sequence of moves to implement the specified mapping `dest_to_src`.
- * Returns a sequence of (dest, src) pairs.
- *
- *  - dest_to_src - for each destination V, the corresponding source V.
- *  - temp - a temporary location used to break cycles.
- */
+/// Find a sequence of moves to implement the specified mapping `dest_to_src`.
+/// Returns a sequence of (dest, src) pairs.
+///
+///  - dest_to_src - for each destination V, the corresponding source V.
+///  - temp - a temporary location used to break cycles.
 #[allow(clippy::implicit_hasher)]
 pub fn moves<V: Debug + Clone + Hash + Eq>(
     mut dest_to_src: HashMap<V, V>,

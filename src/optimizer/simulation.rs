@@ -3,36 +3,30 @@ use std::fmt::{Debug};
 use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch, EBB, Ending};
 use super::{CFT, Op, Dataflow, Node, Out, LookupLeaf};
 
-/**
- * Represents the state of an abstract execution of some code which builds a
- * [`Dataflow`] graph.
- *
- * The state is updated by [`Action`]s and cloned by [`Switch`]es.
- */
+/// Represents the state of an abstract execution of some code which builds a
+/// [`Dataflow`] graph.
+///
+/// The state is updated by [`Action`]s and cloned by [`Switch`]es.
 #[derive(Debug, Clone)]
 pub struct Simulation {
-    /** The number of `Slot`s on the stack. */
+    /// The number of `Slot`s on the stack.
     slots_used: usize,
-    /** Maps each [`Variable`] to the corresponding [`Out`]. */
+    /// Maps each [`Variable`] to the corresponding [`Out`].
     bindings: HashMap<Variable, Out>,
-    /**
-     * An instruction whose execution represents successfully passing all
-     * preceding [`Op::Guard`] instructions.
-     */
+    /// An instruction whose execution represents successfully passing all
+    /// preceding [`Op::Guard`] instructions.
     sequence: Node,
-    /** The most recent [`Op::Store`] instruction, or the entry node. */
+    /// The most recent [`Op::Store`] instruction, or the entry node.
     store: Node,
-    /** All [`Op::Load`] instructions since `store`. */
+    /// All [`Op::Load`] instructions since `store`.
     loads: Vec<Node>,
-    /** The most recent debug operation, or the entry node. */
+    /// The most recent debug operation, or the entry node.
     debug: Node,
 }
 
 impl Simulation {
-    /**
-     * Constructs an initial [`State`] representing the entry point of
-     * `dataflow`, which obeys `before`.
-     */
+    /// Constructs an initial [`State`] representing the entry point of
+    /// `dataflow`, which obeys `before`.
     fn new(dataflow: &Dataflow, before: &Convention) -> Self {
         let entry_node = dataflow.entry_node();
         assert_eq!(dataflow.num_outs(entry_node), before.live_values.len());
@@ -50,32 +44,30 @@ impl Simulation {
         }
     }
 
-    /** Returns a [`Variable`] representing the top of the stack. */
+    /// Returns a [`Variable`] representing the top of the stack.
     fn top(&self) -> Variable {
         assert!(self.slots_used > 0);
         Slot(self.slots_used - 1).into()
     }
 
-    /** Returns the [`Out`] that is bound to `value`. */
+    /// Returns the [`Out`] that is bound to `value`.
     fn lookup(&self, value: Variable) -> Out {
         *self.bindings.get(&value).expect("Read a dead value")
     }
 
-    /** Binds `dest` to the same [`Variable`] as `src`. */
+    /// Binds `dest` to the same [`Variable`] as `src`.
     fn move_(&mut self, dest: Variable, src: Variable) {
         let out = self.lookup(src);
         self.bindings.insert(dest, out);
     }
 
-    /** Binds `dest` to a dead value. */
+    /// Binds `dest` to a dead value.
     fn drop(&mut self, dest: Variable) {
         self.bindings.remove(&dest);
     }
 
-    /**
-     * Returns a [`Node`] representing `op` applied to `ins`, depending on
-     * `deps`. Binds `outs` to the `Node`'s outputs.
-     */
+    /// Returns a [`Node`] representing `op` applied to `ins`, depending on
+    /// `deps`. Binds `outs` to the `Node`'s outputs.
     fn op(&mut self, dataflow: &mut Dataflow, op: Op, deps: &[Node], ins: &[Variable], outs: &[Register]) -> Node {
         let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
         // TODO: Common subexpression elimination.
@@ -87,7 +79,7 @@ impl Simulation {
         node
     }
 
-    /** Simulate executing `action`, adding to `dataflow` as necessary. */
+    /// Simulate executing `action`, adding to `dataflow` as necessary.
     pub fn action(&mut self, dataflow: &mut Dataflow, action: &Action) {
         match *action {
             Action::Move(dest, src) => {
@@ -151,11 +143,9 @@ impl Simulation {
         };
     }
 
-    /**
-     * Simulate executing a guard, adding to `dataflow` as necessary.
-     * Returns the [`Op::Guard`] [`Node`]
-     *  - discriminant - the [`Variable`] tested by the guard.
-     */
+    /// Simulate executing a guard, adding to `dataflow` as necessary.
+    /// Returns the [`Op::Guard`] [`Node`]
+    ///  - discriminant - the [`Variable`] tested by the guard.
     pub fn guard(&mut self, dataflow: &mut Dataflow, discriminant: Variable) -> Node {
         let discriminant = self.lookup(discriminant);
         let guard = dataflow.add_node(Op::Guard, &[], &[discriminant], 0);
@@ -164,21 +154,17 @@ impl Simulation {
         guard
     }
 
-    /**
-     * Add to `dataflow` an exit [`Node`] that depends on all dataflow and
-     * non-dataflow outputs. On exit, `after.live_values` are live.
-     * Returns the exit `Node`.
-     */
+    /// Add to `dataflow` an exit [`Node`] that depends on all dataflow and
+    /// non-dataflow outputs. On exit, `after.live_values` are live.
+    /// Returns the exit `Node`.
     pub fn exit(mut self, dataflow: &mut Dataflow, after: &Convention) -> Node {
         assert_eq!(self.slots_used, after.slots_used);
         let deps = [self.sequence, self.store, self.debug];
         self.op(dataflow, Op::Convention, &deps, &after.live_values, &[])
     }
 
-    /**
-     * Simulate every control-flow path in `ebb`, adding to `dataflow` as
-     * necessary. Returns a [`CFT`] and its total weight.
-     */
+    /// Simulate every control-flow path in `ebb`, adding to `dataflow` as
+    /// necessary. Returns a [`CFT`] and its total weight.
     fn walk<L: Clone>(mut self, dataflow: &mut Dataflow, ebb: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> (CFT<L>, usize) {
         for ref action in &ebb.actions {
             self.action(dataflow, action);
@@ -214,10 +200,8 @@ impl Simulation {
     }
 }
 
-/**
- * Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
- * `input`.
- */
+/// Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
+/// `input`.
 pub fn simulate<L: Debug + Clone>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
 -> (Dataflow, CFT<L>) {
     let mut dataflow = Dataflow::new(before.live_values.len());

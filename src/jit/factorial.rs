@@ -13,12 +13,12 @@ pub mod reg {
     pub const RESULT: Variable = Variable::Global(Global(1));
 }
 
-/** An example that can be used as a test fixture. */
+/// An example that can be used as a test fixture.
 #[derive(Debug)]
 pub struct Factorial<T: Target> {
-    /** The state of the JIT compiler. */
+    /// The state of the JIT compiler.
     pub jit: Jit<T>,
-    /** The entry point. */
+    /// The entry point.
     pub start: EntryId,
 }
 

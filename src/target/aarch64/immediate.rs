@@ -1,11 +1,11 @@
 use super::code::{Precision, Width};
 use crate::util::{rotate_left};
 
-/** A reason why an Offset can't be encoded. */
+/// A reason why an Offset can't be encoded.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum OffsetError {Unaligned, TooFar}
 
-/** Represents a `Width` and a field offset that is a multiple of it. */
+/// Represents a `Width` and a field offset that is a multiple of it.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Offset {width: Width, scaled: u32}
 
@@ -21,21 +21,19 @@ impl Offset {
 
     pub fn width(self) -> Width { self.width }
 
-    /** Returns `offset / width`. */
+    /// Returns `offset / width`.
     pub fn scaled(self) -> u32 { self.scaled }
 }
 
 // ----------------------------------------------------------------------------
 
-/** Shift amount out of range. */
+/// Shift amount out of range.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct ShiftError;
 
-/**
- * Represents a [`Precision`] and an amount to shift by.
- * The shift amount is between `0` and `31` inclusive for `P32`, and between
- * `0` and `63` inclusive for `P64`.
- */
+/// Represents a [`Precision`] and an amount to shift by.
+/// The shift amount is between `0` and `31` inclusive for `P32`, and between
+/// `0` and `63` inclusive for `P64`.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Shift {prec: Precision, amount: u32}
 
@@ -54,11 +52,11 @@ impl Shift {
 
 // ----------------------------------------------------------------------------
 
-/** Unsigned amount out of range. */
+/// Unsigned amount out of range.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct UnsignedError;
 
-/** Represents an unsigned `N`-bit integer. */
+/// Represents an unsigned `N`-bit integer.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Unsigned<const N: usize>(u32);
 
@@ -75,15 +73,13 @@ impl<const N: usize> Unsigned<N> {
 
 // ----------------------------------------------------------------------------
 
-/** A reason why a constant is not encodable as a [`LogicImmediate`]. */
+/// A reason why a constant is not encodable as a [`LogicImmediate`].
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum LogicImmediateError {HighBits, AllSame, NonRepeating}
 
-/**
- * Represents a legal "logic immediate". The [encoding] is quite esoteric.
- *
- * [encoding]: https://dinfuehr.github.io/blog/encoding-of-immediate-values-on-aarch64/
- */
+/// Represents a legal "logic immediate". The [encoding] is quite esoteric.
+///
+/// [encoding]: https://dinfuehr.github.io/blog/encoding-of-immediate-values-on-aarch64/
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct LogicImmediate {prec: Precision, encoding: u32}
 

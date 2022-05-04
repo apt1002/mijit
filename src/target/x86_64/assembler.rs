@@ -18,7 +18,7 @@ use Register::*;
 use BinaryOp::*;
 use Precision::*;
 
-/** Computes the displacement from `from` to `to`. */
+/// Computes the displacement from `from` to `to`.
 pub fn disp(from: usize, to: usize) -> isize {
     if from > isize::MAX as usize || to > isize::MAX as usize {
         panic!("Displacements greater than isize::MAX are not supported");
@@ -26,7 +26,7 @@ pub fn disp(from: usize, to: usize) -> isize {
     (to as isize) - (from as isize)
 }
 
-/** Computes the i32 displacement from `from` to `to`, if possible. */
+/// Computes the i32 displacement from `from` to `to`, if possible.
 pub fn disp32(from: usize, to: usize) -> i32 {
     let disp = disp(from, to);
     if disp > i32::MAX as isize || disp < i32::MIN as isize {
@@ -35,53 +35,49 @@ pub fn disp32(from: usize, to: usize) -> i32 {
     disp as i32
 }
 
-/**
- * A value which, if used as the `rel32` part of a control-flow instruction,
- * is likely to result in an immediate crash.
- */
+/// A value which, if used as the `rel32` part of a control-flow instruction,
+/// is likely to result in an immediate crash.
 const UNKNOWN_DISP: i32 = -0x80000000;
 
-/** Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`. */
+/// Like [`disp32()`] but returns `UNKNOWN_DISP` if `to` is `None`.
 pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
     to.map_or(UNKNOWN_DISP, |to| disp32(from, to))
 }
 
-/**
- * An assembler, implementing a regularish subset of x86_64.
- *
- * You probably don't need to call the `write_x()` methods directly, but you
- * can if necessary (e.g. to assemble an instruction that is not provided by
- * Assembler itself). There is a `write_x()` method for each encoding pattern
- * `x`. Patterns are described [here](../doc/x86.rs). A typical pattern is
- * "ROOM" meaning a REX byte, two opcode bytes, and a ModR/M byte. There are
- * also `write_x()` methods for immediate constants, for displacements, and for
- * raw bytes.
- *
- * Instead, call the methods that assemble a single instruction. These include:
- *  - Variants of [`const_()`], [`load()`], and [`store()`], which assemble
- *  `MOV` instructions.
- *  - Variants of [`op()`], which assemble arithmetic instructions, including
- *  `CMP` instructions. For now, only 32-bit arithmetic operations are
- *  supported.
- *  - [`jump_if()`], [`ret()`], and variants of [`jump()`] and [`call()`],
- *  which assemble control-flow instructions.
- *  - [`push()`] and [`pop()`], which assemble `PUSH` and `POP` instructions.
- *
- * Registers are represented by type [`Register`]. Binary arithmetic operations
- * are represented by type [`BinaryOp`]. Condition codes are represented by
- * type [`Condition`].
- *
- * [`const_()`]: Assembler::const_
- * [`load()`]: Assembler::load
- * [`store()`]: Assembler::store
- * [`op()`]: Assembler::op
- * [`jump_if()`]: Assembler::jump_if
- * [`ret()`]: Assembler::ret
- * [`jump()`]: Assembler::jump
- * [`call()`]: Assembler::call
- * [`push()`]: Assembler::push
- * [`pop()`]: Assembler::pop
- */
+/// An assembler, implementing a regularish subset of x86_64.
+///
+/// You probably don't need to call the `write_x()` methods directly, but you
+/// can if necessary (e.g. to assemble an instruction that is not provided by
+/// Assembler itself). There is a `write_x()` method for each encoding pattern
+/// `x`. Patterns are described [here](../doc/x86.rs). A typical pattern is
+/// "ROOM" meaning a REX byte, two opcode bytes, and a ModR/M byte. There are
+/// also `write_x()` methods for immediate constants, for displacements, and for
+/// raw bytes.
+///
+/// Instead, call the methods that assemble a single instruction. These include:
+///  - Variants of [`const_()`], [`load()`], and [`store()`], which assemble
+///  `MOV` instructions.
+///  - Variants of [`op()`], which assemble arithmetic instructions, including
+///  `CMP` instructions. For now, only 32-bit arithmetic operations are
+///  supported.
+///  - [`jump_if()`], [`ret()`], and variants of [`jump()`] and [`call()`],
+///  which assemble control-flow instructions.
+///  - [`push()`] and [`pop()`], which assemble `PUSH` and `POP` instructions.
+///
+/// Registers are represented by type [`Register`]. Binary arithmetic operations
+/// are represented by type [`BinaryOp`]. Condition codes are represented by
+/// type [`Condition`].
+///
+/// [`const_()`]: Assembler::const_
+/// [`load()`]: Assembler::load
+/// [`store()`]: Assembler::store
+/// [`op()`]: Assembler::op
+/// [`jump_if()`]: Assembler::jump_if
+/// [`ret()`]: Assembler::ret
+/// [`jump()`]: Assembler::jump
+/// [`call()`]: Assembler::call
+/// [`push()`]: Assembler::push
+/// [`pop()`]: Assembler::pop
 pub struct Assembler<B: Buffer> {
     /// The area we're filling with code.
     buffer: B,
@@ -89,67 +85,67 @@ pub struct Assembler<B: Buffer> {
 }
 
 impl<B: Buffer> Assembler<B> {
-    /** Construct an Assembler. */
+    /// Construct an Assembler.
     pub fn new() -> Self {
         Assembler {buffer: B::new(), pos: 0}
     }
 
-    /** Apply `callback` to the contained [`Buffer`]. */
+    /// Apply `callback` to the contained [`Buffer`].
     pub fn use_buffer<T>(&mut self, callback: impl FnOnce(&mut B) -> T) -> T {
         callback(&mut self.buffer)
     }
 
-    /** Get the assembly pointer. */
+    /// Get the assembly pointer.
     pub fn get_pos(&self) -> usize { self.pos }
 
     // Patterns and constants.
 
-    /** Writes at `pos`, incrmenting it. */
+    /// Writes at `pos`, incrmenting it.
     fn write(&mut self, bytes: u64, len: usize) {
         self.buffer.write(self.pos, bytes, len);
         self.pos += len;
     }
 
-    /** Writes an 8-bit signed immediate constant. */
+    /// Writes an 8-bit signed immediate constant.
     pub fn write_imm8(&mut self, immediate: i8) {
         self.write(u64::from(immediate as u8), 1);
     }
 
-    /** Writes a 32-bit signed immediate constant. */
+    /// Writes a 32-bit signed immediate constant.
     pub fn write_imm32(&mut self, immediate: i32) {
         self.write(u64::from(immediate as u32), 4);
     }
 
-    /** Writes a 64-bit signed immediate constant. */
+    /// Writes a 64-bit signed immediate constant.
     pub fn write_imm64(&mut self, immediate: i64) {
         self.write(immediate as u64, 8);
     }
 
-    /** Writes an instruction with pattern "OO", and no registers. */
+    /// Writes an instruction with pattern "OO", and no registers.
     pub fn write_oo_0(&mut self, opcode: u64) {
         self.write(opcode, 2);
     }
 
-    /** Writes an instruction with pattern "RO", and no registers. */
+    /// Writes an instruction with pattern "RO", and no registers.
     pub fn write_ro_0(&mut self, opcode: u64) {
         self.write(opcode, 2);
     }
 
-    /** Writes an instruction with pattern "RO", and one register. */
+    /// Writes an instruction with pattern "RO", and one register.
     pub fn write_ro_1(&mut self, mut opcode: u64, prec: Precision, rd: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x0701 & rd.mask();
         self.write(opcode, 2);
     }
 
-    /** Writes an instruction with pattern "ROM" and one register. */
+    /// Writes an instruction with pattern "ROM" and one register.
     pub fn write_rom_1(&mut self, mut opcode: u64, prec: Precision, rm: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
         self.write(opcode, 3);
     }
 
-    /** Writes an instruction with pattern "ROM" and two registers. */
+    /// Writes an instruction with pattern "ROM" and two registers.
     pub fn write_rom_2(&mut self, mut opcode: u64, prec: Precision, rm: Register, reg: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x070001 & rm.mask();
@@ -157,7 +153,7 @@ impl<B: Buffer> Assembler<B> {
         self.write(opcode, 3);
     }
 
-    /** Writes an instruction with pattern "ROOM" and two registers. */
+    /// Writes an instruction with pattern "ROOM" and two registers.
     pub fn write_room_2(&mut self, mut opcode: u64, prec: Precision, rm: Register, reg: Register) {
         opcode |= (prec as u64) << 3;
         opcode |= 0x07000001 & rm.mask();
@@ -165,15 +161,13 @@ impl<B: Buffer> Assembler<B> {
         self.write(opcode, 4);
     }
 
-    /**
-     * If `rm` is `RSP` or `R12`, writes the byte `0x24`, otherwise does
-     * nothing.
-     *
-     * This is necessary after a ModR/M byte if `rm` is used as a memory
-     * operand, because the bit pattern 100 in the `rm` field indicates the
-     * presence of a SIB byte. `0x24` is a SIB byte with 100 in the `index`
-     * field, indicating no index, and 100 in the `base` field, matching `rm`.
-     */
+    /// If `rm` is `RSP` or `R12`, writes the byte `0x24`, otherwise does
+    /// nothing.
+    ///
+    /// This is necessary after a ModR/M byte if `rm` is used as a memory
+    /// operand, because the bit pattern 100 in the `rm` field indicates the
+    /// presence of a SIB byte. `0x24` is a SIB byte with 100 in the `index`
+    /// field, indicating no index, and 100 in the `base` field, matching `rm`.
     pub fn write_sib_fix(&mut self, rm: Register) {
         if (rm as usize) & 7 == 4 {
             self.write(0x24, 1);
@@ -182,38 +176,36 @@ impl<B: Buffer> Assembler<B> {
 
     // Instructions.
 
-    /** Move register to register. */
+    /// Move register to register.
     pub fn move_(&mut self, prec: Precision, dest: Register, src: Register) {
         self.write_rom_2(0xC08B40, prec, src, dest);
     }
 
-    /** Move memory to register. */
+    /// Move memory to register.
     pub fn load(&mut self, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_rom_2(0x808B40, prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
-    /** Move register to memory. */
+    /// Move register to memory.
     pub fn store(&mut self, prec: Precision, dest: (Register, i32), src: Register) {
         self.write_rom_2(0x808940, prec, dest.0, src);
         self.write_sib_fix(dest.0);
         self.write_imm32(dest.1);
     }
 
-    /** Move nearby memory to register. */
+    /// Move nearby memory to register.
     pub fn load_pc_relative(&mut self, prec: Precision, dest: Register, address: usize) {
         self.write_rom_2(0x008B40, prec, RBP, dest);
         // No SIB fix needed when `rm` is `RBP`.
         self.write_imm32(disp32(self.get_pos() + 4, address));
     }
 
-    /**
-     * Move constant to register.
-     * If `imm` is zero, this will assemble the "zero idiom" xor instruction,
-     * which corrupts the status flags. Use `const_preserving_flags` to avoid
-     * this problem.
-     */
+    /// Move constant to register.
+    /// If `imm` is zero, this will assemble the "zero idiom" xor instruction,
+    /// which corrupts the status flags. Use `const_preserving_flags` to avoid
+    /// this problem.
     // TODO: Remove `prec`?
     pub fn const_(&mut self, prec: Precision, dest: Register, mut imm: i64) {
         if prec == P32 {
@@ -226,9 +218,7 @@ impl<B: Buffer> Assembler<B> {
         }
     }
 
-    /**
-     * Move constant to register.
-     */
+    /// Move constant to register.
     pub fn const_preserving_flags(&mut self, prec: Precision, dest: Register, mut imm: i64) {
         if prec == P32 {
             imm &= 0xFFFFFFFF;
@@ -245,98 +235,98 @@ impl<B: Buffer> Assembler<B> {
         }
     }
 
-    /** Op register to register. */
+    /// Op register to register.
     pub fn op(&mut self, op: BinaryOp, prec: Precision, dest: Register, src: Register) {
         self.write_rom_2(op.rm_reg(true), prec, dest, src);
     }
 
-    /** Op constant to register. */
+    /// Op constant to register.
     pub fn const_op(&mut self, op: BinaryOp, prec: Precision, dest: Register, imm: i32) {
         self.write_rom_1(op.rm_imm(true), prec, dest);
         self.write_imm32(imm);
     }
 
-    /** Op a memory location to a register. */
+    /// Op a memory location to a register.
     pub fn load_op(&mut self, op: BinaryOp, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_rom_2(op.reg_rm(false), prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
-    /** Shift register by `RC`. */
+    /// Shift register by `RC`.
     pub fn shift(&mut self, op: ShiftOp, prec: Precision, dest: Register) {
         self.write_rom_1(op.rm_c(true), prec, dest);
     }
 
-    /** Shift register by constant. */
+    /// Shift register by constant.
     pub fn const_shift(&mut self, op: ShiftOp, prec: Precision, dest: Register, imm: u8) {
         assert!(imm < prec.bits() as u8);
         self.write_rom_1(op.rm_imm(true), prec, dest);
         self.write_imm8(imm as i8);
     }
 
-    /** Multiply register by register. */
+    /// Multiply register by register.
     pub fn mul(&mut self, prec: Precision, dest: Register, src: Register) {
         self.write_room_2(0xC0AF0F40, prec, src, dest);
     }
 
-    /** Multiply register by constant. */
+    /// Multiply register by constant.
     pub fn const_mul(&mut self, prec: Precision, dest: Register, src: Register, imm: i32) {
         self.write_rom_2(0xC06940, prec, src, dest);
         self.write_imm32(imm);
     }
 
-    /** Multiply register by memory. */
+    /// Multiply register by memory.
     pub fn load_mul(&mut self, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_room_2(0x80AF0F40, prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
-    /** Unsigned long divide (D, A) by register. Quotient in A, remainder in D. */
+    /// Unsigned long divide (D, A) by register. Quotient in A, remainder in D.
     pub fn udiv(&mut self, prec: Precision, src: Register) {
         self.write_rom_1(0xF0F740, prec, src);
     }
 
-    /** Unsigned long divide (D, A) by memory. Quotient in A, remainder in D. */
+    /// Unsigned long divide (D, A) by memory. Quotient in A, remainder in D.
     pub fn load_udiv(&mut self, prec: Precision, src: (Register, i32)) {
         self.write_rom_1(0xB0F740, prec, src.0);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
-    /** Unsigned long divide (D, A) by register. Quotient in A, remainder in D. */
+    /// Unsigned long divide (D, A) by register. Quotient in A, remainder in D.
     pub fn sdiv(&mut self, prec: Precision, src: Register) {
         self.write_rom_1(0xF8F740, prec, src);
     }
 
-    /** Unsigned long divide (D, A) by memory. Quotient in A, remainder in D. */
+    /// Unsigned long divide (D, A) by memory. Quotient in A, remainder in D.
     pub fn load_sdiv(&mut self, prec: Precision, src: (Register, i32)) {
         self.write_rom_1(0xB8F740, prec, src.0);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
-    /** Conditional move. */
+    /// Conditional move.
     pub fn move_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: Register) {
         self.write_room_2(cc.move_if(), prec, src, dest);
     }
 
-    /** Conditional load. */
+    /// Conditional load.
     pub fn load_if(&mut self, cc: Condition, prec: Precision, dest: Register, src: (Register, i32)) {
         self.write_room_2(cc.load_if(), prec, src.0, dest);
         self.write_sib_fix(src.0);
         self.write_imm32(src.1);
     }
 
-    /** Conditional load from nearby. */
+    /// Conditional load from nearby.
     pub fn load_pc_relative_if(&mut self, cc: Condition, prec: Precision, dest: Register, address: usize) {
         self.write_room_2(cc.load_pc_relative_if(), prec, RBP, dest);
         // No SIB fix needed when `rm` is `RBP`.
         self.write_imm32(disp32(self.get_pos() + 4, address));
     }
 
-    /** Conditional branch. */
+    /// Conditional branch.
     pub fn jump_if(&mut self, cc: Condition, target: Option<usize>)
     -> Patch {
         let patch = Patch::new(self.get_pos());
@@ -346,12 +336,12 @@ impl<B: Buffer> Assembler<B> {
         patch
     }
 
-    /** Unconditional jump to a register. */
+    /// Unconditional jump to a register.
     pub fn jump(&mut self, target: Register) {
         self.write_rom_1(0xE0FF40, P32, target);
     }
 
-    /** Unconditional jump to a constant. */
+    /// Unconditional jump to a constant.
     pub fn const_jump(&mut self, target: Option<usize>) -> Patch {
         let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE940);
@@ -360,12 +350,12 @@ impl<B: Buffer> Assembler<B> {
         patch
     }
 
-    /** Unconditional call to a register. */
+    /// Unconditional call to a register.
     pub fn call(&mut self, target: Register) {
         self.write_rom_1(0xD0FF40, P32, target);
     }
 
-    /** Unconditional call to a constant. */
+    /// Unconditional call to a constant.
     pub fn const_call(&mut self, target: Option<usize>) -> Patch {
         let patch = Patch::new(self.get_pos());
         self.write_ro_0(0xE840);
@@ -374,13 +364,11 @@ impl<B: Buffer> Assembler<B> {
         patch
     }
 
-    /**
-     * Change the target of the instruction at `patch` from `old_target` to
-     * `new_target`.
-     * - patch - the instruction to modify.
-     * - old_target - an offset from the beginning of the buffer, or `None`.
-     * - new_target - an offset from the beginning of the buffer, or `None`.
-     */
+    /// Change the target of the instruction at `patch` from `old_target` to
+    /// `new_target`.
+    /// - patch - the instruction to modify.
+    /// - old_target - an offset from the beginning of the buffer, or `None`.
+    /// - new_target - an offset from the beginning of the buffer, or `None`.
     pub fn patch(&mut self, patch: Patch, old_target: Option<usize>, new_target: Option<usize>) {
         let pos = patch.address();
         #[allow(clippy::if_same_then_else)]
@@ -404,17 +392,17 @@ impl<B: Buffer> Assembler<B> {
         self.write_ro_0(0xC340);
     }
 
-    /** Push a register. */
+    /// Push a register.
     pub fn push(&mut self, rd: Register) {
         self.write_ro_1(0x5040, P64, rd);
     }
 
-    /** Pop a register. */
+    /// Pop a register.
     pub fn pop(&mut self, rd: Register) {
         self.write_ro_1(0x5840, P64, rd);
     }
 
-    /** Load narrow data, sign- or zero-extending to the given precision. */
+    /// Load narrow data, sign- or zero-extending to the given precision.
     pub fn load_narrow(&mut self, prec: Precision, type_: Width, dest: Register, src: (Register, i32)) {
         use Width::*;
         match type_ {
@@ -450,7 +438,7 @@ impl<B: Buffer> Assembler<B> {
         self.write_imm32(src.1);
     }
 
-    /** Store narrow data. */
+    /// Store narrow data.
     pub fn store_narrow(&mut self, type_: Width, dest: (Register, i32), src: Register) {
         use Width::*;
         match type_ {
@@ -475,7 +463,7 @@ impl<B: Buffer> Assembler<B> {
         self.write_imm32(dest.1);
     }
 
-    /** Call a function that prints `x` and can be used as a breakpoint. */
+    /// Call a function that prints `x` and can be used as a breakpoint.
     pub fn debug(&mut self, x: Register) {
         if CALLER_SAVES.len() & 1 != 0 {
             // Adjust alignment of RSP is 16-byte aligned.
@@ -514,14 +502,12 @@ pub mod tests {
 
     use iced_x86::{Decoder, Formatter, NasmFormatter};
 
-    /**
-     * Disassemble the code that has been assembled by `a` as if the [`Buffer`]
-     * were at offset 0.
-     *  - `a` - an assembler which has generated some code.
-     *  - `start_address` - the address (relative to the `Buffer`) at which to
-     *    start disassembling.
-     *  - `expected` - the expected disassembly of the code.
-     */
+    /// Disassemble the code that has been assembled by `a` as if the [`Buffer`]
+    /// were at offset 0.
+    ///  - `a` - an assembler which has generated some code.
+    ///  - `start_address` - the address (relative to the `Buffer`) at which to
+    ///    start disassembling.
+    ///  - `expected` - the expected disassembly of the code.
     pub fn disassemble<B: Buffer>(a: &Assembler<B>, start_address: usize, expected: Vec<&str>)
     -> Result<(), Vec<String>> {
         // Disassemble the code.
@@ -574,7 +560,7 @@ pub mod tests {
     const DISP: i32 = 0x12345678;
     const LABEL: usize = 0x02461357;
 
-    /** Test that the Registers are named correctly. */
+    /// Test that the Registers are named correctly.
     #[test]
     fn regs() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -601,7 +587,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that the Precisions are named correctly. */
+    /// Test that the Precisions are named correctly.
     #[test]
     fn precs() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -614,7 +600,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble all the different sizes of constant. */
+    /// Test that we can assemble all the different sizes of constant.
     #[test]
     fn const_() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -648,7 +634,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble all the different kinds of "MOV". */
+    /// Test that we can assemble all the different kinds of "MOV".
     #[test]
     fn move_() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -676,7 +662,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that all the BinaryOps are named correctly. */
+    /// Test that all the BinaryOps are named correctly.
     #[test]
     fn binary_op() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -695,7 +681,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble BinaryOps in all the different ways. */
+    /// Test that we can assemble BinaryOps in all the different ways.
     #[test]
     fn binary_mode() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -717,7 +703,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that all the ShiftOps are named correctly. */
+    /// Test that all the ShiftOps are named correctly.
     #[test]
     fn shift_op() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -735,7 +721,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble ShiftOps in all the different ways. */
+    /// Test that we can assemble ShiftOps in all the different ways.
     #[test]
     fn shift_mode() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -751,7 +737,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble multiplications in all the different ways. */
+    /// Test that we can assemble multiplications in all the different ways.
     #[test]
     fn mul() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -773,7 +759,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble unsigned div in all the different ways. */
+    /// Test that we can assemble unsigned div in all the different ways.
     #[test]
     fn udiv() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -792,7 +778,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble signed div in all the different ways. */
+    /// Test that we can assemble signed div in all the different ways.
     #[test]
     fn sdiv() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -811,10 +797,8 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /**
-     * Test that all the condition codes are named correctly.
-     * Test that we can assemble conditional branches.
-     */
+    /// Test that all the condition codes are named correctly.
+    /// Test that we can assemble conditional branches.
     #[test]
     fn condition() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -842,7 +826,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble conditional moves and loads. */
+    /// Test that we can assemble conditional moves and loads.
     #[test]
     fn move_if() {
         use Condition::*;
@@ -871,7 +855,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble the different kinds of unconditional jump. */
+    /// Test that we can assemble the different kinds of unconditional jump.
     #[test]
     fn jump() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -883,7 +867,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble the different kinds of call and return. */
+    /// Test that we can assemble the different kinds of call and return.
     #[test]
     fn call_ret() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -897,7 +881,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble "PUSH" and "POP". */
+    /// Test that we can assemble "PUSH" and "POP".
     #[test]
     fn push_pop() {
         let mut a = Assembler::<Vec<u8>>::new();
@@ -909,7 +893,7 @@ pub mod tests {
         ]).unwrap();
     }
 
-    /** Test that we can assemble loads and stores for narrow data. */
+    /// Test that we can assemble loads and stores for narrow data.
     #[test]
     fn narrow() {
         let mut a = Assembler::<Vec<u8>>::new();

@@ -1,15 +1,13 @@
 use super::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, AliasMask};
 
-/** Called by [`Action::Debug`]. */
+/// Called by [`Action::Debug`].
 #[no_mangle]
 pub extern fn debug_word(x: u64) {
     println!("Debug: {:#018x}", x);
 }
 
-/**
- * An imperative instruction.
- * The destination register (where applicable) is on the left.
- */
+/// An imperative instruction.
+/// The destination register (where applicable) is on the left.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
     /// dest <- src
@@ -44,10 +42,8 @@ pub mod tests {
     use super::*;
     use std::collections::{HashMap};
 
-    /**
-     * An emulator for a subset of Mijit code, useful for testing
-     * automatically-generated code.
-     */
+    /// An emulator for a subset of Mijit code, useful for testing
+    /// automatically-generated code.
     pub struct Emulator {
         variables: Vec<Variable>,
     }
@@ -86,7 +82,7 @@ pub mod tests {
         }
     }
 
-    /** Ensure the linker symbol `debug_word` is included in the binary. */
+    /// Ensure the linker symbol `debug_word` is included in the binary.
     #[test]
     fn not_really_a_test() {
         debug_word(0);

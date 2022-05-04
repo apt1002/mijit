@@ -36,12 +36,12 @@ impl Debug for Instruction {
 
 //-----------------------------------------------------------------------------
 
-/** The information that a [`Allocator`] stores about each [`Out`]. */
+/// The information that a [`Allocator`] stores about each [`Out`].
 #[derive(Default)]
 struct OutInfo {
-    /** The `Time` at which the `Out` became available. */
+    /// The `Time` at which the `Out` became available.
     time: Option<Time>,
-    /** The `Register` allocated for the `Out`. */
+    /// The `Register` allocated for the `Out`.
     reg: Option<Register>,
 }
 
@@ -51,12 +51,12 @@ impl Debug for OutInfo {
     }
 }
 
-/** The information that an [`Allocator`] stores about each [`Register`]. */
+/// The information that an [`Allocator`] stores about each [`Register`].
 #[derive(Default)]
 struct RegInfo {
-    /** The last `Time` at which the [`Register`] is used, or zero. */
+    /// The last `Time` at which the [`Register`] is used, or zero.
     time: Time,
-    /** The contents of the `Register` at the current time. */
+    /// The contents of the `Register` at the current time.
     out: Option<Out>,
 }
 
@@ -68,38 +68,34 @@ impl Debug for RegInfo {
 
 //-----------------------------------------------------------------------------
 
-/**
- * The state of the code generation algorithm. The state is mutated as
- * [`Instruction`]s are added, in the order specified by a [`Schedule`].
- */
+/// The state of the code generation algorithm. The state is mutated as
+/// [`Instruction`]s are added, in the order specified by a [`Schedule`].
 #[derive(Debug)]
 struct Allocator<'a> {
-    /** The dataflow graph. */
+    /// The dataflow graph.
     dataflow: &'a Dataflow,
-    /** The [`Node`]s remaining to be processed. */
+    /// The [`Node`]s remaining to be processed.
     usage: Usage<Node, Out>,
-    /** The [`Instruction`]s processed so far. */
+    /// The [`Instruction`]s processed so far.
     placer: Placer<Instruction>,
-    /** An `OutInfo` for each `Out`. */
+    /// An `OutInfo` for each `Out`.
     outs: ArrayMap<Out, OutInfo>,
-    /** The `Time` at which each [`Node`] was executed. */
+    /// The `Time` at which each [`Node`] was executed.
     node_times: ArrayMap<Node, Option<Time>>,
-    /** A `RegInfo` for each `Reg`. */
+    /// A `RegInfo` for each `Reg`.
     regs: ArrayMap<Register, RegInfo>,
-    /** The `Register` allocator state. */
+    /// The `Register` allocator state.
     pool: RegisterPool,
 }
 
 impl<'a> Allocator<'a> {
-    /**
-     * Create a new `Allocator`.
-     *
-     *  - effects - [`Node`]s representing side-effects that have already
-     *  occurred.
-     *  - variables - A mapping from the live [`Out`]s to [`Variable`]s.
-     *  - dataflow - The data flow graph.
-     *  - usage - The suggested execution order and usage information.
-     */
+    /// Create a new `Allocator`.
+    ///
+    ///  - effects - [`Node`]s representing side-effects that have already
+    ///  occurred.
+    ///  - variables - A mapping from the live [`Out`]s to [`Variable`]s.
+    ///  - dataflow - The data flow graph.
+    ///  - usage - The suggested execution order and usage information.
     pub fn new(
         effects: &HashSet<Node>,
         variables: &HashMap<Out, Variable>,
@@ -136,17 +132,17 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /** Returns the [`Register`] containing `out`, if any. */
+    /// Returns the [`Register`] containing `out`, if any.
     fn current_reg(&self, out: Out) -> Option<Register> {
         self.outs[out].reg.filter(|&reg| self.regs[reg].out == Some(out))
     }
 
-    /** Record that we used `reg` at `time` (either reading or writing). */
+    /// Record that we used `reg` at `time` (either reading or writing).
     fn use_reg(&mut self, reg: Register, time: Time) {
         self.regs[reg].time.max_with(time);
     }
 
-    /** Select a `Register` to spill and free it. */
+    /// Select a `Register` to spill and free it.
     fn free_a_register(&mut self) -> Register {
         let i = map_filter_max(all_registers(), |reg| {
             self.regs[reg].out
@@ -159,7 +155,7 @@ impl<'a> Allocator<'a> {
         reg
     }
 
-    /** Spills values until at least `num_required` registers are free. */
+    /// Spills values until at least `num_required` registers are free.
     fn spill_until(&mut self, num_required: usize) {
         while self.pool.num_clean() < num_required {
             let reg_x = self.free_a_register();
@@ -175,7 +171,7 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /** Called for each [`Node`] in the [`Usage`] in forwards order. */
+    /// Called for each [`Node`] in the [`Usage`] in forwards order.
     pub fn add_node(&mut self, node: Node) {
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
@@ -228,9 +224,7 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /**
-     * Returns the finished [`Instruction`] order and [`Register`] allocation.
-     */
+    /// Returns the finished [`Instruction`] order and [`Register`] allocation.
     pub fn finish(self) -> (Vec<Instruction>, ArrayMap<Out, Option<Register>>) {
         let instructions: Vec<_> = self.placer.iter().cloned().collect();
         let allocation = self.outs.iter().map(|info| info.reg).collect();
@@ -238,19 +232,17 @@ impl<'a> Allocator<'a> {
     }
 }
 
-/**
- * Choose the execution order and allocate [`Register`]s.
- *
- * - effects - [`Node`]s representing side-effects that have already occurred.
- * - variables - The [`Variable`]s passed on entry to the hot path.
- * - dataflow - The dataflow graph.
- * - nodes - The [`Node`]s that need to be executed on the hot path,
- *   topologically sorted. Includes the exit node.
- *
- * Returns:
- * - instructions - the execution order. Excludes the exit node.
- * - allocation - which `Register` each `Out` should be computed into.
- */
+/// Choose the execution order and allocate [`Register`]s.
+///
+/// - effects - [`Node`]s representing side-effects that have already occurred.
+/// - variables - The [`Variable`]s passed on entry to the hot path.
+/// - dataflow - The dataflow graph.
+/// - nodes - The [`Node`]s that need to be executed on the hot path,
+///   topologically sorted. Includes the exit node.
+///
+/// Returns:
+/// - instructions - the execution order. Excludes the exit node.
+/// - allocation - which `Register` each `Out` should be computed into.
 pub fn allocate<'a>(
     effects: &HashSet<Node>,
     variables: &HashMap<Out, Variable>,

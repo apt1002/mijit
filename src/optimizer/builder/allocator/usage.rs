@@ -5,13 +5,11 @@ use std::hash::{Hash};
 use crate::util::{CommaSeparated};
 
 array_index! {
-    /**
-     * Represents a place where an [`Out`] is used in a [`Schedule`].
-     * `u < v` means `u` occurs after `v` in the [`Schedule`].
-     */
+    /// Represents a place where an [`Out`] is used in a [`Schedule`].
+    /// `u < v` means `u` occurs after `v` in the [`Schedule`].
     #[derive(Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
     pub struct Use(
-        /** The number of times any `Out` is read after this `Use`. */ 
+        /// The number of times any `Out` is read after this `Use`.
         std::num::NonZeroUsize
     ) {
         debug_name: "Use",
@@ -21,41 +19,35 @@ array_index! {
 
 //-----------------------------------------------------------------------------
 
-/**
- * Tracks when things ("values") are used by other things ("instructions").
- * `I` is the type of instructions and `V` is the type of values.
- *
- * A `Usage` behaves like a stack. It is filled by pushing instructions in
- * reverse order, so that `pop()` will then return them in execution order.
- *
- * `first()` allows you to determine which of two values is used first in
- * execution order.
- */
+/// Tracks when things ("values") are used by other things ("instructions").
+/// `I` is the type of instructions and `V` is the type of values.
+///
+/// A `Usage` behaves like a stack. It is filled by pushing instructions in
+/// reverse order, so that `pop()` will then return them in execution order.
+///
+/// `first()` allows you to determine which of two values is used first in
+/// execution order.
 pub struct Usage<I: Debug, V: Debug + Clone + Hash + Eq> {
-    /**
-     * The instructions in the order they were pushed, each with the length of
-     * `nexts` at the time it was pushed.
-     */
+    /// The instructions in the order they were pushed, each with the length of
+    /// `nexts` at the time it was pushed.
     instructions: Vec<(I, usize)>,
-    /** For each value, its most recently pushed [`Use`]. */
+    /// For each value, its most recently pushed [`Use`].
     heads: HashMap<V, Use>,
-    /** For each [`Use`], the value used and its next `Use` if any. */
+    /// For each [`Use`], the value used and its next `Use` if any.
     nexts: Vec<(V, Option<Use>)>,
 }
 
 impl<I: Debug, V: Debug + Clone + Hash + Eq> Usage<I, V> {
-    /**
-     * Returns the most recently pushed use of `value`, if any, i.e. the next
-     * use of `value` in execution order.
-     *
-     * The ordering is such that `u > v` iff `u` was more recently pushed, i.e.
-     * if `u` will be used first in execution order.
-     */
+    /// Returns the most recently pushed use of `value`, if any, i.e. the next
+    /// use of `value` in execution order.
+    ///
+    /// The ordering is such that `u > v` iff `u` was more recently pushed, i.e.
+    /// if `u` will be used first in execution order.
     pub fn first(&self, value: V) -> Option<impl Ord> {
         self.heads.get(&value).cloned()
     }
 
-    /** Push `instruction` which uses `values`. */
+    /// Push `instruction` which uses `values`.
     pub fn push(&mut self, instruction: I, values: impl IntoIterator<Item=V>) {
         self.instructions.push((instruction, self.nexts.len()));
         for v in values {
@@ -64,7 +56,7 @@ impl<I: Debug, V: Debug + Clone + Hash + Eq> Usage<I, V> {
         }
     }
 
-    /** Pop an instruction. */
+    /// Pop an instruction.
     pub fn pop<'a>(&'a mut self) -> Option<I> {
         self.instructions.pop().map(|(instruction, length)| {
             let to_remove = length..self.nexts.len();
@@ -134,7 +126,7 @@ mod tests {
     }
 
     #[test]
-    /** Test that Schedule keeps track of the uses of `Out`s. */
+    /// Test that Schedule keeps track of the uses of `Out`s.
     pub fn test() {
         let mut usage: Usage<char, usize> = Default::default();
         usage.push('D', vec![4]);

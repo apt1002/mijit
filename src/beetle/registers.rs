@@ -1,4 +1,4 @@
-/** Beetle's registers. */
+/// Beetle's registers.
 #[repr(C)]
 #[derive(Default)]
 pub struct Registers {
