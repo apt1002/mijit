@@ -88,7 +88,7 @@ impl<K: AsUsize, V> std::ops::IndexMut<K> for ArrayMap<K, V> {
 /// that the excluded value is the maximum value, not zero.
 ///
 /// Usage:
-/// ```
+/// ```text
 /// array_index! {
 ///     /// Documentation.
 ///     #[attributes]
