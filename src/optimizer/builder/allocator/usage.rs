@@ -116,7 +116,7 @@ mod tests {
         value: &V,
     ) -> Vec<usize> {
         let mut ret = Vec::new();
-        let mut head: Option<Use> = unsafe { std::mem::transmute(usage.first(value.clone())) };
+        let mut head: Option<Use> = usage.heads.get(value).cloned();
         while let Some(next) = head {
             ret.push(next.as_usize());
             head = usage.nexts[next.as_usize()].1;
