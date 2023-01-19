@@ -68,6 +68,8 @@ impl<'a> Builder<'a> {
     /// - input - called once for each input to the `HotPathTree`. It informs
     ///   the caller of `walk()` that the input is live, and returns the
     ///   [`Variable`] that holds it.
+    /// - lookup_leaf - returns information about merge points, i.e. where
+    ///   control flow merges with code that we're not currently optimizing.
     pub fn walk<'w, L: Debug + Clone>(
         &'w mut self,
         exit: Node,

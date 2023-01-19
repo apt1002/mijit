@@ -54,8 +54,8 @@ impl <'a> Flood<'a> {
 /// The fill follows `dataflow` dependencies (both values and side-effects)
 /// backwards in time. Visited `Node`s are marked with `marker`. The fill stops
 /// at `Node`s that are marked with a non-zero value; the [`Out`]s by which they
-/// are reached are added to `inputs` and those whose side-effects are needed
-/// are added to `effects`.
+/// are reached are added to `inputs` and those `Node`s whose side-effects are
+/// needed are added to `effects`.
 ///
 /// Returns the `Node`s that were marked. The returned array is topologically
 /// sorted into a possible execution order.

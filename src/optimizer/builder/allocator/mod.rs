@@ -235,10 +235,12 @@ impl<'a> Allocator<'a> {
 /// Choose the execution order and allocate [`Register`]s.
 ///
 /// - effects - [`Node`]s representing side-effects that have already occurred.
-/// - variables - The [`Variable`]s passed on entry to the hot path.
-/// - dataflow - The dataflow graph.
-/// - nodes - The [`Node`]s that need to be executed on the hot path,
+/// - variables - the [`Variable`]s passed on entry to the hot path.
+/// - dataflow - the dataflow graph.
+/// - nodes - the [`Node`]s that need to be executed on the hot path,
 ///   topologically sorted. Includes the exit node.
+/// - get_keep_alives - for [`Op::Guard`] `Node`s, returns the dataflow
+///   dependencies of the cold paths.
 ///
 /// Returns:
 /// - instructions - the execution order. Excludes the exit node.

@@ -135,6 +135,7 @@ impl<'a> CodeGen<'a> {
         if self.live_outs.contains(&out) {
             Some(r)
         } else {
+            // TODO: Is this ever reached? Why would we spill a dead value?
             None
         }
     }
