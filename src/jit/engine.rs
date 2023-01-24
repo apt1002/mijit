@@ -243,7 +243,7 @@ impl<T: Target> Engine<T> {
     ///  - ebb - the extended basic block defining the desired behaviour.
     ///  - to_case - called for every leaf of the EBB to determine where to
     ///    jump to.
-    pub fn build<L: Clone + Debug>(
+    pub fn build<L: Debug + Clone>(
         &mut self,
         id: CaseId,
         ebb: &EBB<L>,
@@ -370,13 +370,15 @@ impl<T: Target> Engine<T> {
     }
 }
 
-struct EngineWrapper<'a, T: Target, L: Clone, F: Fn(L) -> CaseId> {
+struct EngineWrapper<'a, T: Target, L: Debug + Clone, F: Fn(L) -> CaseId> {
     engine: &'a Engine<T>,
     to_case: &'a F,
     _l: PhantomData<L>,
 }
 
-impl<'a, T: Target, L: Clone, F: Fn(L) -> CaseId> LookupLeaf<L> for EngineWrapper<'a, T, L, F> {
+impl<'a, T: Target, L: Debug + Clone, F: Fn(L) -> CaseId> LookupLeaf for EngineWrapper<'a, T, L, F> {
+    type Leaf = L;
+
     /// Return the convention in effect at `leaf`.
     fn after(&self, leaf: &L) -> &Convention {
         self.engine.i.convention((self.to_case)(leaf.clone()))

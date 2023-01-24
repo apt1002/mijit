@@ -165,7 +165,8 @@ impl Simulation {
 
     /// Simulate every control-flow path in `ebb`, adding to `dataflow` as
     /// necessary. Returns a [`CFT`] and its total weight.
-    fn walk<L: Clone>(mut self, dataflow: &mut Dataflow, ebb: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>) -> (CFT<L>, usize) {
+    fn walk<L: LookupLeaf>(mut self, dataflow: &mut Dataflow, ebb: &EBB<L::Leaf>, lookup_leaf: &L)
+    -> (CFT<L::Leaf>, usize) {
         for ref action in &ebb.actions {
             self.action(dataflow, action);
         }
@@ -197,8 +198,8 @@ impl Simulation {
 
 /// Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
 /// `input`.
-pub fn simulate<L: Debug + Clone>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
--> (Dataflow, CFT<L>) {
+pub fn simulate<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
+-> (Dataflow, CFT<L::Leaf>) {
     let mut dataflow = Dataflow::new(before.live_values.len());
     let simulation = Simulation::new(&dataflow, &before);
     let (cft, _) = simulation.walk(&mut dataflow, &input, lookup_leaf);

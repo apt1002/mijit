@@ -27,16 +27,18 @@ mod builder;
 pub use builder::{build};
 
 /// Look up information about a control-flow merge point.
-pub trait LookupLeaf<L: Clone> {
+pub trait LookupLeaf {
+    // A control-flow merge point.
+    type Leaf: Debug + Clone;
     /// Return the convention in effect at `leaf`.
-    fn after(&self, leaf: &L) -> &Convention;
+    fn after(&self, leaf: &Self::Leaf) -> &Convention;
     /// Return the estimated relative frequency of `leaf`.
-    fn weight(&self, leaf: &L) -> usize;
+    fn weight(&self, leaf: &Self::Leaf) -> usize;
 }
 
 /// Optimizes an [`EBB`].
-pub fn optimize<L: Clone + Debug>(before: &Convention, input: &EBB<L>, lookup_leaf: &impl LookupLeaf<L>)
--> EBB<L> {
+pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
+-> EBB<L::Leaf> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(before, input, lookup_leaf);
     // Turn it back into an EBB.

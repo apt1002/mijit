@@ -1,4 +1,3 @@
-use std::fmt::{Debug};
 use std::collections::{HashSet, HashMap};
 
 use super::{code, target, cost, cft, Dataflow, Node, Out, Cold, CFT, Op, Resources, LookupLeaf};
@@ -70,16 +69,16 @@ impl<'a> Builder<'a> {
     ///   [`Variable`] that holds it.
     /// - lookup_leaf - returns information about merge points, i.e. where
     ///   control flow merges with code that we're not currently optimizing.
-    pub fn walk<'w, L: Debug + Clone>(
+    pub fn walk<'w, L: LookupLeaf>(
         &'w mut self,
         exit: Node,
-        leaf: &'w L,
-        guard_failure: &dyn Fn(Node) -> &'w GuardFailure<L>,
+        leaf: &'w L::Leaf,
+        guard_failure: &dyn Fn(Node) -> &'w GuardFailure<L::Leaf>,
         coldness: usize,
         slots_used: usize,
         input: &mut dyn FnMut(Out) -> Variable,
-        lookup_leaf: &impl LookupLeaf<L>,
-    ) -> EBB<L> {
+        lookup_leaf: &L,
+    ) -> EBB<L::Leaf> {
         let mut inputs = HashSet::new();
         let mut effects = HashSet::new();
         let nodes = flood(self.dataflow, &mut self.marks, coldness, &mut inputs, &mut effects, exit);
@@ -182,12 +181,12 @@ impl<'a> Builder<'a> {
     }
 }
 
-pub fn build<L: Debug + Clone>(
+pub fn build<L: LookupLeaf>(
     before: &Convention,
     dataflow: &Dataflow,
-    cft: &CFT<L>,
-    lookup_leaf: &impl LookupLeaf<L>,
-) -> EBB<L> {
+    cft: &CFT<L::Leaf>,
+    lookup_leaf: &L,
+) -> EBB<L::Leaf> {
     // Work out what is where.
     let input_map: HashMap<Out, Variable> =
         dataflow.outs(dataflow.entry_node())
@@ -219,6 +218,17 @@ mod tests {
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
 
+    // Several tests represent leaves as integers.
+    impl LookupLeaf for Convention {
+        type Leaf = usize;
+        fn after(&self, _leaf: &usize) -> &Convention {
+            self
+        }
+        fn weight(&self, leaf: &usize) -> usize {
+            *leaf
+        }
+    }
+
     #[test]
     fn reorder_guards() {
         // Each leaf will return a single `Register`.
@@ -226,7 +236,8 @@ mod tests {
         let afters: ArrayMap<Register, _> = REGISTERS.iter().map(
             |&r| Convention {live_values: Box::new([r.into()]), slots_used: 0}
         ).collect();
-        impl LookupLeaf<Register> for ArrayMap<Register, Convention> {
+        impl LookupLeaf for ArrayMap<Register, Convention> {
+            type Leaf = Register;
             fn after(&self, leaf: &Register) -> &Convention {
                 &self[*leaf]
             }
@@ -280,15 +291,6 @@ mod tests {
     #[test]
     fn bee_1() {
         let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};
-        // Represent leaves as integers.
-        impl LookupLeaf<usize> for Convention {
-            fn after(&self, _leaf: &usize) -> &Convention {
-                self
-            }
-            fn weight(&self, leaf: &usize) -> usize {
-                *leaf
-            }
-        }
         let lookup_leaf = &convention;
         // Make an `EBB`.
         let ebb = builder::build(&|b| {
