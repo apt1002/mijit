@@ -1,4 +1,6 @@
+use std::collections::{HashMap};
 use std::fmt::{Debug};
+
 use super::{Node};
 
 //-----------------------------------------------------------------------------
@@ -117,9 +119,9 @@ impl<L: Clone> CFT<L> {
 
     /// Follows the hot path through `self`.
     /// Returns the [`Colds`]es and the exit [`Node`].
-    pub fn hot_path(&self) -> (Vec<Cold<&Self>>, Node, L) {
+    pub fn hot_path(&self) -> (HashMap<Node, Cold<&Self>>, Node, L) {
         let mut cft = self;
-        let mut colds = Vec::new();
+        let mut colds = HashMap::new();
         loop {
             match cft {
                 &CFT::Merge {exit, ref leaf} => {
@@ -128,7 +130,7 @@ impl<L: Clone> CFT<L> {
                 &CFT::Switch {ref switch, hot_index} => {
                     let (hot, cold) = switch.map(|t| t).remove_hot(hot_index);
                     cft = hot;
-                    colds.push(cold);
+                    colds.insert(cold.guard, cold);
                 },
             }
         }

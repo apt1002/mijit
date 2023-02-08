@@ -61,19 +61,6 @@ pub struct HotPathTree<L: Debug + Clone> {
     pub children: HashMap<Node, GuardFailure<L>>,
 }
 
-impl<L: Debug + Clone> HotPathTree<L> {
-    pub fn new(
-        exit: Node,
-        leaf: L,
-        children: impl IntoIterator<Item=GuardFailure<L>>,
-    ) -> Self {
-        let children = HashMap::from_iter(children.into_iter().map(
-            |gf| (gf.cold.guard, gf)
-        ));
-        HotPathTree {exit, leaf, children}
-    }
-}
-
 //-----------------------------------------------------------------------------
 
 struct KeepAlive<'a> {
@@ -102,7 +89,8 @@ impl<'a> KeepAlive<'a> {
         // Mark everything that `exit` depends on.
         let nodes = flood(&self.dataflow, &mut self.marks, coldness, inputs, &mut HashSet::new(), exit);
         // For each guard we passed...
-        let children: Vec<_> = colds.into_iter().map(|cold| {
+        let children: HashMap<_, _> = colds.into_iter().map(|(guard, cold)| {
+            assert_eq!(guard, cold.guard);
             // Recurse to find all the inputs of any cold path.
             let mut keep_alives = HashSet::new();
             let cold = cold.map(|&c| self.walk(c, &mut keep_alives, coldness + 1));
@@ -115,7 +103,7 @@ impl<'a> KeepAlive<'a> {
                     inputs.insert(out);
                 }
             }
-            GuardFailure {cold, keep_alives}
+            (guard, GuardFailure {cold, keep_alives})
         }).collect();
         // Unmark everything that we marked.
         for &node in &*nodes {
@@ -123,7 +111,7 @@ impl<'a> KeepAlive<'a> {
             self.marks[node] = 0;
         }
         // Construct a HotPathTree.
-        let hpt = HotPathTree::new(exit, leaf.clone(), children);
+        let hpt = HotPathTree {exit, leaf, children};
         // Check that all guard [`Node`]s in `nodes` are in `children`.
         for &node in &*nodes {
             if self.dataflow.op(node) == Op::Guard {
@@ -160,6 +148,19 @@ mod tests {
             let colds = colds.into();
             let keep_alives = HashSet::from_iter(keep_alives);
             GuardFailure {cold: Cold {guard, hot_index, colds}, keep_alives}
+        }
+    }
+
+    impl<L: Debug + Clone> HotPathTree<L> {
+        pub fn new(
+            exit: Node,
+            leaf: L,
+            children: impl IntoIterator<Item=GuardFailure<L>>,
+        ) -> Self {
+            let children = HashMap::from_iter(children.into_iter().map(
+                |gf| (gf.cold.guard, gf)
+            ));
+            HotPathTree {exit, leaf, children}
         }
     }
 
