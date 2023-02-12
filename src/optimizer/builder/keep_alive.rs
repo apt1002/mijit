@@ -90,7 +90,6 @@ impl<'a> KeepAlive<'a> {
         let nodes = flood(&self.dataflow, &mut self.marks, coldness, inputs, &mut HashSet::new(), exit);
         // For each guard we passed...
         let children: HashMap<_, _> = colds.into_iter().map(|(guard, cold)| {
-            assert_eq!(guard, cold.guard);
             // Recurse to find all the inputs of any cold path.
             let mut keep_alives = HashSet::new();
             let cold = cold.map(|&c| self.walk(c, &mut keep_alives, coldness + 1));
@@ -140,14 +139,13 @@ mod tests {
 
     impl<L: Debug + Clone> GuardFailure<L> {
         pub fn new(
-            guard: Node,
             hot_index: usize,
             keep_alives: impl IntoIterator<Item=Out>,
             colds: impl Into<Box<[HotPathTree<L>]>>,
         ) -> Self {
             let colds = colds.into();
             let keep_alives = HashSet::from_iter(keep_alives);
-            GuardFailure {cold: Cold {guard, hot_index, colds}, keep_alives}
+            GuardFailure {cold: Cold {hot_index, colds}, keep_alives}
         }
     }
 
@@ -155,11 +153,9 @@ mod tests {
         pub fn new(
             exit: Node,
             leaf: L,
-            children: impl IntoIterator<Item=GuardFailure<L>>,
+            children: impl IntoIterator<Item=(Node, GuardFailure<L>)>,
         ) -> Self {
-            let children = HashMap::from_iter(children.into_iter().map(
-                |gf| (gf.cold.guard, gf)
-            ));
+            let children = HashMap::from_iter(children);
             HotPathTree {exit, leaf, children}
         }
     }
@@ -211,16 +207,16 @@ mod tests {
         let switch1 = CFT::switch(guard1, [switch2], switch3, 0);
         // Test
         let expected = HotPathTree::new(hot_hot, Leaf, [
-            GuardFailure::new(guard1, 0, [c, r, s], [
+            (guard1, GuardFailure::new(0, [c, r, s], [
                 HotPathTree::new(cold_hot, Leaf, [
-                    GuardFailure::new(guard3, 0, [s], [
+                    (guard3, GuardFailure::new(0, [s], [
                         HotPathTree::new(cold_cold, Leaf, []),
-                    ]),
+                    ])),
                 ]),
-            ]),
-            GuardFailure::new(guard2, 0, [q], [
+            ])),
+            (guard2, GuardFailure::new(0, [q], [
                 HotPathTree::new(hot_cold, Leaf, []),
-            ]),
+            ])),
         ]);
         let observed = keep_alive_sets(&dataflow, &switch1);
         assert_eq!(observed, expected);

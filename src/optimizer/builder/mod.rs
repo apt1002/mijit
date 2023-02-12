@@ -1,7 +1,7 @@
 use std::collections::{HashSet, HashMap};
 
-use super::{code, target, cost, cft, Dataflow, Node, Out, Cold, CFT, Op, Resources, LookupLeaf};
-use code::{Slot, Variable, Convention, Ending, EBB};
+use super::{code, target, cost, Dataflow, Node, Out, Cold, CFT, Op, Resources, LookupLeaf};
+use code::{Register, Slot, Variable, Convention, Ending, EBB};
 use crate::util::{ArrayMap};
 
 mod flood;
@@ -20,8 +20,6 @@ mod codegen;
 pub use codegen::{CodeGen};
 
 //-----------------------------------------------------------------------------
-
-use code::{Register};
 
 const NUM_REGISTERS: usize = target::x86_64::ALLOCATABLE_REGISTERS.len();
 
@@ -158,8 +156,8 @@ impl<'a> Builder<'a> {
                             lookup_leaf,
                         ));
                         // Combine the hot and cold paths and update `ending`.
-                        let cft_switch: cft::Switch<EBB<_>> = cold.insert_hot(hot);
-                        let outs = self.dataflow.ins(cft_switch.guard);
+                        let cft_switch = cold.insert_hot(hot);
+                        let outs = self.dataflow.ins(node);
                         assert_eq!(outs.len(), 1);
                         let discriminant = cg.read(outs[0]);
                         let switch = code::Switch {

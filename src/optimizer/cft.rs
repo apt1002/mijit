@@ -10,8 +10,6 @@ use super::{Node};
 /// `code::Switch`: super::code::Switch
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Switch<C> {
-    /// The [`Op::Guard`] that discriminates the cases.
-    pub guard: Node,
     /// The numbered cases.
     pub cases: Box<[C]>,
     /// The default case.
@@ -21,15 +19,15 @@ pub struct Switch<C> {
 impl<C> Switch<C> {
     /// Apply `callback` to every `C` and return a fresh `Switch`.
     pub fn map<'a, D>(&'a self, mut callback: impl FnMut(&'a C) -> D) -> Switch<D> {
-        let Switch {guard, ref cases, ref default_} = *self;
+        let Switch {ref cases, ref default_} = *self;
         let cases = cases.iter().map(&mut callback).collect();
         let default_ = Box::new(callback(default_));
-        Switch {guard, cases, default_}
+        Switch {cases, default_}
     }
 
     /// Separates the hot and cold branches.
     pub fn remove_hot(self, hot_index: usize) -> (C, Cold<C>) {
-        let Switch {guard, cases, default_} = self;
+        let Switch {cases, default_} = self;
         let mut cases = cases.into_vec();
         let hot = if hot_index == usize::MAX {
             *default_
@@ -39,7 +37,7 @@ impl<C> Switch<C> {
             hot
         };
         let colds = cases.into_boxed_slice();
-        (hot, Cold {guard, hot_index, colds})
+        (hot, Cold {hot_index, colds})
     }
 }
 
@@ -53,8 +51,6 @@ impl<C> Switch<C> {
 /// [`CFT::hot_path()`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cold<C> {
-    /// The [`Op::Guard`] that separates these `Colds` from the hot path.
-    pub guard: Node,
     /// The index of the most probable case, or `usize::MAX`.
     pub hot_index: usize,
     /// A `C` for each cold branch (omitting the hot branch).
@@ -64,14 +60,14 @@ pub struct Cold<C> {
 impl<C> Cold<C> {
     /// Apply `callback` to every `C` and return a fresh `Cold`.
     pub fn map<'a, D>(&'a self, mut callback: impl FnMut(&'a C) -> D) -> Cold<D> {
-        let Cold {guard, hot_index, ref colds} = *self;
+        let Cold {hot_index, ref colds} = *self;
         let colds = colds.iter().map(&mut callback).collect();
-        Cold {guard, hot_index, colds}
+        Cold {hot_index, colds}
     }
 
     /// Recombines the hot and cold branches.
     pub fn insert_hot(self, hot: C) -> Switch<C> {
-        let Cold {guard, hot_index, colds} = self;
+        let Cold {hot_index, colds} = self;
         let mut colds: Vec<C> = colds.into_vec();
         let default_ = Box::new(if hot_index == usize::MAX {
             hot
@@ -81,7 +77,7 @@ impl<C> Cold<C> {
             default_
         });
         let cases = colds.into_boxed_slice();
-        Switch {guard, cases, default_}
+        Switch {cases, default_}
     }
 }
 
@@ -97,6 +93,8 @@ pub enum CFT<L: Clone> {
         leaf: L,
     },
     Switch {
+        /// The [`Op::Guard`] that discriminates the cases.
+        guard: Node,
         /// The control-flow decision.
         switch: Switch<CFT<L>>,
         /// The index of the most probable case, or `usize::MAX`.
@@ -114,7 +112,7 @@ impl<L: Clone> CFT<L> {
     ) -> Self {
         let cases = cases.into();
         let default_ = default_.into();
-        CFT::Switch {switch: Switch {guard, cases, default_}, hot_index}
+        CFT::Switch {guard, switch: Switch {cases, default_}, hot_index}
     }
 
     /// Follows the hot path through `self`.
@@ -127,10 +125,10 @@ impl<L: Clone> CFT<L> {
                 &CFT::Merge {exit, ref leaf} => {
                     return (colds, exit, leaf.clone());
                 },
-                &CFT::Switch {ref switch, hot_index} => {
+                &CFT::Switch {guard, ref switch, hot_index} => {
                     let (hot, cold) = switch.map(|t| t).remove_hot(hot_index);
                     cft = hot;
-                    colds.insert(cold.guard, cold);
+                    colds.insert(guard, cold);
                 },
             }
         }
