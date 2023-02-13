@@ -158,7 +158,7 @@ impl<'a> Builder<'a> {
                         ));
                         // Combine the hot and cold paths and update `ending`.
                         let cft_switch: cft::Switch<EBB<_>> = cold.insert_hot(hot);
-                        ending = Ending::Switch(code::Switch::Index {
+                        ending = Ending::Switch(code::Switch {
                             discriminant: {
                                 let outs = self.dataflow.ins(cft_switch.guard);
                                 assert_eq!(outs.len(), 1);

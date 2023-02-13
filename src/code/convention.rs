@@ -93,9 +93,7 @@ impl Propagator {
             }
         });
         let mut ret = ret.expect("Switch has no cases");
-        if let Some(src) = switch.discriminant() {
-            ret.insert(src);
-        }
+        ret.insert(switch.discriminant);
         ret
     }
 

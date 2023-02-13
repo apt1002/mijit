@@ -174,27 +174,22 @@ impl Simulation {
                 let exit = self.exit(dataflow, lookup_leaf.after(leaf));
                 (CFT::Merge {exit, leaf: leaf.clone()}, lookup_leaf.weight(leaf))
             },
-            Ending::Switch(ref switch) => {
-                match *switch {
-                    Switch::Always(ref ebb) => self.walk(dataflow, &*ebb, lookup_leaf),
-                    Switch::Index {discriminant, ref cases, ref default_} => {
-                        let guard = self.guard(dataflow, discriminant);
-                        // Recurse on all branches and study the weights.
-                        let (default_, mut hot_weight) = self.clone().walk(dataflow, &*default_, lookup_leaf);
-                        let mut hot_index = usize::MAX;
-                        let mut total_weight = hot_weight;
-                        let cases: Box<[_]> = cases.iter().enumerate().map(|(i, case)| {
-                            let (case, weight) = self.clone().walk(dataflow, case, lookup_leaf);
-                            if weight > hot_weight {
-                                hot_index = i;
-                                hot_weight = weight;
-                            }
-                            total_weight += weight;
-                            case
-                        }).collect();
-                        (CFT::switch(guard, cases, default_, hot_index), total_weight)
+            Ending::Switch(Switch {discriminant, ref cases, ref default_}) => {
+                let guard = self.guard(dataflow, discriminant);
+                // Recurse on all branches and study the weights.
+                let (default_, mut hot_weight) = self.clone().walk(dataflow, &*default_, lookup_leaf);
+                let mut hot_index = usize::MAX;
+                let mut total_weight = hot_weight;
+                let cases: Box<[_]> = cases.iter().enumerate().map(|(i, case)| {
+                    let (case, weight) = self.clone().walk(dataflow, case, lookup_leaf);
+                    if weight > hot_weight {
+                        hot_index = i;
+                        hot_weight = weight;
                     }
-                }
+                    total_weight += weight;
+                    case
+                }).collect();
+                (CFT::switch(guard, cases, default_, hot_index), total_weight)
             }
         }
     }

@@ -164,20 +164,13 @@ impl Internals {
             assert_eq!(child.convention().slots_used, slots_used);
             assert_eq!(child.fetch_parent, Some(id));
         };
-        match fetch.switch {
-            Switch::Index {discriminant, ref cases, ref default_} => {
-                for (index, &case) in cases.iter().enumerate() {
-                    check_child(&self[case]);
-                    lo.if_eq((discriminant, index as u64), &mut self[case].label);
-                }
-                check_child(&self[**default_]);
-                lo.jump(&mut self[**default_].label);
-            },
-            Switch::Always(ref jump) => {
-                check_child(&self[**jump]);
-                lo.jump(&mut self[**jump].label);
-            },
+        let Switch {discriminant, ref cases, ref default_} = fetch.switch;
+        for (index, &case) in cases.iter().enumerate() {
+            check_child(&self[case]);
+            lo.if_eq((discriminant, index as u64), &mut self[case].label);
         }
+        check_child(&self[**default_]);
+        lo.jump(&mut self[**default_].label);
         self[id].set_convention(before);
         self[id].fetch = Some(fetch);
     }
@@ -317,23 +310,14 @@ impl<T: Target> Engine<T> {
         loop {
             if let Some(fetch) = &self.i[id].fetch {
                 actions.extend(fetch.actions.iter().copied());
-                match &fetch.switch {
-                    Switch::Always(jump) => {
-                        // Loop.
-                        id = **jump;
-                        continue;
-                    },
-                    switch => {
-                        // Succeed.
-                        return Some(EBB {
-                            actions: actions.into(),
-                            ending: Ending::Switch(switch.map(|&jump| EBB {
-                                actions: Vec::new(),
-                                ending: Ending::Leaf(jump),
-                            })),
-                        });
-                    },
-                }
+                // Succeed.
+                return Some(EBB {
+                    actions: actions.into(),
+                    ending: Ending::Switch(fetch.switch.map(|&jump| EBB {
+                        actions: Vec::new(),
+                        ending: Ending::Leaf(jump),
+                    })),
+                });
             }
             if let Some(retire) = &self.i[id].retire {
                 actions.extend(retire.actions.iter().copied());
