@@ -1,4 +1,4 @@
-use super::{Action, Switch};
+use super::{Variable, Action, Switch};
 
 /// Represents an [extended basic block], i.e. a tree-like control-flow graph.
 ///
@@ -16,5 +16,5 @@ pub enum Ending<L> {
     /// Control-flow merges with pre-existing code.
     Leaf(L),
     /// Control-flow diverges.
-    Switch(Switch<EBB<L>>),
+    Switch(Variable, Switch<EBB<L>>),
 }

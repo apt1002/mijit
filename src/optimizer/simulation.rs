@@ -174,7 +174,7 @@ impl Simulation {
                 let exit = self.exit(dataflow, lookup_leaf.after(leaf));
                 (CFT::Merge {exit, leaf: leaf.clone()}, lookup_leaf.weight(leaf))
             },
-            Ending::Switch(Switch {discriminant, ref cases, ref default_}) => {
+            Ending::Switch(discriminant, Switch {ref cases, ref default_}) => {
                 let guard = self.guard(dataflow, discriminant);
                 // Recurse on all branches and study the weights.
                 let (default_, mut hot_weight) = self.clone().walk(dataflow, &*default_, lookup_leaf);

@@ -42,8 +42,7 @@ impl<T: Target> Factorial<T> {
         });
         jit.define(loop_, &EBB {
             actions: vec![],
-            ending: Ending::Switch(Switch::if_(
-                reg::N,
+            ending: Ending::Switch(reg::N, Switch::if_(
                 EBB {
                     actions: vec![
                         Binary(Mul, P32, R0, reg::RESULT, reg::N),

@@ -81,8 +81,12 @@ impl Propagator {
 
     /// Propagate information backwards through a `Switch`.
     /// [`Variable`]s live in every case of `switch` are included in
-    /// `live_variables`, along with `switch.discriminant()` if present.
-    pub fn switch<'a, C>(switch: &'a Switch<C>, to_convention: impl Fn(&C) -> &'a Convention) -> Self {
+    /// `live_variables`, along with `discriminant`.
+    pub fn switch<'a, C>(
+        discriminant: Variable,
+        switch: &'a Switch<C>,
+        to_convention: impl Fn(&C)-> &'a Convention,
+    ) -> Self {
         let mut ret: Option<Self> = None;
         switch.map(|c| {
             let convention = to_convention(c);
@@ -93,7 +97,7 @@ impl Propagator {
             }
         });
         let mut ret = ret.expect("Switch has no cases");
-        ret.insert(switch.discriminant);
+        ret.insert(discriminant);
         ret
     }
 

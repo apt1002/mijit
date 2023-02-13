@@ -4,7 +4,7 @@ use std::marker::{PhantomData};
 
 use crate::util::{AsUsize};
 use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
-use super::code::{Precision, Global, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
+use super::code::{Precision, Global, Variable, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
 use super::optimizer::{LookupLeaf, optimize};
 use Precision::*;
 
@@ -32,7 +32,9 @@ struct Retire {
 struct Fetch {
     /// The code to run.
     actions: Box<[Action]>,
-    /// The control-flow decision.
+    /// The control-flow discriminant.
+    discriminant: Variable,
+    /// The control-flow options.
     switch: Switch<CaseId>,
 }
 
@@ -144,7 +146,11 @@ impl Internals {
     fn add_fetch(&mut self, lo: &mut impl Lower, id: CaseId, fetch: Fetch) {
         assert!(self[id].fetch.is_none());
         // Compute the `before` convention.
-        let mut propagator = Propagator::switch(&fetch.switch, |&child| self[child].convention());
+        let mut propagator = Propagator::switch(
+            fetch.discriminant,
+            &fetch.switch,
+            |&child| self[child].convention(),
+        );
         for &action in fetch.actions.iter().rev() {
             propagator.action(action);
         }
@@ -164,10 +170,10 @@ impl Internals {
             assert_eq!(child.convention().slots_used, slots_used);
             assert_eq!(child.fetch_parent, Some(id));
         };
-        let Switch {discriminant, ref cases, ref default_} = fetch.switch;
+        let Switch {ref cases, ref default_} = fetch.switch;
         for (index, &case) in cases.iter().enumerate() {
             check_child(&self[case]);
-            lo.if_eq((discriminant, index as u64), &mut self[case].label);
+            lo.if_eq((fetch.discriminant, index as u64), &mut self[case].label);
         }
         check_child(&self[**default_]);
         lo.jump(&mut self[**default_].label);
@@ -255,18 +261,20 @@ impl<T: Target> Engine<T> {
         to_case: &impl Fn(L) -> CaseId,
     ) {
         let ebb_actions = ebb.actions.iter().copied().collect();
-        match &ebb.ending {
-            Ending::Leaf(leaf) => {
+        match ebb.ending {
+            Ending::Leaf(ref leaf) => {
                 let jump = to_case(leaf.clone());
-                self.i.add_retire(&mut self.lowerer, id, Retire {actions: ebb_actions, jump: Some(jump)});
+                let retire = Retire {actions: ebb_actions, jump: Some(jump)};
+                self.i.add_retire(&mut self.lowerer, id, retire);
             },
-            Ending::Switch(switch) => {
+            Ending::Switch(discriminant, ref switch) => {
                 let switch = switch.map(|child_ebb| {
                     let child = self.i.new_case(Some(id));
                     self.build_inner(child, child_ebb, to_case);
                     child
                 });
-                self.i.add_fetch(&mut self.lowerer, id, Fetch {actions: ebb_actions, switch});
+                let fetch = Fetch {actions: ebb_actions, discriminant, switch};
+                self.i.add_fetch(&mut self.lowerer, id, fetch);
             },
         }
     }
@@ -313,10 +321,13 @@ impl<T: Target> Engine<T> {
                 // Succeed.
                 return Some(EBB {
                     actions: actions.into(),
-                    ending: Ending::Switch(fetch.switch.map(|&jump| EBB {
-                        actions: Vec::new(),
-                        ending: Ending::Leaf(jump),
-                    })),
+                    ending: Ending::Switch(
+                        fetch.discriminant,
+                        fetch.switch.map(|&jump| EBB {
+                            actions: Vec::new(),
+                            ending: Ending::Leaf(jump),
+                        },
+                    )),
                 });
             }
             if let Some(retire) = &self.i[id].retire {

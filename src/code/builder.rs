@@ -304,11 +304,11 @@ impl<T> Builder<T> {
         let mut ret = EBB {actions: self.actions, ending};
         while let Some(Guard {actions, condition, expected, if_fail}) = self.guards.pop() {
             let switch = if expected {
-                Switch::if_(condition, ret, if_fail)
+                Switch::if_(ret, if_fail)
             } else {
-                Switch::if_(condition, if_fail, ret)
+                Switch::if_(if_fail, ret)
             };
-            ret = EBB {actions, ending: Ending::Switch(switch)};
+            ret = EBB {actions, ending: Ending::Switch(condition, switch)};
         }
         ret
     }
@@ -323,8 +323,8 @@ impl<T> Builder<T> {
     /// Equivalent to `ending(Ending::Switch(switch))`.
     /// Usually, you will prefer to call one of [`index()`] or [`if_()`] which
     /// call this.
-    pub fn switch(self, switch: Switch<EBB<T>>) -> EBB<T> {
-        self.ending(Ending::Switch(switch))
+    pub fn switch(self, discriminant: impl Into<Variable>, switch: Switch<EBB<T>>) -> EBB<T> {
+        self.ending(Ending::Switch(discriminant.into(), switch))
     }
 
     /// Assembles code to select one of `cases` based on `discriminant`.
@@ -336,7 +336,7 @@ impl<T> Builder<T> {
         cases: Box<[EBB<T>]>,
         default_: EBB<T>,
     ) -> EBB<T> {
-        self.switch(Switch::new(discriminant.into(), cases, default_))
+        self.switch(discriminant, Switch::new(cases, default_))
     }
 
     /// Assembles code to select `if_true` if `condition` is non-zero,
@@ -349,6 +349,6 @@ impl<T> Builder<T> {
         if_true: EBB<T>,
         if_false: EBB<T>,
     ) -> EBB<T> {
-        self.switch(Switch::if_(condition.into(), if_true, if_false))
+        self.switch(condition, Switch::if_(if_true, if_false))
     }
 }

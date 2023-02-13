@@ -137,8 +137,7 @@ impl<T: Target> Beetle<T> {
         jit.define(root, &build(&|mut b| {
             b.const_binary32(And, BI, BA, 0xFF);
             b.const_binary32(Asr, BA, BA, 8);
-            b.switch(Switch::new(
-                BI.into(),
+            b.switch(BI, Switch::new(
                 Box::new([
                     // NEXT
                     build(&|mut b| {
@@ -552,14 +551,13 @@ impl<T: Target> Beetle<T> {
                     // ?BRANCHI
                     build(&|mut b| {
                         pop(&mut b, BI, BSP);
-                        b.switch(Switch::if_(
-                            BI.into(),
+                        b.if_(BI,
                             build(&|mut b| {
                                 pop(&mut b, BA, BEP);
                                 b.jump(root)
-                        }),
+                            }),
                             build(&|b| { b.jump(branchi) }),
-                        ))
+                        )
                     }),
 
                     // EXECUTE
