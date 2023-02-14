@@ -29,14 +29,11 @@ pub use enums::{Precision, UnaryOp, BinaryOp, Width, AliasMask};
 mod action;
 pub use action::{Action, debug_word};
 
-mod switch;
-pub use switch::{Switch};
+mod ebb;
+pub use ebb::{Switch, EBB, Ending};
 
 mod convention;
 pub use convention::{Convention, Propagator};
-
-mod ebb;
-pub use ebb::{EBB, Ending};
 
 pub mod builder;
 
