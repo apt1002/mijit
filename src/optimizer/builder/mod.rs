@@ -4,6 +4,9 @@ use super::{code, target, cost, Dataflow, Node, Out, Cold, CFT, Op, Resources, L
 use code::{Register, Slot, Variable, Convention, Ending, EBB};
 use crate::util::{ArrayMap};
 
+#[allow(unused)]
+mod fill;
+
 mod flood;
 use flood::{flood};
 
