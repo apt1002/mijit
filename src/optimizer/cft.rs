@@ -124,6 +124,11 @@ impl<L: Clone> CFT<L> {
         CFT::Switch {guard, switch, hot_index}
     }
 
+    /// Returns an iterator over the exit [`Node`]s of `self`.
+    pub fn exits<'a>(&'a self) -> impl 'a + Iterator<Item=Node> {
+        ExitIter(vec![self])
+    }
+
     /// Follows the hot path through `self`.
     /// Returns the [`Colds`]es and the exit [`Node`].
     pub fn hot_path(&self) -> (HashMap<Node, Cold<&Self>>, Node, L) {
@@ -141,5 +146,27 @@ impl<L: Clone> CFT<L> {
                 },
             }
         }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+struct ExitIter<'a, L: Clone>(Vec<&'a CFT<L>>);
+
+impl<'a, L: Clone> Iterator for ExitIter<'a, L> {
+    type Item = Node;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while let Some(cft) = self.0.pop() {
+            match *cft {
+                CFT::Merge {exit, leaf: _} => {
+                    return Some(exit);
+                },
+                CFT::Switch {guard: _, ref switch, hot_index: _} => {
+                    let _ = switch.map(|child| self.0.push(child));
+                },
+            }
+        }
+        None
     }
 }
