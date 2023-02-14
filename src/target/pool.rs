@@ -42,7 +42,7 @@ impl PartialEq for Word {
 ///
 /// A pool contains [`Global`]s.
 pub struct Pool {
-    /// The number of [`Global`]s used by the [`code::Machine`].
+    /// The number of [`Global`]s used by the virtual machine instance.
     num_globals: usize,
     /// The words.
     pool: Vec<Word>,

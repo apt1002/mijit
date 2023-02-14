@@ -1,14 +1,3 @@
-use super::{Action};
-
-/// Represents straight-line code ending with a jump.
-#[derive(Debug, Clone)]
-pub struct Case<S> {
-    /// The straight-line code.
-    pub actions: Vec<Action>,
-    /// The jump.
-    pub new_state: S,
-}
-
 /// Represents a control-flow decision. `C` is the thing being chosen.
 /// If the discriminant is `i` and `i < cases.len()` choose `cases[i]`.
 /// Otherwise choose `default_`.
