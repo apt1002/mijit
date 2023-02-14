@@ -1,45 +1,7 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
 
-use super::{Node};
-
-//-----------------------------------------------------------------------------
-
-/// Represents a control flow decision. Analogous to [`code::Switch`].
-///
-/// `code::Switch`: super::code::Switch
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Switch<C> {
-    /// The numbered cases.
-    pub cases: Box<[C]>,
-    /// The default case.
-    pub default_: Box<C>,
-}
-
-impl<C> Switch<C> {
-    /// Apply `callback` to every `C` and return a fresh `Switch`.
-    pub fn map<'a, D>(&'a self, mut callback: impl FnMut(&'a C) -> D) -> Switch<D> {
-        let Switch {ref cases, ref default_} = *self;
-        let cases = cases.iter().map(&mut callback).collect();
-        let default_ = Box::new(callback(default_));
-        Switch {cases, default_}
-    }
-
-    /// Separates the hot and cold branches.
-    pub fn remove_hot(self, hot_index: usize) -> (C, Cold<C>) {
-        let Switch {cases, default_} = self;
-        let mut cases = cases.into_vec();
-        let hot = if hot_index == usize::MAX {
-            *default_
-        } else {
-            let hot = cases.remove(hot_index);
-            cases.push(*default_);
-            hot
-        };
-        let colds = cases.into_boxed_slice();
-        (hot, Cold {hot_index, colds})
-    }
-}
+use super::{Switch, Node};
 
 //-----------------------------------------------------------------------------
 
@@ -58,6 +20,21 @@ pub struct Cold<C> {
 }
 
 impl<C> Cold<C> {
+    /// Separates the hot and cold branches of a `Switch`.
+    pub fn new(switch: Switch<C>, hot_index: usize) -> (C, Self) {
+        let Switch {cases, default_} = switch;
+        let mut cases = cases.into_vec();
+        let hot = if hot_index == usize::MAX {
+            *default_
+        } else {
+            let hot = cases.remove(hot_index);
+            cases.push(*default_);
+            hot
+        };
+        let colds = cases.into_boxed_slice();
+        (hot, Cold {hot_index, colds})
+    }
+
     /// Apply `callback` to every `C` and return a fresh `Cold`.
     pub fn map<'a, D>(&'a self, mut callback: impl FnMut(&'a C) -> D) -> Cold<D> {
         let Cold {hot_index, ref colds} = *self;
@@ -66,7 +43,7 @@ impl<C> Cold<C> {
     }
 
     /// Recombines the hot and cold branches.
-    pub fn insert_hot(self, hot: C) -> Switch<C> {
+    pub fn finish(self, hot: C) -> Switch<C> {
         let Cold {hot_index, colds} = self;
         let mut colds: Vec<C> = colds.into_vec();
         let default_ = Box::new(if hot_index == usize::MAX {
@@ -110,9 +87,8 @@ impl<L: Clone> CFT<L> {
         default_: impl Into<Box<CFT<L>>>,
         hot_index: usize,
     ) -> Self {
-        let cases = cases.into();
-        let default_ = default_.into();
-        CFT::Switch {guard, switch: Switch {cases, default_}, hot_index}
+        let switch = Switch {cases: cases.into(), default_: default_.into()};
+        CFT::Switch {guard, switch, hot_index}
     }
 
     /// Follows the hot path through `self`.
@@ -126,7 +102,7 @@ impl<L: Clone> CFT<L> {
                     return (colds, exit, leaf.clone());
                 },
                 &CFT::Switch {guard, ref switch, hot_index} => {
-                    let (hot, cold) = switch.map(|t| t).remove_hot(hot_index);
+                    let (hot, cold) = Cold::new(switch.map(|t| t), hot_index);
                     cft = hot;
                     colds.insert(guard, cold);
                 },

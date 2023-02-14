@@ -1,7 +1,7 @@
 use std::fmt::{Debug};
-use super::{code, target};
 
-use code::{Convention, EBB};
+use super::{code, target};
+use code::{Switch, EBB, Convention};
 
 //-----------------------------------------------------------------------------
 
@@ -18,7 +18,7 @@ mod dataflow;
 pub use dataflow::{Dataflow, Node, Out};
 
 mod cft;
-pub use cft::{Switch, Cold, CFT};
+pub use cft::{Cold, CFT};
 
 mod simulation;
 pub use simulation::{Simulation, simulate};

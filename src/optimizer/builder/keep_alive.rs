@@ -37,7 +37,7 @@ pub struct GuardFailure<L: Debug + Clone> {
 
 impl<L: Debug + Clone> Debug for GuardFailure<L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let switch = self.cold.map(|c| CaseAdapter::Cold(c)).insert_hot(CaseAdapter::Hot);
+        let switch = self.cold.map(|c| CaseAdapter::Cold(c)).finish(CaseAdapter::Hot);
         f.debug_struct("GuardFailure")
             .field("keep_alives", &self.keep_alives)
             .field("cases", &switch.cases)

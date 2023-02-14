@@ -156,15 +156,9 @@ impl<'a> Builder<'a> {
                             lookup_leaf,
                         ));
                         // Combine the hot and cold paths and update `ending`.
-                        let cft_switch = cold.insert_hot(hot);
                         let outs = self.dataflow.ins(node);
                         assert_eq!(outs.len(), 1);
-                        let discriminant = cg.read(outs[0]);
-                        let switch = code::Switch {
-                            cases: cft_switch.cases,
-                            default_: cft_switch.default_,
-                        };
-                        ending = Ending::Switch(discriminant, switch);
+                        ending = Ending::Switch(cg.read(outs[0]), cold.finish(hot));
                     } else {
                         if self.dataflow.cost(node).resources != Resources::new(0) {
                             // The node is not a no-op.
