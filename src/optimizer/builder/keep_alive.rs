@@ -6,24 +6,6 @@ use super::{Op, Dataflow, Node, Out, flood, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
-/// Helper for formatting [`Cold`]s.
-enum CaseAdapter<C> {
-    Hot,
-    Cold(C),
-}
-
-impl<C: Debug> Debug for CaseAdapter<C> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        if let CaseAdapter::Cold(ref c) = self {
-            c.fmt(f)
-        } else {
-            f.write_str("(hot path)")
-        }
-    }
-}
-
-//-----------------------------------------------------------------------------
-
 /// Represents what happens when a particular [`Op::Guard`] fails.
 #[derive(PartialEq, Eq)]
 pub struct GuardFailure<L: Debug + Clone> {
@@ -37,7 +19,7 @@ pub struct GuardFailure<L: Debug + Clone> {
 
 impl<L: Debug + Clone> Debug for GuardFailure<L> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        let switch = self.cold.map(|c| CaseAdapter::Cold(c)).finish(CaseAdapter::Hot);
+        let switch = self.cold.debug();
         f.debug_struct("GuardFailure")
             .field("keep_alives", &self.keep_alives)
             .field("cases", &switch.cases)

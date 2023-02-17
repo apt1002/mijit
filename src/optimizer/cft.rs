@@ -5,13 +5,31 @@ use super::{Switch, Node};
 
 //-----------------------------------------------------------------------------
 
+/// Helper for formatting [`Cold`]s.
+enum CaseAdapter<C> {
+    Hot,
+    Cold(C),
+}
+
+impl<C: Debug> Debug for CaseAdapter<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        if let CaseAdapter::Cold(ref c) = self {
+            c.fmt(f)
+        } else {
+            f.write_str("(hot path)")
+        }
+    }
+}
+
+//-----------------------------------------------------------------------------
+
 /// The cold (less common) branches of a control-flow decision, along with the
 /// information needed to combine them with the hot branch to reconstruct the
 /// whole [`Switch`].
 ///
 /// This is used in the return types of [`Switch::remove_hot()`] and
 /// [`CFT::hot_path()`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct Cold<C> {
     /// The index of the most probable case, or `usize::MAX`.
     pub hot_index: usize,
@@ -55,6 +73,21 @@ impl<C> Cold<C> {
         });
         let cases = colds.into_boxed_slice();
         Switch {cases, default_}
+    }
+
+    /// Returns a [`Switch`] with a dummy value in place of the hot case.
+    pub fn debug<'a>(&'a self) -> Switch<impl 'a + Debug> where C: Debug {
+        self.map(|c| CaseAdapter::Cold(c)).finish(CaseAdapter::Hot)
+    }
+}
+
+impl<C: Debug> Debug for Cold<C> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let switch = self.debug();
+        f.debug_struct("Cold")
+            .field("cases", &switch.cases)
+            .field("default_", &switch.default_)
+            .finish()
     }
 }
 
