@@ -83,7 +83,6 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         // Find nodes on the hot path.
         let (colds, exit, leaf) = cft.hot_path();
         fill.visit(exit);
-        println!("nodes = {:?}", fill.nodes().collect::<Box<[Node]>>());
 
         // Record info about each new `Op::Guard` `Node`.
         let guard_failures = colds.into_iter().map(|(guard, cold)| {
@@ -91,7 +90,6 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             cold.map(|&child| child.exits().for_each(|node| { fill2.visit(node); }));
             (guard, GuardFailure {cold, fontier: fill2.drain().1})
         }).collect::<HashMap<Node, GuardFailure<_>>>();
-        println!("guard_failures = {:#?}", guard_failures);
         let lookup_guard = |guard| guard_failures.get(&guard)
             .unwrap_or_else(|| lookup_guard(guard));
 
@@ -104,7 +102,6 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         let variables = inputs.into_iter().map(
             |out| (out, lookup_input(out))
         ).collect::<HashMap<Out, Variable>>();
-        println!("Based on inputs, variables = {:#?}", variables);
         let (instructions, allocation) = allocate(
             &effects,
             &variables,
@@ -112,8 +109,6 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             &*nodes,
             |node| if is_guard(node) { Some(&lookup_guard(node).fontier.inputs) } else { None },
         );
-        println!("instructions = {:?}", instructions);
-        println!("allocation = {:#?}", allocation);
 
         // Build the EBB.
         let mut cg = CodeGen::new(
@@ -137,14 +132,8 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
                             &mut fill2,
                             child,
                             cg.slots_used(),
-                            &mut |out| {
-                                println!("nested walk() asked about {:?}", out);
-                                cg.read(out)
-                            },
-                            &mut |guard| {
-                                println!("nested walk() asked about {:?}", guard);
-                                lookup_guard(guard)
-                            }, 
+                            &|out| cg.read(out),
+                            &|guard| lookup_guard(guard),
                         ));
                         cg.add_guard(node, cold);
                     } else {
@@ -164,14 +153,12 @@ pub fn build<L: LookupLeaf>(
     cft: &CFT<L::Leaf>,
     lookup_leaf: &L,
 ) -> EBB<L::Leaf> {
-    println!("dataflow = {:#?}", dataflow);
     // Work out what is where.
     let input_map: HashMap<Out, Variable> =
         dataflow.outs(dataflow.entry_node())
         .zip(&*before.live_values)
         .map(|(out, &variable)| (out, variable))
         .collect();
-    println!("input_map = {:#?}", input_map);
     // Build the new `EBB`.
     let mut builder = Builder::new(lookup_leaf);
     with_fill(dataflow, |mut fill| builder.walk(
