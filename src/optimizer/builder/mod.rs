@@ -1,14 +1,11 @@
-use std::collections::{HashSet, HashMap};
+use std::collections::{HashMap};
+use std::fmt::{Debug};
 
-use super::{code, target, cost, Dataflow, Node, Out, Cold, CFT, Op, Resources, LookupLeaf};
-use code::{Register, Slot, Variable, Convention, Ending, EBB};
-use crate::util::{ArrayMap};
+use super::{code, target, cost, Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, CFT};
+use code::{Register, Variable, Convention, EBB};
 
-mod flood;
-use flood::{flood};
-
-mod keep_alive;
-pub use keep_alive::{keep_alive_sets, HotPathTree, GuardFailure};
+mod fill;
+use fill::{Frontier, Fill, with_fill};
 
 mod allocator;
 pub use allocator::{Instruction, allocate};
@@ -29,147 +26,124 @@ fn all_registers() -> impl Iterator<Item=Register> {
 
 //-----------------------------------------------------------------------------
 
-struct Builder<'a> {
-    dataflow: &'a Dataflow,
-    marks: ArrayMap<Node, usize>,
+/// Information stored about each guard node, summarising the requirements
+/// for the cases where the guard fails.
+struct GuardFailure<'a, L: Clone> {
+    cold: Cold<&'a CFT<L>>,
+    fontier: Frontier,
 }
 
-impl<'a> Builder<'a> {
-    fn new(dataflow: &'a Dataflow) -> Self {
-        let mut marks = dataflow.node_map();
-        marks[dataflow.entry_node()] = 1;
-        Builder {dataflow, marks}
+impl<'a, L: Debug + Clone> Debug for GuardFailure<'a, L> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+        let switch = self.cold.debug();
+        f.debug_struct("GuardFailure")
+            .field("cases", &switch.cases)
+            .field("default_", &switch.default_)
+            .field("effects", &self.fontier.effects)
+            .field("inputs", &self.fontier.inputs)
+            .finish()
+    }
+}
+
+//-----------------------------------------------------------------------------
+
+struct Builder<'a, L: LookupLeaf> {
+    lookup_leaf: &'a L,
+}
+
+impl<'a, L: LookupLeaf> Builder<'a, L> {
+    fn new(lookup_leaf: &'a L) -> Self {
+        Builder {lookup_leaf}
     }
 
-    /// Tests whether `node` is a [`Op::Guard`].
-    fn is_guard(&self, node: Node) -> bool {
-        matches!(self.dataflow.op(node), Op::Guard)
-    }
-
-    /// Converts a [`HotPathTree`] into an [`EBB`]. Optimises the hot path in
+    /// Converts a [`CFT`] into an [`EBB`]. Optimises the hot path in
     /// isolation, and recurses on the cold paths, passing information about
     /// [`Variable`] allocation and instruction scheduling.
     ///
-    /// On entry and on exit, `marks[node]` must be in `1..coldness` if
-    /// `node` is before the guard from which the `HotPathTree` diverges, and
-    /// `0` otherwise. `marks[dataflow.entry_node()]` must be `1`.
+    /// - `fill` - a fresh [`Fill`] whose boundary consists of the nodes
+    ///   executed before the guard from which the `HotPathTree` diverges. On
+    ///   entry and exit all [`Node`]s must be unmarked.
+    /// - `cft` - the code to optimise.
+    /// - slots_used - the number of [`Slot`]s on entry to the code.
+    /// - lookup_input - called once for each input to the code. It
+    ///   returns the [`Variable`] that holds it.
     ///
-    /// - exit - the exit [`Node`] of the hot path.
-    /// - leaf - the merge point of the hot path.
-    /// - guard_failure - called for each [`Op::Guard`] to find out what to do
-    ///   if the guard fails.
-    /// - coldness - 2 + the number of cold branches needed to reach the
-    ///   `HotPathTree`. (`0` is used for unmarked nodes, and `1` for
-    ///   `dataflow.entry_node()`.
-    /// - slots_used - the number of [`Slot`]s on entry to the `HotPathTree`.
-    /// - input - called once for each input to the `HotPathTree`. It informs
-    ///   the caller of `walk()` that the input is live, and returns the
-    ///   [`Variable`] that holds it.
-    /// - lookup_leaf - returns information about merge points, i.e. where
-    ///   control flow merges with code that we're not currently optimizing.
-    pub fn walk<'w, L: LookupLeaf>(
+    /// [`Slot`]: code::Slot
+    pub fn walk<'w, 'f>(
         &'w mut self,
-        exit: Node,
-        leaf: &'w L::Leaf,
-        guard_failure: &dyn Fn(Node) -> &'w GuardFailure<L::Leaf>,
-        coldness: usize,
+        fill: &'w mut Fill<'f>,
+        cft: &'a CFT<L::Leaf>,
         slots_used: usize,
-        input: &mut dyn FnMut(Out) -> Variable,
-        lookup_leaf: &L,
+        lookup_input: &'w dyn Fn(Out) -> Variable,
+        lookup_guard: &'w dyn Fn(Node) -> &'w GuardFailure<'a, L::Leaf>,
     ) -> EBB<L::Leaf> {
-        let mut inputs = HashSet::new();
-        let mut effects = HashSet::new();
-        let nodes = flood(self.dataflow, &mut self.marks, coldness, &mut inputs, &mut effects, exit);
-        for &node in &*nodes {
-            if self.is_guard(node) {
-                for &out in &guard_failure(node).keep_alives {
-                    if self.marks[self.dataflow.out(out).0] < coldness {
-                        inputs.insert(out);
-                    }
-                }
-            }
-        }
-        let inputs: Box<[_]> = inputs.into_iter().collect(); // Define an order.
-        let input_variables: Box<[_]> = inputs.iter().copied().map(input).collect();
-        let mut variables: HashMap<Out, Variable> = inputs.iter().zip(&*input_variables).map(
-            |(&out, &variable)| (out, variable)
-        ).collect();
-        let before: Convention = Convention {slots_used, live_values: input_variables};
+        let df = fill.dataflow();
+        let is_guard = |node| matches!(df.op(node), Op::Guard);
+
+        // Find nodes on the hot path.
+        let (colds, exit, leaf) = cft.hot_path();
+        fill.visit(exit);
+
+        // Record info about each new `Op::Guard` `Node`.
+        let guard_failures = colds.into_iter().map(|(guard, cold)| {
+            let mut fill2 = fill.nested();
+            cold.map(|&child| child.exits().for_each(|node| { fill2.visit(node); }));
+            (guard, GuardFailure {cold, fontier: fill2.drain().1})
+        }).collect::<HashMap<Node, GuardFailure<_>>>();
+        let lookup_guard = |guard| guard_failures.get(&guard)
+            .unwrap_or_else(|| lookup_guard(guard));
+
+        // Find additional dependencies that the hot exit does not depend on.
+        let guards = fill.nodes().filter(|&n| is_guard(n)).collect::<Vec<Node>>();
+        for node in guards { fill.resume(&lookup_guard(node).fontier); }
+
+        // Build an instruction schedule and allocate registers.
+        let (nodes, Frontier {effects, inputs}) = fill.drain();
+        let variables = inputs.into_iter().map(
+            |out| (out, lookup_input(out))
+        ).collect::<HashMap<Out, Variable>>();
         let (instructions, allocation) = allocate(
             &effects,
             &variables,
-            self.dataflow,
+            df,
             &*nodes,
-            |node| if self.is_guard(node) { Some(&guard_failure(node).keep_alives) } else { None },
+            |node| if is_guard(node) { Some(&lookup_guard(node).fontier.inputs) } else { None },
         );
 
-        // Allocate spill slots on the hot path.
-        // Also, find the final location of each `Out`.
-        let mut slots_used = before.slots_used;
-        for &instruction in &instructions {
-            match instruction {
-                Instruction::Spill(out1, out2) => {
-                    variables.insert(out1, Slot(slots_used).into());
-                    slots_used += 1;
-                    variables.insert(out2, Slot(slots_used).into());
-                    slots_used += 1;
-                },
-                Instruction::Node(node) => {
-                    for out in self.dataflow.outs(node) {
-                        let r = allocation[out].expect("Missing destination register");
-                        variables.insert(out, r.into());
-                    }
-                },
-            }
-        }
-
+        // Build the EBB.
         let mut cg = CodeGen::new(
-            self.dataflow,
+            df,
+            self.lookup_leaf,
             allocation,
             slots_used,
             variables,
-            exit,
-            lookup_leaf.after(&leaf),
         );
-
-        // Depth-first walk from the exits back to the entry.
-        let mut ending = Ending::Leaf(leaf.clone());
-        self.marks[exit] = 0;
-        for &instruction in instructions.iter().rev() {
+        for &instruction in &instructions {
             match instruction {
-                Instruction::Spill(out1, out2) => {
-                    cg.add_spill(out1, out2);
+                Instruction::Spill(x, y) => {
+                    cg.add_spill(x, y);
                 },
                 Instruction::Node(node) => {
-                    if self.is_guard(node) {
-                        // Make an `EBB` for the hot path.
-                        let hot = cg.ebb(ending);
-                        // Make `EBB`s for the cold paths path.
-                        let gf = guard_failure(node);
-                        let cold = gf.cold.map(|child| self.walk(
-                            child.exit,
-                            &child.leaf,
-                            &|guard_node| child.children.get(&guard_node).unwrap_or_else(|| guard_failure(guard_node)),
-                            coldness + 1,
+                    fill.mark(node);
+                    if is_guard(node) {
+                        // Recurse on cold paths.
+                        let mut fill2 = fill.nested();
+                        let cold = lookup_guard(node).cold.map(|&child| self.walk(
+                            &mut fill2,
+                            child,
                             cg.slots_used(),
-                            &mut |out| cg.read(out),
-                            lookup_leaf,
+                            &|out| cg.read(out),
+                            &|guard| lookup_guard(guard),
                         ));
-                        // Combine the hot and cold paths and update `ending`.
-                        let outs = self.dataflow.ins(node);
-                        assert_eq!(outs.len(), 1);
-                        ending = Ending::Switch(cg.read(outs[0]), cold.finish(hot));
+                        cg.add_guard(node, cold);
                     } else {
-                        if self.dataflow.cost(node).resources != Resources::new(0) {
-                            // The node is not a no-op.
-                            cg.add_node(node);
-                        }
+                        cg.add_node(node);
                     }
-                    self.marks[node] = 0;
                 },
             }
         }
-        cg.ebb(ending)
+        fill.drain(); // Restore `fill` to its original state.
+        cg.finish(exit, leaf)
     }
 }
 
@@ -185,19 +159,15 @@ pub fn build<L: LookupLeaf>(
         .zip(&*before.live_values)
         .map(|(out, &variable)| (out, variable))
         .collect();
-    // Compute the keep-alive sets.
-    let tree = keep_alive_sets(dataflow, cft);
     // Build the new `EBB`.
-    let mut builder = Builder::new(dataflow);
-    builder.walk(
-        tree.exit,
-        &tree.leaf,
-        &|guard_node| tree.children.get(&guard_node).expect("Missing GuardFailure"),
-        2,
+    let mut builder = Builder::new(lookup_leaf);
+    with_fill(dataflow, |mut fill| builder.walk(
+        &mut fill,
+        cft,
         before.slots_used,
-        &mut |out| *input_map.get(&out).unwrap(),
-        lookup_leaf,
-    )
+        &|out| *input_map.get(&out).unwrap(),
+        &|guard| panic!("Unknown guard {:?}", guard),
+    ))
 }
 
 //-----------------------------------------------------------------------------
@@ -283,7 +253,6 @@ mod tests {
     #[test]
     fn bee_1() {
         let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};
-        let lookup_leaf = &convention;
         // Make an `EBB`.
         let ebb = builder::build(&|b| {
             b.index(
@@ -306,9 +275,34 @@ mod tests {
             )
         });
         // Optimize it.
-        // inline let _observed = super::super::optimize(&convention, &ebb, &lookup_leaf);
-        let (dataflow, cft) = super::super::simulate(&convention, &ebb, lookup_leaf);
-        let _observed = build(&convention, &dataflow, &cft, lookup_leaf);
+        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
+        let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
+        let _observed = build(&convention, &dataflow, &cft, &convention);
+        // TODO: Expected output.
+    }
+
+    /** Regression test from Bee. */
+    #[test]
+    fn bee_2() {
+        let convention = Convention {
+            slots_used: 0,
+            live_values: Box::new([
+                Variable::Global(Global(0)),
+                Variable::Register(REGISTERS[3]),
+            ]),
+        };
+        // Make an `EBB`.
+        let ebb = builder::build(&|mut b| {
+            b.binary64(Or, REGISTERS[3], Global(0), Global(0));
+            b.guard(Global(0), false, builder::build(&|b| { b.jump(2) }));
+            b.guard(Global(0), false, builder::build(&|b| { b.jump(3) }));
+            b.binary64(And, REGISTERS[3], Global(0), Global(0));
+            b.jump(1)
+        });
+        // Optimize it.
+        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
+        let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
+        let _observed = build(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
     }
 }
