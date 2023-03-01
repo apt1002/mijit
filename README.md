@@ -31,11 +31,12 @@ critical parts.
 
 # Examples
 
-The best example of using Mijit is [Beetle]. Pass the
+The best example of using Mijit is [Bee]. Pass the
 "--with-mijit" flag to its "./configure" to enable the
-Mijit backend. A cut-down version of Beetle is included
-in Mijit as a unit test.
+Mijit backend. A cut-down version of the related [Beetle]
+is included in Mijit as a unit test.
 
+[Bee]: https://github.com/rrthomas/bee
 [Beetle]: https://github.com/rrthomas/beetle
 
 # Status
@@ -45,15 +46,13 @@ is in flux. There are two back-ends, for x86_64 and
 AArch64. Other 64-bit targets are planned. Mijit can run
 some programs, but the generated code is poor, and it
 only runs at about 40% of the speed of compiled C. A
-rough outline of the optimizer has been written written,
-but is not yet enabled, and so far it doesn't know many
-optimizations. The profiler is not written yet.
+rough outline of the optimizer has been written and is
+enabled, but so far it doesn't know many optimizations.
+The profiler is not written yet.
 
 # Versions
 
-Versions 0.1.x will remain compatible with v0.1.6, but
-won't necessarily benefit from future improvements to
-the rest of Mijit. Versions 0.2.0 onwards will improve
+Versions 0.1.x are obsolete. Versions 0.2.0 onwards will improve
 the API and the internals in backwards-incompatible
 ways. As long as the version number begins with a "0" we
 reserve the right to change the design arbitrarily.
