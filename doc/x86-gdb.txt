@@ -1,4 +1,5 @@
 set disassembly-flavor intel
+set language rust
 display/10i $pc
 display/2xg $r8
 display/17xw *($r8 as *const u64)
