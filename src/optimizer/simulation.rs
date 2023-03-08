@@ -147,10 +147,8 @@ impl Simulation {
     /// Returns the [`Op::Guard`] [`Node`]
     ///  - discriminant - the [`Variable`] tested by the guard.
     pub fn guard(&mut self, dataflow: &mut Dataflow, discriminant: Variable) -> Node {
-        let discriminant = self.lookup(discriminant);
-        let guard = dataflow.add_node(Op::Guard, &[], &[discriminant], 0);
-        let sequence = self.op(dataflow, Op::Sequence, &[guard, self.sequence], &[], &[]);
-        self.sequence = sequence;
+        let guard = self.op(dataflow, Op::Guard, &[self.sequence], &[discriminant], &[]);
+        self.sequence = guard;
         guard
     }
 
