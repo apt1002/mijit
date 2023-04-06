@@ -50,7 +50,7 @@ pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::code::tests::{random_ebb, random_ebb_convention};
+    use crate::code::tests::{EmulatorResult, random_ebb, random_ebb_convention};
 
     // Several tests represent leaves as integers.
     impl LookupLeaf for Convention {
@@ -69,7 +69,18 @@ mod tests {
             println!("seed = {}", seed);
             let input_ebb = random_ebb(seed, 2);
             let convention = random_ebb_convention();
-            optimize(&convention, &input_ebb, &convention);
+            let mut expected = EmulatorResult::new(&input_ebb, &convention);
+            expected.keep_only(&convention.live_values);
+            let output_ebb = optimize(&convention, &input_ebb, &convention);
+            let mut observed = EmulatorResult::new(&output_ebb, &convention);
+            observed.keep_only(&convention.live_values);
+            if expected != observed {
+                println!("input_ebb: {:#x?}", input_ebb);
+                println!("expected: {:#x?}", expected);
+                println!("output_ebb: {:#x?}", output_ebb);
+                println!("observed: {:#x?}", observed);
+                panic!("expected != observed");
+            }
         }
     }
 }
