@@ -16,13 +16,13 @@ use BinaryOp::*;
 pub const TEMP: Register = REGISTERS[0];
 
 /// Build an EBB. Equivalent to `callback(Builder::new())`.
-pub fn build<T>(callback: &dyn Fn(Builder<T>) -> EBB<T>) -> EBB<T> {
+pub fn build<T>(callback: &mut dyn FnMut(Builder<T>) -> EBB<T>) -> EBB<T> {
     callback(Builder::new())
 }
 
 /// Similar to `build()` but only builds a basic block.
 // TODO: Use `Builder<!>` not `Builder<()>` when the `!` type is stabilised.
-pub fn build_block(callback: &dyn Fn(&mut Builder<()>)) -> Box<[Action]> {
+pub fn build_block(callback: &mut dyn FnMut(&mut Builder<()>)) -> Box<[Action]> {
     let mut b = Builder::new();
     callback(&mut b);
     b.actions.into()

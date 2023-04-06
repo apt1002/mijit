@@ -96,7 +96,7 @@ impl<T: Target> Beetle<T> {
     pub fn new(target: T) -> Self {
         let mut jit = Jit::new(target, 2);
         let marshal = Marshal {
-            prologue: build_block(&|b| {
+            prologue: build_block(&mut |b| {
                 b.load(BEP, register!(ep), Four, AM_REGISTER);
                 b.load(BI, register!(i), Four, AM_REGISTER);
                 b.load(BA, register!(a), Four, AM_REGISTER);
@@ -104,7 +104,7 @@ impl<T: Target> Beetle<T> {
                 b.load(BRP, register!(rp), Four, AM_REGISTER);
                 b.move_(M0, Global(1));
             }),
-            epilogue: build_block(&|b| {
+            epilogue: build_block(&mut |b| {
                 b.store(BEP, register!(ep), Four, AM_REGISTER);
                 b.store(BI, register!(i), Four, AM_REGISTER);
                 b.store(BA, register!(a), Four, AM_REGISTER);
@@ -117,7 +117,7 @@ impl<T: Target> Beetle<T> {
 
         // Immediate branch.
         let branchi = jit.new_entry(&marshal, UNDEFINED);
-        jit.define(branchi, &build(&|mut b| {
+        jit.define(branchi, &build(&mut |mut b| {
             b.const_binary32(Mul, R1, BA, CELL);
             b.binary32(Add, BEP, BEP, R1);
             pop(&mut b, BA, BEP);
@@ -127,39 +127,39 @@ impl<T: Target> Beetle<T> {
         // Not implemented.
         let not_implemented2 = jit.new_entry(&marshal, NOT_IMPLEMENTED);
         let not_implemented = jit.new_entry(&marshal, UNDEFINED);
-        jit.define(not_implemented, &build(&|mut b| {
+        jit.define(not_implemented, &build(&mut |mut b| {
             b.const_binary32(Lsl, BA, BA, 8);
             b.binary32(Or, BA, BA, BI);
             b.jump(not_implemented2)
         }));
 
         // Main dispatch loop.
-        jit.define(root, &build(&|mut b| {
+        jit.define(root, &build(&mut |mut b| {
             b.const_binary32(And, BI, BA, 0xFF);
             b.const_binary32(Asr, BA, BA, 8);
             b.switch(BI, Switch::new(
                 Box::new([
                     // NEXT
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, BA, BEP);
                         b.jump(root)
                     }),
 
                     // DUP
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         push(&mut b, R2, BSP);
                         b.jump(root)
                     }),
 
                     // DROP
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         b.const_binary32(Add, BSP, BSP, CELL);
                         b.jump(root)
                     }),
 
                     // SWAP
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         store(&mut b, R2, BSP);
@@ -168,7 +168,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // OVER
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         b.const_binary32(Add, R1, BSP, CELL);
                         load(&mut b, R2, R1);
                         push(&mut b, R2, BSP);
@@ -176,7 +176,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // ROT
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Add, R1, BSP, CELL);
                         load(&mut b, R3, R1);
@@ -189,7 +189,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // -ROT
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Add, R1, BSP, 2 * CELL);
                         load(&mut b, R3, R1);
@@ -202,7 +202,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // TUCK
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Add, R1, BSP, CELL);
                         load(&mut b, R3, R1);
@@ -213,32 +213,32 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // NIP
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         store(&mut b, R2, BSP);
                         b.jump(root)
                     }),
 
                     // PICK
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // ROLL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // ?DUP
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // >R
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // R>
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // R@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // <
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Lt, R2, R3, R2);
@@ -247,7 +247,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // >
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Lt, R2, R2, R3);
@@ -256,7 +256,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // =
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Eq, R2, R3, R2);
@@ -265,7 +265,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // <>
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Eq, R2, R3, R2);
@@ -275,7 +275,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 0<
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Lt, R2, R2, 0);
                         store(&mut b, R2, BSP);
@@ -283,7 +283,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 0>
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_(R3, 0);
                         b.binary32(Lt, R2, R3, R2);
@@ -292,7 +292,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 0=
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Eq, R2, R2, 0);
                         store(&mut b, R2, BSP);
@@ -300,7 +300,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 0<>
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Eq, R2, R2, 0);
                         b.unary32(Not, R2, R2);
@@ -309,7 +309,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // U<
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Ult, R2, R3, R2);
@@ -318,7 +318,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // U>
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Ult, R2, R2, R3);
@@ -327,34 +327,34 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 0
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         b.const_(R2, 0);
                         push(&mut b, R2, BSP);
                         b.jump(root)
                     }),
 
                     // 1
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         b.const_(R2, 1);
                         push(&mut b, R2, BSP);
                         b.jump(root)
                     }),
 
                     // -1
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         b.const_(R2, -1i32 as u32 as i64);
                         push(&mut b, R2, BSP);
                         b.jump(root)
                     }),
 
                     // CELL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // -CELL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // +
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Add, R2, R3, R2);
@@ -363,7 +363,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // -
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Sub, R2, R3, R2);
@@ -372,7 +372,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // >-<
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Sub, R2, R2, R3);
@@ -381,7 +381,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 1+
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Add, R2, R2, 1);
                         store(&mut b, R2, BSP);
@@ -389,7 +389,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // 1-
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.const_binary32(Sub, R2, R2, 1);
                         store(&mut b, R2, BSP);
@@ -397,13 +397,13 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // CELL+
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // CELL-
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // *
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Mul, R2, R3, R2);
@@ -412,28 +412,28 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // /
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // MOD
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // /MOD
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // U/MOD
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // S/REM
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // 2/
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // CELLS
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // ABS
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.unary32(Abs, R2, R2);
                         store(&mut b, R2, BSP);
@@ -441,7 +441,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // NEGATE
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.unary32(Negate, R2, R2);
                         store(&mut b, R2, BSP);
@@ -449,7 +449,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // MAX
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Max, R2, R3, R2);
@@ -458,7 +458,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // MIN
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         load(&mut b, R3, BSP);
                         b.binary32(Min, R2, R3, R2);
@@ -467,7 +467,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // INVERT
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         b.unary32(Not, R2, R2);
                         store(&mut b, R2, BSP);
@@ -475,28 +475,28 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // AND
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // OR
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // XOR
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // LSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // RSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // 1LSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // 1RSHIFT
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // @
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         load(&mut b, R2, BSP);
                         load(&mut b, R2, R2);
                         store(&mut b, R2, BSP);
@@ -504,7 +504,7 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // !
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         pop(&mut b, R3, BSP);
                         store(&mut b, R3, R2);
@@ -512,13 +512,13 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // C@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // C!
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // +!
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, R2, BSP);
                         pop(&mut b, R3, BSP);
                         load(&mut b, R1, R2);
@@ -528,92 +528,92 @@ impl<T: Target> Beetle<T> {
                     }),
 
                     // SP@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // SP!
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // RP@
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // RP!
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // BRANCH
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // BRANCHI
-                    build(&|b| { b.jump(branchi) }),
+                    build(&mut |b| { b.jump(branchi) }),
 
                     // ?BRANCH
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // ?BRANCHI
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, BI, BSP);
                         b.if_(BI,
-                            build(&|mut b| {
+                            build(&mut |mut b| {
                                 pop(&mut b, BA, BEP);
                                 b.jump(root)
                             }),
-                            build(&|b| { b.jump(branchi) }),
+                            build(&mut |b| { b.jump(branchi) }),
                         )
                     }),
 
                     // EXECUTE
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // @EXECUTE
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // CALL
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // CALLI
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         push(&mut b, BEP, BRP);
                         b.jump(branchi)
                     }),
 
                     // EXIT
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         pop(&mut b, BEP, BRP);
                         pop(&mut b, BA, BEP);
                         b.jump(root)
                     }),
 
                     // (DO)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // (LOOP)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // (LOOP)I
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // (+LOOP)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // (+LOOP)I
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // UNLOOP
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // J
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // (LITERAL)
-                    build(&|b| { b.jump(not_implemented) }),
+                    build(&mut |b| { b.jump(not_implemented) }),
 
                     // (LITERAL)I
-                    build(&|mut b| {
+                    build(&mut |mut b| {
                         push(&mut b, BA, BSP);
                         pop(&mut b, BA, BEP);
                         b.jump(root)
                     }),
                 ]),
-                build(&|b| { b.jump(not_implemented) }),
+                build(&mut |b| { b.jump(not_implemented) }),
             ))
         }));
 
