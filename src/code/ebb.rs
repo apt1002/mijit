@@ -45,3 +45,62 @@ pub enum Ending<L> {
     /// Control-flow diverges.
     Switch(Variable, Switch<EBB<L>>),
 }
+
+//-----------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use rand::prelude::*;
+    use rand_pcg::{Pcg64};
+
+    use super::*;
+    use super::super::{Register, REGISTERS, BinaryOp, builder};
+    use BinaryOp::*;
+
+    struct RandomEBB<R: Rng> {
+        rng: R,
+        regs: Vec<Register>,
+        tmp: Register,
+    }
+
+    impl<R: Rng> RandomEBB<R> {
+        fn new(rng: R) -> Self {
+            Self {
+                rng,
+                regs: vec![REGISTERS[0], REGISTERS[1], REGISTERS[2], REGISTERS[3]],
+                tmp: REGISTERS[4],
+            }
+        }
+
+        /** Return a random register. */
+        fn rr(&mut self) -> Register {
+            self.regs[self.rng.gen_range(0..self.regs.len())]
+        }
+
+        fn gen(&mut self, size: usize) -> EBB<()> {
+            let r = self.rr();
+            builder::build(&mut |mut b| {
+                b.const_(self.tmp, self.rng.gen());
+                b.binary64(Add, r, r, self.tmp);
+                b.binary64(Xor, r, r, self.rr());
+                b.binary64(Lt, self.tmp, self.rr(), self.rr());
+                if size == 0 {
+                    b.jump(())
+                } else {
+                    let left_size = self.rng.gen_range(0..size);
+                    let right_size = size - 1 - left_size;
+                    b.if_(self.tmp, self.gen(left_size), self.gen(right_size))
+                }
+            })
+        }
+    }
+
+    fn random_ebb(seed: u64) -> EBB<()> {
+        RandomEBB::new(Pcg64::seed_from_u64(seed)).gen(42)
+    }
+
+    #[test]
+    fn generate_ebb() {
+        let _ = random_ebb(0);
+    }
+}
