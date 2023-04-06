@@ -49,99 +49,26 @@ pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup
 
 #[cfg(test)]
 mod tests {
-/*
     use super::*;
-    use code::{Register, REGISTERS, Slot, UnaryOp, BinaryOp, AliasMask, Precision, Width};
-    use code::tests::{Emulator};
+    use crate::code::tests::{random_ebb};
 
-    #[test]
-    fn nop() {
-        let before = Convention {
-            live_values: Box::new([]),
-            slots_used: 0,
-        };
-        let actions = vec![];
-        let after = Convention {
-            live_values: Box::new([]),
-            slots_used: 0,
-        };
-        let observed = optimize(0, &before, &after, &actions);
-        let expected: Box<[Action]> = Box::new([]);
-        assert_eq!(observed, expected);
-    }
-
-    #[test]
-    fn one_ops() {
-        const V0: Register = REGISTERS[0];
-        const V1: Slot = Slot(0);
-        let convention = Convention {
-            live_values: Box::new([V0.into(), V1.into()]),
-            slots_used: 1,
-        };
-        let emulator = Emulator::new(convention.live_values.iter().copied().collect());
-        use Precision::*;
-        for action in [
-            Action::Constant(P64, V0, 924573497),
-            Action::Unary(UnaryOp::Not, P64, V0, V1.into()),
-            Action::Binary(BinaryOp::Add, P64, V0, V0.into(), V1.into()),
-        ] {
-            let actions = vec![action];
-            let expected = emulator.execute(&actions);
-            let optimized = optimize(0, &convention, &convention, &actions);
-            let observed_with_temporaries = emulator.execute(&optimized);
-            let observed: HashMap<_, _> = convention.live_values.iter().map(|&value| {
-                let c = *observed_with_temporaries.get(&value).expect("Missing Value");
-                (value, c)
-            }).collect();
-            if expected != observed {
-                println!("actions = {:#?}", &actions);
-                println!("optimized = {:#?}", &optimized);
-                println!("expected = {:#?}", &expected);
-                println!("observed = {:#?}", &observed);
-                panic!("Optimized code does not do the same thing as the original");
-            }
+    // Several tests represent leaves as integers.
+    impl LookupLeaf for Convention {
+        type Leaf = usize;
+        fn after(&self, _leaf: &usize) -> &Convention {
+            self
+        }
+        fn weight(&self, leaf: &usize) -> usize {
+            *leaf
         }
     }
 
     #[test]
-    fn use_after_free() {
-        use Precision::*;
-        use Width::*;
-        const V0: Register = REGISTERS[0];
-        const V1: Register = REGISTERS[1];
-        let before = Convention {
-            live_values: Box::new([V0.into(), V1.into()]),
-            slots_used: 1,
-        };
-        let actions = vec![
-            Action::Store(V0, V1.into(), (V0.into(), Four), AliasMask(1)),
-            Action::Constant(P64, V0, 1234),
-        ];
-        let after = Convention {
-            live_values: Box::new([V0.into()]),
-            slots_used: 1,
-        };
-        let _ = optimize(0, &before, &after, &actions);
-        // Just don't panic!
+    fn optimize_random_ebbs() {
+        for seed in 0..100 {
+            println!("seed = {}", seed);
+            let (ebb, convention) = random_ebb(seed);
+            optimize(&convention, &ebb, &convention);
+        }
     }
-
-    #[test]
-    fn moves() {
-        const V0: Register = REGISTERS[0];
-        const V1: Register = REGISTERS[1];
-        let before = Convention {
-            live_values: Box::new([V1.into()]),
-            slots_used: 1,
-        };
-        let actions = vec![
-            Action::Move(V0.into(), V1.into()),
-        ];
-        let after = Convention {
-            live_values: Box::new([V0.into()]),
-            slots_used: 1,
-        };
-        let _ = optimize(0, &before, &after, &actions);
-        // Just don't panic!
-    }
-*/
 }

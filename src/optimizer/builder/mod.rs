@@ -180,17 +180,6 @@ mod tests {
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
 
-    // Several tests represent leaves as integers.
-    impl LookupLeaf for Convention {
-        type Leaf = usize;
-        fn after(&self, _leaf: &usize) -> &Convention {
-            self
-        }
-        fn weight(&self, leaf: &usize) -> usize {
-            *leaf
-        }
-    }
-
     #[test]
     fn reorder_guards() {
         // Each leaf will return a single `Register`.
@@ -281,7 +270,7 @@ mod tests {
         // TODO: Expected output.
     }
 
-    /** Regression test from Bee. */
+    /// Regression test from Bee.
     #[test]
     fn bee_2() {
         let convention = Convention {

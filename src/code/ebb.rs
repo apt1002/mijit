@@ -49,18 +49,19 @@ pub enum Ending<L> {
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use rand::prelude::*;
     use rand_pcg::{Pcg64};
 
     use super::*;
-    use super::super::{Register, REGISTERS, BinaryOp, builder};
+    use super::super::{Register, REGISTERS, Convention, BinaryOp, builder};
     use BinaryOp::*;
 
     struct RandomEBB<R: Rng> {
         rng: R,
         regs: Vec<Register>,
         tmp: Register,
+        next_leaf: usize,
     }
 
     impl<R: Rng> RandomEBB<R> {
@@ -69,15 +70,16 @@ mod tests {
                 rng,
                 regs: vec![REGISTERS[0], REGISTERS[1], REGISTERS[2], REGISTERS[3]],
                 tmp: REGISTERS[4],
+                next_leaf: 0,
             }
         }
 
-        /** Return a random register. */
+        /// Return a random register.
         fn rr(&mut self) -> Register {
             self.regs[self.rng.gen_range(0..self.regs.len())]
         }
 
-        fn gen(&mut self, size: usize) -> EBB<()> {
+        fn gen(&mut self, size: usize) -> EBB<usize> {
             let r = self.rr();
             builder::build(&mut |mut b| {
                 b.const_(self.tmp, self.rng.gen());
@@ -85,7 +87,9 @@ mod tests {
                 b.binary64(Xor, r, r, self.rr());
                 b.binary64(Lt, self.tmp, self.rr(), self.rr());
                 if size == 0 {
-                    b.jump(())
+                    let leaf = self.next_leaf;
+                    self.next_leaf += 1;
+                    b.jump(leaf)
                 } else {
                     let left_size = self.rng.gen_range(0..size);
                     let right_size = size - 1 - left_size;
@@ -93,10 +97,24 @@ mod tests {
                 }
             })
         }
+
+        fn convention(&self) -> Convention {
+            Convention {
+                live_values: self.regs.iter().map(|&r| Variable::from(r)).collect(),
+                slots_used: 0,
+            }
+        }
     }
 
-    fn random_ebb(seed: u64) -> EBB<()> {
-        RandomEBB::new(Pcg64::seed_from_u64(seed)).gen(42)
+    /// Return a deterministically random EBB.
+    /// The Convention is used on entry, and on every exit. The exits are
+    /// numbered.
+    pub fn random_ebb(seed: u64) -> (EBB<usize>, Convention) {
+        let mut random_ebb = RandomEBB::new(Pcg64::seed_from_u64(seed));
+        (
+            random_ebb.gen(4),
+            random_ebb.convention(),
+        )
     }
 
     #[test]
