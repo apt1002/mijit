@@ -81,7 +81,7 @@ pub mod tests {
 
         fn gen(&mut self, size: usize) -> EBB<usize> {
             let r = self.rr();
-            builder::build(&mut |mut b| {
+            builder::build(|mut b| {
                 b.const_(self.tmp, self.rng.gen());
                 b.binary64(Add, r, r, self.tmp);
                 b.binary64(Xor, r, r, self.rr());

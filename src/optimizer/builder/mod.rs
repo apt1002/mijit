@@ -243,24 +243,20 @@ mod tests {
     fn bee_1() {
         let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};
         // Make an `EBB`.
-        let ebb = builder::build(&mut |b| {
+        let ebb = builder::build(|b| {
             b.index(
                 Global(0),
                 Box::new([
-                    builder::build(&mut |mut b| {
-                        b.guard(Global(0), false, builder::build(&mut |b| {
-                            b.jump(5)
-                        }));
+                    builder::build(|mut b| {
+                        b.guard(Global(0), false, builder::build(|b| b.jump(5)));
                         b.jump(4)
                     }),
-                    builder::build(&mut |mut b| {
-                        b.guard(Global(0), true, builder::build(&mut |b| {
-                            b.jump(3)
-                        }));
+                    builder::build(|mut b| {
+                        b.guard(Global(0), true, builder::build(|b| b.jump(3)));
                         b.jump(2)
                     }),
                 ]),
-                builder::build(&mut |b| { b.jump(1) }),
+                builder::build(|b| b.jump(1)),
             )
         });
         // Optimize it.
@@ -281,10 +277,10 @@ mod tests {
             ]),
         };
         // Make an `EBB`.
-        let ebb = builder::build(&mut |mut b| {
+        let ebb = builder::build(|mut b| {
             b.binary64(Or, REGISTERS[3], Global(0), Global(0));
-            b.guard(Global(0), false, builder::build(&mut |b| { b.jump(2) }));
-            b.guard(Global(0), false, builder::build(&mut |b| { b.jump(3) }));
+            b.guard(Global(0), false, builder::build(|b| b.jump(2)));
+            b.guard(Global(0), false, builder::build(|b| b.jump(3)));
             b.binary64(And, REGISTERS[3], Global(0), Global(0));
             b.jump(1)
         });
