@@ -8,7 +8,7 @@ pub extern fn debug_word(x: u64) {
 
 /// An imperative instruction.
 /// The destination register (where applicable) is on the left.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
     /// dest <- src
     Move(Variable, Variable),
@@ -33,6 +33,33 @@ pub enum Action {
     DropMany(usize),
     /// Pass `src` to [`debug_word()`].
     Debug(Variable),
+}
+
+impl std::fmt::Debug for Action {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Action::Move(dest, src) =>
+                write!(f, "Move {:?}, {:?}", dest, src),
+            Action::Constant(prec, dest, c) =>
+                write!(f, "Constant_{:?} {:?}, {:x?}", prec, dest, c),
+            Action::Unary(op, prec, dest, src) =>
+                write!(f, "{:?}_{:?} {:?}, {:?}", op, prec, dest, src),
+            Action::Binary(op, prec, dest, src1, src2) =>
+                write!(f, "{:?}_{:?} {:?}, {:?}, {:?}", op, prec, dest, src1, src2),
+            Action::Load(dest, (addr, width), _) =>
+                write!(f, "Load_{:?} {:?}, [{:?}]", width, dest, addr),
+            Action::Store(dest, src, (addr, width), _) =>
+                write!(f, "Store_{:?} {:?}, {:?}, [{:?}]", width, dest, src, addr),
+            Action::Push(src1, src2) =>
+                write!(f, "Push ({:?}, {:?})", src1, src2),
+            Action::Pop(dest1, dest2) =>
+                write!(f, "Pop ({:?}, {:?})", dest1, dest2),
+            Action::DropMany(n) =>
+                write!(f, "DropMany 2*{:?}", n),
+            Action::Debug(src) =>
+                write!(f, "Debug {:?}", src),
+        }
+    }
 }
 
 //-----------------------------------------------------------------------------
