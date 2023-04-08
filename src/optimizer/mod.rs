@@ -50,7 +50,7 @@ pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::code::tests::{random_ebb};
+    use crate::code::tests::{random_ebb, random_ebb_convention};
 
     // Several tests represent leaves as integers.
     impl LookupLeaf for Convention {
@@ -65,10 +65,11 @@ mod tests {
 
     #[test]
     fn optimize_random_ebbs() {
-        for seed in 0..100 {
+        for seed in 0..1000 {
             println!("seed = {}", seed);
-            let (ebb, convention) = random_ebb(seed);
-            optimize(&convention, &ebb, &convention);
+            let input_ebb = random_ebb(seed, 2);
+            let convention = random_ebb_convention();
+            optimize(&convention, &input_ebb, &convention);
         }
     }
 }
