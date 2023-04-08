@@ -112,6 +112,16 @@ impl<'a> Fill<'a> {
     }
 }
 
+impl<'a> std::fmt::Debug for Fill<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Fill")
+            .field("marker", &self.marker)
+            .field("nodes", &self.nodes)
+            .field("frontier", &self.frontier)
+            .finish()
+    }
+}
+
 impl<'a> std::ops::Index<Node> for Fill<'a> {
     type Output = usize;
     fn index(&self, index: Node) -> &Self::Output { &self.marks[index] }
