@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
 use super::{code, target, cost, Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, CFT};
@@ -77,12 +77,18 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         lookup_input: &'w dyn Fn(Out) -> Variable,
         lookup_guard: &'w dyn Fn(Node) -> &'w GuardFailure<'a, L::Leaf>,
     ) -> EBB<L::Leaf> {
+        println!("cft = {:#x?}", cft);
+        println!("slots_used = {:#x?}", slots_used);
         let df = fill.dataflow();
         let is_guard = |node| matches!(df.op(node), Op::Guard);
 
         // Find nodes on the hot path.
         let (colds, exit, leaf) = cft.hot_path();
+        println!("colds = {:#x?}", colds);
+        println!("exit = {:#x?}", exit);
+        println!("leaf = {:#x?}", leaf);
         fill.visit(exit);
+        println!("fill = {:#x?}", fill);
 
         // Record info about each new `Op::Guard` `Node`.
         let guard_failures = colds.into_iter().map(|(guard, cold)| {
@@ -90,25 +96,36 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             cold.map(|&child| child.exits().for_each(|node| { fill2.visit(node); }));
             (guard, GuardFailure {cold, fontier: fill2.drain().1})
         }).collect::<HashMap<Node, GuardFailure<_>>>();
+        println!("guard_failures = {:#x?}", guard_failures);
         let lookup_guard = |guard| guard_failures.get(&guard)
             .unwrap_or_else(|| lookup_guard(guard));
 
         // Find additional dependencies that the hot exit does not depend on.
         let guards = fill.nodes().filter(|&n| is_guard(n)).collect::<Vec<Node>>();
         for node in guards { fill.resume(&lookup_guard(node).fontier); }
+        println!("fill = {:#x?}", fill);
 
         // Build an instruction schedule and allocate registers.
         let (nodes, Frontier {effects, inputs}) = fill.drain();
         let variables = inputs.into_iter().map(
             |out| (out, lookup_input(out))
         ).collect::<HashMap<Out, Variable>>();
+        println!("variables = {:#x?}", variables);
+        let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
+        assert_eq!(variables.len(), distinct_variables.len());
         let (instructions, allocation) = allocate(
             &effects,
             &variables,
             df,
             &*nodes,
-            |node| if is_guard(node) { Some(&lookup_guard(node).fontier.inputs) } else { None },
+            |node| if is_guard(node) {
+                let inputs = &lookup_guard(node).fontier.inputs;
+                println!("inputs = {:#x?}", inputs);
+                Some(inputs)
+            } else { None },
         );
+        println!("instructions = {:#x?}", instructions);
+        println!("allocation = {:#x?}", allocation);
 
         // Build the EBB.
         let mut cg = CodeGen::new(
@@ -119,6 +136,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             variables,
         );
         for &instruction in &instructions {
+            println!("Doing {:#x?}", instruction);
             match instruction {
                 Instruction::Spill(x, y) => {
                     cg.add_spill(x, y);
@@ -143,7 +161,9 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             }
         }
         fill.drain(); // Restore `fill` to its original state.
-        cg.finish(exit, leaf)
+        let ret = cg.finish(exit, leaf);
+        println!("ret = {:#x?}", ret);
+        ret
     }
 }
 
@@ -153,12 +173,14 @@ pub fn build<L: LookupLeaf>(
     cft: &CFT<L::Leaf>,
     lookup_leaf: &L,
 ) -> EBB<L::Leaf> {
+    println!("dataflow = {:#x?}", dataflow);
     // Work out what is where.
     let input_map: HashMap<Out, Variable> =
         dataflow.outs(dataflow.entry_node())
         .zip(&*before.live_values)
         .map(|(out, &variable)| (out, variable))
         .collect();
+    println!("input_map = {:#x?}", input_map);
     // Build the new `EBB`.
     let mut builder = Builder::new(lookup_leaf);
     with_fill(dataflow, |mut fill| builder.walk(
