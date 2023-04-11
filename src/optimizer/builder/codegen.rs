@@ -82,11 +82,17 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     /// Returns `out`'s [`Variable`].
     pub fn read(&self, out: Out) -> Variable {
         if let Some(r) = self.allocation[out] {
+            // `out` is still in the `Register` it was computed into.
             if self.registers[r] == Some(out) {
                 return r.into();
             }
         }
-        *self.variables.get(&out).expect("Tried to read a value that has not been written")
+        let v = *self.variables.get(&out).expect("Tried to read a value that has not been written");
+        if let Variable::Register(_) = v {
+            // We already know `out`'s `Register` holds something else.
+            panic!("Value is in a register that has been clobbered");
+        }
+        v
     }
 
     /// Generate an [`Action`] to spill `out1` and `out2`.
