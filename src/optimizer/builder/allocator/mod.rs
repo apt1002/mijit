@@ -176,6 +176,7 @@ impl<'a> Allocator<'a> {
     ///   `self.usage`. These `Out`s are often just the inputs of `node`, but
     ///   can also include e.g. values needed by `node`'s cold paths.
     pub fn add_node(&mut self, node: Node, num_keep_alives: usize) {
+        println!("add_node({:?}, {:?})", node, num_keep_alives);
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
@@ -189,6 +190,7 @@ impl<'a> Allocator<'a> {
             }
             in_
         }).collect();
+        println!("keep_alives = {:?}", keep_alives);
         // Spill until we have enough registers to hold the outputs of `node`.
         self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
@@ -197,12 +199,14 @@ impl<'a> Allocator<'a> {
         }
         // Bump `time` until the operands are available.
         for (&in_, &latency) in df.ins(node).iter().zip(df.cost(node).input_latencies) {
+            println!("{:?} was written at time {:?} with latency {:?}", in_, self.outs[in_].time, latency);
             time.max_with(self.outs[in_].time.expect("Not computed yet") + latency as usize);
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
             let reg = self.pool.allocate();
             self.outs[out].reg = Some(reg);
+            println!("{:?} becomes available at time {:?}", reg, self.regs[reg].time);
             time.max_with(self.regs[reg].time);
         }
         // Bump `time` until the execution resources are available.
@@ -217,12 +221,15 @@ impl<'a> Allocator<'a> {
         self.node_times[node] = Some(time);
         // Record when the inputs were used.
         for in_ in keep_alives {
+            println!("Keep-alive {:?} is currently in {:?}", in_, self.current_reg(in_));
             if let Some(reg) = self.current_reg(in_) {
+                println!("Marking it as used at time {:?}", time);
                 self.use_reg(reg, time);
             }
         }
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
+            println!("Marking {:?} as written at time {:?} with latency {:?}", out, time, latency);
             self.regs[self.outs[out].reg.unwrap()] = RegInfo {time: time, out: Some(out)};
             self.outs[out].time = Some(time + latency as usize);
         }
@@ -265,6 +272,7 @@ pub fn allocate<'a>(
         let mut keep_alives: Vec<Out> = dataflow.ins(node).iter().copied().collect();
         if let Some(ins) = get_keep_alives(node) { keep_alives.extend(ins); }
         for &in_ in &keep_alives { usage.push(in_); }
+        println!("Keep-alives for {:?} are {:?}", node, keep_alives);
         (node, keep_alives.len())
     }).collect();
     // Schedule and allocate registers for every `Node`s except the exit node.

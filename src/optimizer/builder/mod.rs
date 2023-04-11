@@ -120,7 +120,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             &*nodes,
             |node| if is_guard(node) {
                 let inputs = &lookup_guard(node).fontier.inputs;
-                println!("inputs = {:#x?}", inputs);
+                println!("inputs of {:?} = {:#x?}", node, inputs);
                 Some(inputs)
             } else { None },
         );
