@@ -33,21 +33,6 @@ impl Debug for Instruction {
 
 //-----------------------------------------------------------------------------
 
-/// The information that a [`Allocator`] stores about each [`Out`].
-#[derive(Default)]
-struct OutInfo {
-    /// The `Time` at which the `Out` became available.
-    time: Option<Time>,
-    /// The `Register` allocated for the `Out`.
-    reg: Option<Register>,
-}
-
-impl Debug for OutInfo {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "OutInfo {{time: {:?}, reg: {:?}}}", self.time, self.reg)
-    }
-}
-
 /// The information that an [`Allocator`] stores about each [`Register`].
 #[derive(Default)]
 struct RegInfo {
@@ -76,10 +61,12 @@ struct Allocator<'a> {
     usage: Usage<Out>,
     /// The [`Instruction`]s processed so far.
     placer: Placer<Instruction>,
-    /// An `OutInfo` for each `Out`.
-    outs: ArrayMap<Out, OutInfo>,
+    /// The `Register` allocated for each `Out`, if any.
+    allocation: HashMap<Out, Register>,
+    /// The `Time` at which each `Out` became available.
+    write_times: HashMap<Out, Time>,
     /// The `Time` at which each [`Node`] was executed.
-    node_times: ArrayMap<Node, Option<Time>>,
+    node_times: HashMap<Node, Time>,
     /// A `RegInfo` for each `Reg`.
     regs: ArrayMap<Register, RegInfo>,
     /// The `Register` allocator state.
@@ -102,20 +89,22 @@ impl<'a> Allocator<'a> {
     ) -> Self {
         // Initialize the data structures with the live registers of `variables`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
-        let mut outs: ArrayMap<Out, OutInfo> = dataflow.out_map();
-        let mut node_times: ArrayMap<Node, Option<Time>> = dataflow.node_map();
+        let mut allocation: HashMap<Out, Register> = HashMap::new();
+        let mut write_times: HashMap<Out, Time> = HashMap::new();
+        let mut node_times: HashMap<Node, Time> = HashMap::new();
         for &node in effects {
-            node_times[node] = Some(EARLY);
+            node_times.insert(node, EARLY);
         }
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (&out, &value) in variables.iter() {
             if usage.topmost(&out).is_some() {
+                // `out` is alive on entry.
                 if let Variable::Register(reg) = value {
                     dirty[reg] = true;
                     regs[reg].out = Some(out);
-                    outs[out].reg = Some(reg);
+                    allocation.insert(out, reg);
                 }
-                outs[out].time = Some(EARLY);
+                write_times.insert(out, EARLY);
             }
         }
         // Construct and return.
@@ -123,7 +112,8 @@ impl<'a> Allocator<'a> {
             dataflow: dataflow,
             usage: usage,
             placer: Placer::new(),
-            outs: outs,
+            allocation: allocation,
+            write_times: write_times,
             node_times: node_times,
             regs: regs,
             pool: RegisterPool::new(dirty),
@@ -132,7 +122,9 @@ impl<'a> Allocator<'a> {
 
     /// Returns the [`Register`] containing `out`, if any.
     fn current_reg(&self, out: Out) -> Option<Register> {
-        self.outs[out].reg.filter(|&reg| self.regs[reg].out == Some(out))
+        self.allocation.get(&out).copied().filter(
+            |&reg| self.regs[reg].out == Some(out)
+        )
     }
 
     /// Record that we used `reg` at `time` (either reading or writing).
@@ -162,8 +154,8 @@ impl<'a> Allocator<'a> {
             // Spill the `Register`.
             let out_x = self.regs[reg_x].out.unwrap();
             let out_y = self.regs[reg_y].out.unwrap();
-            let mut time = self.outs[out_x].time.expect("Not computed yet");
-            time.max_with(self.outs[out_y].time.expect("Not computed yet"));
+            let mut time = self.write_times[&out_x];
+            time.max_with(self.write_times[&out_y]);
             self.placer.add_item(Spill(out_x, out_y), SPILL_COST, &mut time);
             self.use_reg(reg_x, time);
             self.use_reg(reg_y, time);
@@ -195,17 +187,17 @@ impl<'a> Allocator<'a> {
         self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
         for &dep in df.deps(node) {
-            time.max_with(self.node_times[dep].expect("Not executed yet"));
+            time.max_with(*self.node_times.get(&dep).expect("Not executed yet"));
         }
         // Bump `time` until the operands are available.
         for (&in_, &latency) in df.ins(node).iter().zip(df.cost(node).input_latencies) {
-            println!("{:?} was written at time {:?} with latency {:?}", in_, self.outs[in_].time, latency);
-            time.max_with(self.outs[in_].time.expect("Not computed yet") + latency as usize);
+            println!("{:?} was written at time {:?} with latency {:?}", in_, self.write_times[&in_], latency);
+            time.max_with(self.write_times[&in_] + latency as usize);
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
             let reg = self.pool.allocate();
-            self.outs[out].reg = Some(reg);
+            self.allocation.insert(out, reg);
             println!("{:?} becomes available at time {:?}", reg, self.regs[reg].time);
             time.max_with(self.regs[reg].time);
         }
@@ -218,7 +210,7 @@ impl<'a> Allocator<'a> {
         // FIXME: A long series of zero-cost nodes will crash the placer.
         self.placer.add_item(Node(node), resources, &mut time);
         // Record the node's placement.
-        self.node_times[node] = Some(time);
+        self.node_times.insert(node, time);
         // Record when the inputs were used.
         for in_ in keep_alives {
             println!("Keep-alive {:?} is currently in {:?}", in_, self.current_reg(in_));
@@ -230,16 +222,9 @@ impl<'a> Allocator<'a> {
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
             println!("Marking {:?} as written at time {:?} with latency {:?}", out, time, latency);
-            self.regs[self.outs[out].reg.unwrap()] = RegInfo {time: time, out: Some(out)};
-            self.outs[out].time = Some(time + latency as usize);
+            self.regs[self.allocation[&out]] = RegInfo {time: time, out: Some(out)};
+            self.write_times.insert(out, time + latency as usize);
         }
-    }
-
-    /// Returns the finished [`Instruction`] order and [`Register`] allocation.
-    pub fn finish(self) -> (Vec<Instruction>, ArrayMap<Out, Option<Register>>) {
-        let instructions: Vec<_> = self.placer.iter().cloned().collect();
-        let allocation = self.outs.iter().map(|info| info.reg).collect();
-        (instructions, allocation)
     }
 }
 
@@ -264,7 +249,7 @@ pub fn allocate<'a>(
     get_keep_alives: impl Fn(Node) -> Option<&'a HashSet<Out>>,
 ) -> (
     Vec<Instruction>,
-    ArrayMap<Out, Option<Register>>
+    HashMap<Out, Register>
 ) {
     // Reverse `nodes` and compute the `Out`s each one uses.
     let mut usage = Usage::default();
@@ -285,5 +270,5 @@ pub fn allocate<'a>(
             assert_eq!(a.usage.len(), num_keep_alives);
         }
     }
-    a.finish()
+    (a.placer.iter().cloned().collect(), a.allocation)
 }
