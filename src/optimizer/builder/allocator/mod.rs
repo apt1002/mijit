@@ -4,10 +4,7 @@ use std::fmt::{self, Debug, Formatter};
 use super::{NUM_REGISTERS, all_registers, Resources, Op, Dataflow, Node, Out};
 use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable};
-use crate::util::{ArrayMap, map_filter_max};
-
-mod usage;
-use usage::{Usage};
+use crate::util::{ArrayMap, map_filter_max, Usage};
 
 mod pool;
 use pool::{RegisterPool};
@@ -74,8 +71,9 @@ impl Debug for RegInfo {
 struct Allocator<'a> {
     /// The dataflow graph.
     dataflow: &'a Dataflow,
-    /// The [`Node`]s remaining to be processed.
-    usage: Usage<Node, Out>,
+    /// The concatenation of the `keep_alive` sets of all [`Node`]s remaining
+    /// to be processed. Each call to `add_node()` pops a few `Out`s from this.
+    usage: Usage<Out>,
     /// The [`Instruction`]s processed so far.
     placer: Placer<Instruction>,
     /// An `OutInfo` for each `Out`.
@@ -100,7 +98,7 @@ impl<'a> Allocator<'a> {
         effects: &HashSet<Node>,
         variables: &HashMap<Out, Variable>,
         dataflow: &'a Dataflow,
-        usage: Usage<Node, Out>,
+        usage: Usage<Out>,
     ) -> Self {
         // Initialize the data structures with the live registers of `variables`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
@@ -111,7 +109,7 @@ impl<'a> Allocator<'a> {
         }
         let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
         for (&out, &value) in variables.iter() {
-            if usage.first(out).is_some() {
+            if usage.topmost(&out).is_some() {
                 if let Variable::Register(reg) = value {
                     dirty[reg] = true;
                     regs[reg].out = Some(out);
@@ -147,10 +145,11 @@ impl<'a> Allocator<'a> {
         let i = map_filter_max(all_registers(), |reg| {
             self.regs[reg].out
                 .filter(|_| !self.pool.is_clean(reg))
-                .map(|out| self.usage.first(out))
-                .map(std::cmp::Reverse)
-        });
-        let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
+                .map(|out| std::cmp::Reverse(
+                    self.usage.topmost(&out).expect("Dirty register is unused")
+                ))
+        }).expect("No register is dirty");
+        let reg = Register::new(i as u8).unwrap();
         self.pool.free(reg);
         reg
     }
@@ -171,20 +170,25 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /// Called for each [`Node`] in the [`Usage`] in forwards order.
-    pub fn add_node(&mut self, node: Node) {
+    /// Called for each [`Node`] in forwards order.
+    /// - `num_keep_alives` - the number of `Out`s which must survive until
+    ///   after `Node` has been executed. This many items will be popped from
+    ///   `self.usage`. These `Out`s are often just the inputs of `node`, but
+    ///   can also include e.g. values needed by `node`'s cold paths.
+    pub fn add_node(&mut self, node: Node, num_keep_alives: usize) {
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
-        for &in_ in df.ins(node) {
-            if self.usage.first(in_).is_none() {
+        let keep_alives: Vec<Out> = (0..num_keep_alives).map(|_| {
+            let in_ = self.usage.pop().expect("Incorrect usage information");
+            if self.usage.topmost(&in_).is_none() {
+                // This can happen at most once for each distinct `in_`.
                 if let Some(reg) = self.current_reg(in_) {
-                    if !self.pool.is_clean(reg) {
-                        self.pool.free(reg);
-                    }
+                    self.pool.free(reg);
                 }
             }
-        }
+            in_
+        }).collect();
         // Spill until we have enough registers to hold the outputs of `node`.
         self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
@@ -212,7 +216,7 @@ impl<'a> Allocator<'a> {
         // Record the node's placement.
         self.node_times[node] = Some(time);
         // Record when the inputs were used.
-        for &in_ in df.ins(node) {
+        for in_ in keep_alives {
             if let Some(reg) = self.current_reg(in_) {
                 self.use_reg(reg, time);
             }
@@ -255,19 +259,22 @@ pub fn allocate<'a>(
     Vec<Instruction>,
     ArrayMap<Out, Option<Register>>
 ) {
+    // Reverse `nodes` and compute the `Out`s each one uses.
     let mut usage = Usage::default();
-    for &node in nodes.iter().rev() {
-        let mut keep_alives: Vec<_> = dataflow.ins(node).iter().copied().collect();
-        if let Some(x) = get_keep_alives(node) {
-            keep_alives.extend(x);
-        }
-        usage.push(node, keep_alives);
-    }
+    let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
+        let mut keep_alives: Vec<Out> = dataflow.ins(node).iter().copied().collect();
+        if let Some(ins) = get_keep_alives(node) { keep_alives.extend(ins); }
+        for &in_ in &keep_alives { usage.push(in_); }
+        (node, keep_alives.len())
+    }).collect();
+    // Schedule and allocate registers for every `Node`s except the exit node.
     let mut a = Allocator::new(effects, variables, dataflow, usage);
-    // Call `add_node()` for all `Node`s except the exit node.
-    while let Some(node) = a.usage.pop() {
+    while let Some((node, num_keep_alives)) = nodes_rev.pop() {
         if !matches!(dataflow.op(node), Op::Convention) {
-            a.add_node(node);
+            a.add_node(node, num_keep_alives);
+        } else {
+            // Exit node should be last.
+            assert_eq!(a.usage.len(), num_keep_alives);
         }
     }
     a.finish()
