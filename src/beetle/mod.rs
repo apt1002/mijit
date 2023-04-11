@@ -5,7 +5,7 @@
 
 use memoffset::{offset_of};
 
-use super::code::{self, UnaryOp, BinaryOp, Width, Register, REGISTERS, Global, Marshal, Switch};
+use super::code::{self, UnaryOp, BinaryOp, Width, Register, REGISTERS, Global, EBB, Marshal};
 use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
@@ -133,488 +133,361 @@ impl<T: Target> Beetle<T> {
             b.jump(not_implemented2)
         }));
 
+        // Op-code dispatch routines.
+        let mut actions: Box<[EBB<EntryId>]> = (0..0x63).map(|_| {
+            build(|b| b.jump(not_implemented))
+        }).collect();
+
+        // NEXT
+        actions[0x00] = build(|mut b| {
+            pop(&mut b, BA, BEP);
+            b.jump(root)
+        });
+
+        // DUP
+        actions[0x01] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            push(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // DROP
+        actions[0x02] = build(|mut b| {
+            b.const_binary32(Add, BSP, BSP, CELL);
+            b.jump(root)
+        });
+
+        // SWAP
+        actions[0x03] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            store(&mut b, R2, BSP);
+            push(&mut b, R3, BSP);
+            b.jump(root)
+        });
+
+        // OVER
+        actions[0x04] = build(|mut b| {
+            b.const_binary32(Add, R1, BSP, CELL);
+            load(&mut b, R2, R1);
+            push(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // ROT
+        actions[0x05] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Add, R1, BSP, CELL);
+            load(&mut b, R3, R1);
+            store(&mut b, R2, R1);
+            b.const_binary32(Add, R1, BSP, 2 * CELL);
+            load(&mut b, R2, R1);
+            store(&mut b, R3, R1);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // -ROT
+        actions[0x06] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Add, R1, BSP, 2 * CELL);
+            load(&mut b, R3, R1);
+            store(&mut b, R2, R1);
+            b.const_binary32(Add, R1, BSP, CELL);
+            load(&mut b, R2, R1);
+            store(&mut b, R3, R1);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // TUCK
+        actions[0x07] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Add, R1, BSP, CELL);
+            load(&mut b, R3, R1);
+            store(&mut b, R2, R1);
+            store(&mut b, R3, BSP);
+            push(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // NIP
+        actions[0x08] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // <
+        actions[0x0F] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Lt, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // >
+        actions[0x10] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Lt, R2, R2, R3);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // =
+        actions[0x11] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Eq, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // <>
+        actions[0x12] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Eq, R2, R3, R2);
+            b.unary32(Not, R2, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 0<
+        actions[0x13] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Lt, R2, R2, 0);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 0>
+        actions[0x14] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_(R3, 0);
+            b.binary32(Lt, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 0=
+        actions[0x15] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Eq, R2, R2, 0);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 0<>
+        actions[0x16] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Eq, R2, R2, 0);
+            b.unary32(Not, R2, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // U<
+        actions[0x17] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Ult, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // U>
+        actions[0x18] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Ult, R2, R2, R3);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 0
+        actions[0x19] = build(|mut b| {
+            b.const_(R2, 0);
+            push(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 1
+        actions[0x1A] = build(|mut b| {
+            b.const_(R2, 1);
+            push(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // -1
+        actions[0x1B] = build(|mut b| {
+            b.const_(R2, -1i32 as u32 as i64);
+            push(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // +
+        actions[0x1E] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Add, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // -
+        actions[0x1F] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Sub, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // >-<
+        actions[0x20] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Sub, R2, R2, R3);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 1+
+        actions[0x21] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Add, R2, R2, 1);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // 1-
+        actions[0x22] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.const_binary32(Sub, R2, R2, 1);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // *
+        actions[0x25] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Mul, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // ABS
+        actions[0x2D] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.unary32(Abs, R2, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // NEGATE
+        actions[0x2E] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.unary32(Negate, R2, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // MAX
+        actions[0x2F] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Max, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        actions[0x30] = // MIN
+        build(|mut b| {
+            pop(&mut b, R2, BSP);
+            load(&mut b, R3, BSP);
+            b.binary32(Min, R2, R3, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        actions[0x31] = // INVERT
+        build(|mut b| {
+            load(&mut b, R2, BSP);
+            b.unary32(Not, R2, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // @
+        actions[0x39] = build(|mut b| {
+            load(&mut b, R2, BSP);
+            load(&mut b, R2, R2);
+            store(&mut b, R2, BSP);
+            b.jump(root)
+        });
+
+        // !
+        actions[0x3A] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            pop(&mut b, R3, BSP);
+            store(&mut b, R3, R2);
+            b.jump(root)
+        });
+
+        // +!
+        actions[0x3D] = build(|mut b| {
+            pop(&mut b, R2, BSP);
+            pop(&mut b, R3, BSP);
+            load(&mut b, R1, R2);
+            b.binary32(Add, R3, R1, R3);
+            store(&mut b, R3, R2);
+            b.jump(root)
+        });
+
+        // BRANCHI
+        actions[0x43] = build(|b| { b.jump(branchi) });
+
+        // ?BRANCHI
+        actions[0x45] = build(|mut b| {
+            pop(&mut b, BI, BSP);
+            b.if_(BI,
+                build(|mut b| {
+                    pop(&mut b, BA, BEP);
+                    b.jump(root)
+                }),
+                build(|b| { b.jump(branchi) }),
+            )
+        });
+
+        // CALLI
+        actions[0x49] = build(|mut b| {
+            push(&mut b, BEP, BRP);
+            b.jump(branchi)
+        });
+
+        // EXIT
+        actions[0x4A] = build(|mut b| {
+            pop(&mut b, BEP, BRP);
+            pop(&mut b, BA, BEP);
+            b.jump(root)
+        });
+
+        // (LITERAL)I
+        actions[0x53] = build(|mut b| {
+            push(&mut b, BA, BSP);
+            pop(&mut b, BA, BEP);
+            b.jump(root)
+        });
+
         // Main dispatch loop.
         jit.define(root, &build(|mut b| {
             b.const_binary32(And, BI, BA, 0xFF);
             b.const_binary32(Asr, BA, BA, 8);
-            b.switch(BI, Switch::new(
-                Box::new([
-                    // NEXT
-                    build(|mut b| {
-                        pop(&mut b, BA, BEP);
-                        b.jump(root)
-                    }),
-
-                    // DUP
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // DROP
-                    build(|mut b| {
-                        b.const_binary32(Add, BSP, BSP, CELL);
-                        b.jump(root)
-                    }),
-
-                    // SWAP
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        store(&mut b, R2, BSP);
-                        push(&mut b, R3, BSP);
-                        b.jump(root)
-                    }),
-
-                    // OVER
-                    build(|mut b| {
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R2, R1);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // ROT
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R3, R1);
-                        store(&mut b, R2, R1);
-                        b.const_binary32(Add, R1, BSP, 2 * CELL);
-                        load(&mut b, R2, R1);
-                        store(&mut b, R3, R1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // -ROT
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R1, BSP, 2 * CELL);
-                        load(&mut b, R3, R1);
-                        store(&mut b, R2, R1);
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R2, R1);
-                        store(&mut b, R3, R1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // TUCK
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R1, BSP, CELL);
-                        load(&mut b, R3, R1);
-                        store(&mut b, R2, R1);
-                        store(&mut b, R3, BSP);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // NIP
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // PICK
-                    build(|b| b.jump(not_implemented)),
-
-                    // ROLL
-                    build(|b| b.jump(not_implemented)),
-
-                    // ?DUP
-                    build(|b| b.jump(not_implemented)),
-
-                    // >R
-                    build(|b| b.jump(not_implemented)),
-
-                    // R>
-                    build(|b| b.jump(not_implemented)),
-
-                    // R@
-                    build(|b| b.jump(not_implemented)),
-
-                    // <
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Lt, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // >
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Lt, R2, R2, R3);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // =
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Eq, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // <>
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Eq, R2, R3, R2);
-                        b.unary32(Not, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 0<
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Lt, R2, R2, 0);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 0>
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_(R3, 0);
-                        b.binary32(Lt, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 0=
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Eq, R2, R2, 0);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 0<>
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Eq, R2, R2, 0);
-                        b.unary32(Not, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // U<
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Ult, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // U>
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Ult, R2, R2, R3);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 0
-                    build(|mut b| {
-                        b.const_(R2, 0);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 1
-                    build(|mut b| {
-                        b.const_(R2, 1);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // -1
-                    build(|mut b| {
-                        b.const_(R2, -1i32 as u32 as i64);
-                        push(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // CELL
-                    build(|b| b.jump(not_implemented)),
-
-                    // -CELL
-                    build(|b| b.jump(not_implemented)),
-
-                    // +
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Add, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // -
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Sub, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // >-<
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Sub, R2, R2, R3);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 1+
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Add, R2, R2, 1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // 1-
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.const_binary32(Sub, R2, R2, 1);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // CELL+
-                    build(|b| b.jump(not_implemented)),
-
-                    // CELL-
-                    build(|b| b.jump(not_implemented)),
-
-                    // *
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Mul, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // /
-                    build(|b| b.jump(not_implemented)),
-
-                    // MOD
-                    build(|b| b.jump(not_implemented)),
-
-                    // /MOD
-                    build(|b| b.jump(not_implemented)),
-
-                    // U/MOD
-                    build(|b| b.jump(not_implemented)),
-
-                    // S/REM
-                    build(|b| b.jump(not_implemented)),
-
-                    // 2/
-                    build(|b| b.jump(not_implemented)),
-
-                    // CELLS
-                    build(|b| b.jump(not_implemented)),
-
-                    // ABS
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.unary32(Abs, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // NEGATE
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.unary32(Negate, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // MAX
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Max, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // MIN
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        load(&mut b, R3, BSP);
-                        b.binary32(Min, R2, R3, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // INVERT
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        b.unary32(Not, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // AND
-                    build(|b| b.jump(not_implemented)),
-
-                    // OR
-                    build(|b| b.jump(not_implemented)),
-
-                    // XOR
-                    build(|b| b.jump(not_implemented)),
-
-                    // LSHIFT
-                    build(|b| b.jump(not_implemented)),
-
-                    // RSHIFT
-                    build(|b| b.jump(not_implemented)),
-
-                    // 1LSHIFT
-                    build(|b| b.jump(not_implemented)),
-
-                    // 1RSHIFT
-                    build(|b| b.jump(not_implemented)),
-
-                    // @
-                    build(|mut b| {
-                        load(&mut b, R2, BSP);
-                        load(&mut b, R2, R2);
-                        store(&mut b, R2, BSP);
-                        b.jump(root)
-                    }),
-
-                    // !
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        pop(&mut b, R3, BSP);
-                        store(&mut b, R3, R2);
-                        b.jump(root)
-                    }),
-
-                    // C@
-                    build(|b| b.jump(not_implemented)),
-
-                    // C!
-                    build(|b| b.jump(not_implemented)),
-
-                    // +!
-                    build(|mut b| {
-                        pop(&mut b, R2, BSP);
-                        pop(&mut b, R3, BSP);
-                        load(&mut b, R1, R2);
-                        b.binary32(Add, R3, R1, R3);
-                        store(&mut b, R3, R2);
-                        b.jump(root)
-                    }),
-
-                    // SP@
-                    build(|b| b.jump(not_implemented)),
-
-                    // SP!
-                    build(|b| b.jump(not_implemented)),
-
-                    // RP@
-                    build(|b| b.jump(not_implemented)),
-
-                    // RP!
-                    build(|b| b.jump(not_implemented)),
-
-                    // BRANCH
-                    build(|b| b.jump(not_implemented)),
-
-                    // BRANCHI
-                    build(|b| { b.jump(branchi) }),
-
-                    // ?BRANCH
-                    build(|b| b.jump(not_implemented)),
-
-                    // ?BRANCHI
-                    build(|mut b| {
-                        pop(&mut b, BI, BSP);
-                        b.if_(BI,
-                            build(|mut b| {
-                                pop(&mut b, BA, BEP);
-                                b.jump(root)
-                            }),
-                            build(|b| { b.jump(branchi) }),
-                        )
-                    }),
-
-                    // EXECUTE
-                    build(|b| b.jump(not_implemented)),
-
-                    // @EXECUTE
-                    build(|b| b.jump(not_implemented)),
-
-                    // CALL
-                    build(|b| b.jump(not_implemented)),
-
-                    // CALLI
-                    build(|mut b| {
-                        push(&mut b, BEP, BRP);
-                        b.jump(branchi)
-                    }),
-
-                    // EXIT
-                    build(|mut b| {
-                        pop(&mut b, BEP, BRP);
-                        pop(&mut b, BA, BEP);
-                        b.jump(root)
-                    }),
-
-                    // (DO)
-                    build(|b| b.jump(not_implemented)),
-
-                    // (LOOP)
-                    build(|b| b.jump(not_implemented)),
-
-                    // (LOOP)I
-                    build(|b| b.jump(not_implemented)),
-
-                    // (+LOOP)
-                    build(|b| b.jump(not_implemented)),
-
-                    // (+LOOP)I
-                    build(|b| b.jump(not_implemented)),
-
-                    // UNLOOP
-                    build(|b| b.jump(not_implemented)),
-
-                    // J
-                    build(|b| b.jump(not_implemented)),
-
-                    // (LITERAL)
-                    build(|b| b.jump(not_implemented)),
-
-                    // (LITERAL)I
-                    build(|mut b| {
-                        push(&mut b, BA, BSP);
-                        pop(&mut b, BA, BEP);
-                        b.jump(root)
-                    }),
-                ]),
-                build(|b| b.jump(not_implemented)),
-            ))
+            b.index(BI, actions, build(|b| b.jump(not_implemented)))
         }));
 
         Self {jit, root}
