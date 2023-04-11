@@ -44,21 +44,35 @@ pub const GUARD_COST: Cost = Cost {
     resources: Resources::new(0x0100012),
 };
 
-/// The resources needed to move a value from one `Register` to another.
-pub const MOVE_COST: Cost = Cost {
-    input_latencies: &[0],
+/// The cost of a typical `Constant`.
+pub const CONST_COST: Cost = Cost {
+    input_latencies: &[],
     output_latencies: &[0],
-    resources: Resources::new(0x0000001),
+    resources: Resources::new(0x0100001),
 };
 
-/// The cost of a typical ALU operation such as `Constant`, `Add`.
-pub const ALU_COST: Cost = Cost {
+/// The cost of a typical unary ALU operation such as `Not`, `Neg`.
+pub const UNARY_COST: Cost = Cost {
+    input_latencies: &[0],
+    output_latencies: &[1],
+    resources: Resources::new(0x0100001),
+};
+
+/// The cost of a typical binary ALU operation such as `Add`, `And`.
+pub const BINARY_COST: Cost = Cost {
     input_latencies: &[0, 0],
     output_latencies: &[1],
     resources: Resources::new(0x0100001),
 };
 
-/// The cost of a typical conditional operation such as `Abs`, `Max`.
+/// The cost of a unary conditional operation such as `Abs`.
+pub const ABS_COST: Cost = Cost {
+    input_latencies: &[0],
+    output_latencies: &[2],
+    resources: Resources::new(0x0200013),
+};
+
+/// The cost of a binary conditional operation such as `Abs`, `Max`.
 pub const CONDITIONAL_COST: Cost = Cost {
     input_latencies: &[0, 0],
     output_latencies: &[2],
@@ -109,23 +123,23 @@ pub const DEBUG_COST: Cost = Cost {
 
 //-----------------------------------------------------------------------------
 
-/// Returns the [`Cost`] of `op`, or `None` if `op` is [`Op::Convention`].
+/// Returns the [`Cost`] of `op`.
+/// Returns `ZERO_COST` if `op` is [`Op::Convention`] or [`Op::Sequence`].
 #[allow(clippy::module_name_repetitions)]
-pub fn op_cost(op: Op) -> Option<&'static Cost> {
+pub fn op_cost(op: Op) -> &'static Cost {
     use Op::*;
     use super::code::{UnaryOp::*, BinaryOp::*};
-    if op == Op::Convention { return None; }
-    Some(match op {
+    match op {
         Guard => &GUARD_COST,
         Sequence => &ZERO_COST,
-        Convention => panic!("Cannot execute Op::Convention"),
-        Constant(n) => if n == 0 { &MOVE_COST } else { &ALU_COST },
+        Convention => &ZERO_COST,
+        Constant(_) => &CONST_COST, // TODO: Make the cost depend on `n`.
         Unary(_, op) => match op {
-            Abs => &CONDITIONAL_COST,
-            Negate | Not => &ALU_COST,
+            Abs => &ABS_COST,
+            Negate | Not => &UNARY_COST,
         },
         Binary(_, op) => match op {
-            Add | Sub | And| Or| Xor => &ALU_COST,
+            Add | Sub | And| Or| Xor => &BINARY_COST,
             Mul => &MUL_COST,
             UDiv | SDiv => &DIV_COST,
             Lsl | Lsr | Asr => &SHIFT_COST,
@@ -134,5 +148,5 @@ pub fn op_cost(op: Op) -> Option<&'static Cost> {
         Load(_, _) => &LOAD_COST,
         Store(_, _) => &STORE_COST,
         Debug => &DEBUG_COST,
-    })
+    }
 }
