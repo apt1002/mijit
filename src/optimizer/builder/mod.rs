@@ -1,4 +1,4 @@
-use std::collections::{HashMap};
+use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
 use super::{code, target, cost, Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, CFT};
@@ -102,6 +102,8 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         let variables = inputs.into_iter().map(
             |out| (out, lookup_input(out))
         ).collect::<HashMap<Out, Variable>>();
+        let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
+        assert_eq!(variables.len(), distinct_variables.len());
         let (instructions, allocation) = allocate(
             &effects,
             &variables,

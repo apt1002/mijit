@@ -54,9 +54,8 @@ impl<'a> Debug for NodeAdapter<'a> {
 struct Info {
     /// What kind of operation the `Node` represents.
     op: Op,
-    /// A cache of [`Dataflow::op_cost(op)`], or `None` if `op` is
-    /// [`Op::Convention`].
-    cost: Option<&'static Cost>,
+    /// A cache of [`Dataflow::op_cost(op)`].
+    cost: &'static Cost,
     /// The index in [`Dataflow::deps`] after the last dep of the `Node`.
     end_dep: usize,
     /// The index in [`Dataflow::ins`] after the last input of the `Node`.
@@ -114,7 +113,7 @@ impl Dataflow {
 
     /// Equivalent to `op_cost(self.op(node))` but faster.
     pub fn cost(&self, node: Node) -> &'static Cost {
-        self.info(node).cost.expect("Cannot execute Op::Convention")
+        self.info(node).cost
     }
 
     /// Tests whether `node` is the dummy [`Node`] that represents the Values

@@ -12,7 +12,7 @@ pub struct CodeGen<'a, L: LookupLeaf> {
     /// Lookup information about merge points.
     lookup_leaf: &'a L,
     /// For each `out`, the [`Register`] it should be computed into.
-    allocation: ArrayMap<Out, Option<Register>>,
+    allocation: HashMap<Out, Register>,
     /// The current number of stack [`Slot`]s.
     slots_used: usize,
     /// For each `Register`, what is in that `Register`.
@@ -29,7 +29,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     pub fn new(
         dataflow: &'a Dataflow,
         lookup_leaf: &'a L,
-        allocation: ArrayMap<Out, Option<Register>>,
+        allocation: HashMap<Out, Register>,
         slots_used: usize,
         variables: HashMap<Out, Variable>,
     ) -> Self {
@@ -63,7 +63,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
 
     /// Return `out`'s [`Register`].
     fn write(&mut self, out: Out) -> Register {
-        let r = self.allocation[out].expect("Wrote a non-register");
+        let r = self.allocation[&out];
         self.set_variable(out, r, None);
         self.registers[r] = Some(out);
         r
@@ -71,7 +71,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
 
     /// Spill `out`, returning its [`Register`].
     fn spill(&mut self, out: Out) -> Register {
-        let r = self.allocation[out].expect("Tried to spill a non-register");
+        let r = self.allocation[&out];
         assert_eq!(self.registers[r], Some(out));
         let slot = Slot(self.slots_used);
         self.slots_used += 1;
@@ -81,12 +81,18 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
 
     /// Returns `out`'s [`Variable`].
     pub fn read(&self, out: Out) -> Variable {
-        if let Some(r) = self.allocation[out] {
+        if let Some(&r) = self.allocation.get(&out) {
             if self.registers[r] == Some(out) {
-                return r.into();
-            }
+               // `out` is still in the `Register` it was computed into.
+               return r.into();
+           }
         }
-        *self.variables.get(&out).expect("Tried to read a value that has not been written")
+        let v = self.variables[&out];
+        if let Variable::Register(_) = v {
+            // We already know `out`'s `Register` holds something else.
+            panic!("Value is in a register that has been clobbered");
+        }
+        v
     }
 
     /// Generate an [`Action`] to spill `out1` and `out2`.

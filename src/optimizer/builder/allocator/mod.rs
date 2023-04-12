@@ -4,10 +4,7 @@ use std::fmt::{self, Debug, Formatter};
 use super::{NUM_REGISTERS, all_registers, Resources, Op, Dataflow, Node, Out};
 use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable};
-use crate::util::{ArrayMap, map_filter_max};
-
-mod usage;
-use usage::{Usage};
+use crate::util::{ArrayMap, map_filter_max, Usage};
 
 mod pool;
 use pool::{RegisterPool};
@@ -36,54 +33,27 @@ impl Debug for Instruction {
 
 //-----------------------------------------------------------------------------
 
-/// The information that a [`Allocator`] stores about each [`Out`].
-#[derive(Default)]
-struct OutInfo {
-    /// The `Time` at which the `Out` became available.
-    time: Option<Time>,
-    /// The `Register` allocated for the `Out`.
-    reg: Option<Register>,
-}
-
-impl Debug for OutInfo {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "OutInfo {{time: {:?}, reg: {:?}}}", self.time, self.reg)
-    }
-}
-
-/// The information that an [`Allocator`] stores about each [`Register`].
-#[derive(Default)]
-struct RegInfo {
-    /// The last `Time` at which the [`Register`] is used, or zero.
-    time: Time,
-    /// The contents of the `Register` at the current time.
-    out: Option<Out>,
-}
-
-impl Debug for RegInfo {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "RegInfo {{time: {:?}, out: {:?}}}", self.time, self.out)
-    }
-}
-
-//-----------------------------------------------------------------------------
-
 /// The state of the code generation algorithm. The state is mutated as
 /// [`Instruction`]s are added, in the order specified by a [`Schedule`].
 #[derive(Debug)]
 struct Allocator<'a> {
     /// The dataflow graph.
     dataflow: &'a Dataflow,
-    /// The [`Node`]s remaining to be processed.
-    usage: Usage<Node, Out>,
+    /// The concatenation of the `keep_alive` sets of all [`Node`]s remaining
+    /// to be processed. Each call to `add_node()` pops a few `Out`s from this.
+    usage: Usage<Out>,
     /// The [`Instruction`]s processed so far.
     placer: Placer<Instruction>,
-    /// An `OutInfo` for each `Out`.
-    outs: ArrayMap<Out, OutInfo>,
+    /// The `Register` allocated for each `Out`, if any.
+    allocation: HashMap<Out, Register>,
+    /// The `Time` at which each `Out` was last accessed.
+    read_times: HashMap<Out, Time>,
+    /// The `Time` at which each `Out` became available.
+    write_times: HashMap<Out, Time>,
     /// The `Time` at which each [`Node`] was executed.
-    node_times: ArrayMap<Node, Option<Time>>,
-    /// A `RegInfo` for each `Reg`.
-    regs: ArrayMap<Register, RegInfo>,
+    node_times: HashMap<Node, Time>,
+    /// The contents of each `Register` at the current time.
+    regs: ArrayMap<Register, Option<Out>>,
     /// The `Register` allocator state.
     pool: RegisterPool,
 }
@@ -100,57 +70,57 @@ impl<'a> Allocator<'a> {
         effects: &HashSet<Node>,
         variables: &HashMap<Out, Variable>,
         dataflow: &'a Dataflow,
-        usage: Usage<Node, Out>,
+        usage: Usage<Out>,
     ) -> Self {
         // Initialize the data structures with the live registers of `variables`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
-        let mut outs: ArrayMap<Out, OutInfo> = dataflow.out_map();
-        let mut node_times: ArrayMap<Node, Option<Time>> = dataflow.node_map();
+        let mut allocation: HashMap<Out, Register> = HashMap::new();
+        let mut write_times: HashMap<Out, Time> = HashMap::new();
+        let mut node_times: HashMap<Node, Time> = HashMap::new();
         for &node in effects {
-            node_times[node] = Some(EARLY);
+            node_times.insert(node, EARLY);
         }
-        let mut regs: ArrayMap<Register, RegInfo> = ArrayMap::new(NUM_REGISTERS);
+        let mut regs: ArrayMap<Register, Option<Out>> = ArrayMap::new(NUM_REGISTERS);
         for (&out, &value) in variables.iter() {
-            if usage.first(out).is_some() {
+            if usage.topmost(&out).is_some() {
+                // `out` is alive on entry.
                 if let Variable::Register(reg) = value {
                     dirty[reg] = true;
-                    regs[reg].out = Some(out);
-                    outs[out].reg = Some(reg);
+                    regs[reg] = Some(out);
+                    allocation.insert(out, reg);
                 }
-                outs[out].time = Some(EARLY);
+                write_times.insert(out, EARLY);
             }
         }
         // Construct and return.
-        Allocator {
-            dataflow: dataflow,
-            usage: usage,
-            placer: Placer::new(),
-            outs: outs,
-            node_times: node_times,
-            regs: regs,
-            pool: RegisterPool::new(dirty),
-        }
+        let placer = Placer::new();
+        let read_times: HashMap<Out, Time> = HashMap::new();
+        let pool = RegisterPool::new(dirty);
+        Allocator {dataflow, usage, placer, allocation, read_times, write_times, node_times, regs, pool}
     }
 
     /// Returns the [`Register`] containing `out`, if any.
     fn current_reg(&self, out: Out) -> Option<Register> {
-        self.outs[out].reg.filter(|&reg| self.regs[reg].out == Some(out))
+        self.allocation.get(&out).copied().filter(
+            |&reg| self.regs[reg] == Some(out)
+        )
     }
 
-    /// Record that we used `reg` at `time` (either reading or writing).
-    fn use_reg(&mut self, reg: Register, time: Time) {
-        self.regs[reg].time.max_with(time);
+    /// Record that we accessed `out` at `time` (either reading or writing).
+    fn access(&mut self, out: Out, time: Time) {
+        self.read_times.entry(out).or_insert(EARLY).max_with(time);
     }
 
     /// Select a `Register` to spill and free it.
     fn free_a_register(&mut self) -> Register {
         let i = map_filter_max(all_registers(), |reg| {
-            self.regs[reg].out
+            self.regs[reg]
                 .filter(|_| !self.pool.is_clean(reg))
-                .map(|out| self.usage.first(out))
-                .map(std::cmp::Reverse)
-        });
-        let reg = Register::new(i.expect("No register is dirty") as u8).unwrap();
+                .map(|out| std::cmp::Reverse(
+                    self.usage.topmost(&out).expect("Dirty register is unused")
+                ))
+        }).expect("No register is dirty");
+        let reg = Register::new(i as u8).unwrap();
         self.pool.free(reg);
         reg
     }
@@ -161,45 +131,63 @@ impl<'a> Allocator<'a> {
             let reg_x = self.free_a_register();
             let reg_y = self.free_a_register();
             // Spill the `Register`.
-            let out_x = self.regs[reg_x].out.unwrap();
-            let out_y = self.regs[reg_y].out.unwrap();
-            let mut time = self.outs[out_x].time.expect("Not computed yet");
-            time.max_with(self.outs[out_y].time.expect("Not computed yet"));
+            let out_x = self.regs[reg_x].unwrap();
+            let out_y = self.regs[reg_y].unwrap();
+            let mut time = self.write_times[&out_x];
+            time.max_with(self.write_times[&out_y]);
             self.placer.add_item(Spill(out_x, out_y), SPILL_COST, &mut time);
-            self.use_reg(reg_x, time);
-            self.use_reg(reg_y, time);
+            self.access(out_x, time);
+            self.access(out_y, time);
         }
     }
 
-    /// Called for each [`Node`] in the [`Usage`] in forwards order.
-    pub fn add_node(&mut self, node: Node) {
+    /// Called for each [`Node`] in forwards order.
+    /// - `num_keep_alives` - the number of `Out`s which must survive until
+    ///   after `Node` has been executed. This many items will be popped from
+    ///   `self.usage`. These `Out`s are often just the inputs of `node`, but
+    ///   can also include e.g. values needed by `node`'s cold paths.
+    pub fn add_node(&mut self, node: Node, num_keep_alives: usize) {
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
-        for &in_ in df.ins(node) {
-            if self.usage.first(in_).is_none() {
+        let keep_alives: Vec<Out> = (0..num_keep_alives).map(|_| {
+            let in_ = self.usage.pop().expect("Incorrect usage information");
+            if self.usage.topmost(&in_).is_none() {
+                // This can happen at most once for each distinct `in_`.
                 if let Some(reg) = self.current_reg(in_) {
-                    if !self.pool.is_clean(reg) {
-                        self.pool.free(reg);
-                    }
+                    self.pool.free(reg);
                 }
             }
-        }
+            in_
+        }).collect();
         // Spill until we have enough registers to hold the outputs of `node`.
         self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
         for &dep in df.deps(node) {
-            time.max_with(self.node_times[dep].expect("Not executed yet"));
+            time.max_with(self.node_times[&dep]);
         }
         // Bump `time` until the operands are available.
-        for (&in_, &latency) in df.ins(node).iter().zip(df.cost(node).input_latencies) {
-            time.max_with(self.outs[in_].time.expect("Not computed yet") + latency as usize);
+        let ins = df.ins(node);
+        let latencies = df.cost(node).input_latencies;
+        assert_eq!(ins.len(), latencies.len());
+        for (&in_, &latency) in ins.iter().zip(latencies) {
+            time.max_with(self.write_times[&in_] + latency as usize);
         }
         // Bump `time` until some destination registers are available.
         for out in df.outs(node) {
             let reg = self.pool.allocate();
-            self.outs[out].reg = Some(reg);
-            time.max_with(self.regs[reg].time);
+            self.allocation.insert(out, reg);
+            if let Some(prev) = self.regs[reg].replace(out) {
+                // `reg` was previously used to hold `prev`.
+                if let Some(&read_time) = self.read_times.get(&prev) {
+                    // `prev` was last accessed at `read_time`.
+                    time.max_with(read_time);
+                }
+            }
+            if self.usage.topmost(&out).is_none() {
+                // `out` will never be used again. Free `reg` immediately.
+                self.pool.free(reg);
+            }
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
@@ -210,25 +198,31 @@ impl<'a> Allocator<'a> {
         // FIXME: A long series of zero-cost nodes will crash the placer.
         self.placer.add_item(Node(node), resources, &mut time);
         // Record the node's placement.
-        self.node_times[node] = Some(time);
+        self.node_times.insert(node, time);
         // Record when the inputs were used.
-        for &in_ in df.ins(node) {
-            if let Some(reg) = self.current_reg(in_) {
-                self.use_reg(reg, time);
-            }
+        for in_ in keep_alives {
+            self.access(in_, time);
         }
         // Record when the outputs become available.
         for (out, &latency) in df.outs(node).zip(df.cost(node).output_latencies) {
-            self.regs[self.outs[out].reg.unwrap()] = RegInfo {time: time, out: Some(out)};
-            self.outs[out].time = Some(time + latency as usize);
+            self.access(out, time);
+            self.write_times.insert(out, time + latency as usize);
         }
     }
 
-    /// Returns the finished [`Instruction`] order and [`Register`] allocation.
-    pub fn finish(self) -> (Vec<Instruction>, ArrayMap<Out, Option<Register>>) {
-        let instructions: Vec<_> = self.placer.iter().cloned().collect();
-        let allocation = self.outs.iter().map(|info| info.reg).collect();
-        (instructions, allocation)
+    /// Exit node should be last. Read its inputs.
+    fn exit_node(&mut self, num_keep_alives: usize) {
+        for _ in 0..num_keep_alives {
+            let in_ = self.usage.pop().expect("Incorrect usage information");
+            if self.usage.topmost(&in_).is_none() {
+                // This can happen at most once for each distinct `in_`.
+                if let Some(reg) = self.current_reg(in_) {
+                    self.pool.free(reg);
+                }
+            }
+        }
+        assert_eq!(self.usage.len(), 0);
+        assert!(all_registers().all(|reg| self.pool.is_clean(reg)));
     }
 }
 
@@ -253,22 +247,24 @@ pub fn allocate<'a>(
     get_keep_alives: impl Fn(Node) -> Option<&'a HashSet<Out>>,
 ) -> (
     Vec<Instruction>,
-    ArrayMap<Out, Option<Register>>
+    HashMap<Out, Register>
 ) {
+    // Reverse `nodes` and compute the `Out`s each one uses.
     let mut usage = Usage::default();
-    for &node in nodes.iter().rev() {
-        let mut keep_alives: Vec<_> = dataflow.ins(node).iter().copied().collect();
-        if let Some(x) = get_keep_alives(node) {
-            keep_alives.extend(x);
-        }
-        usage.push(node, keep_alives);
-    }
+    let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
+        let mut keep_alives: Vec<Out> = dataflow.ins(node).iter().copied().collect();
+        if let Some(ins) = get_keep_alives(node) { keep_alives.extend(ins); }
+        for &in_ in &keep_alives { usage.push(in_); }
+        (node, keep_alives.len())
+    }).collect();
+    // Schedule and allocate registers for every `Node`s except the exit node.
     let mut a = Allocator::new(effects, variables, dataflow, usage);
-    // Call `add_node()` for all `Node`s except the exit node.
-    while let Some(node) = a.usage.pop() {
+    while let Some((node, num_keep_alives)) = nodes_rev.pop() {
         if !matches!(dataflow.op(node), Op::Convention) {
-            a.add_node(node);
+            a.add_node(node, num_keep_alives);
+        } else {
+            a.exit_node(num_keep_alives);
         }
     }
-    a.finish()
+    (a.placer.iter().cloned().collect(), a.allocation)
 }
