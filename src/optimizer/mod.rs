@@ -131,7 +131,6 @@ mod tests {
     #[test]
     fn optimize_random_ebbs() {
         for seed in 0..1000 {
-            println!("seed = {}", seed);
             let input_ebb = random_ebb(seed, 2);
             optimize_and_compare(input_ebb, random_ebb_convention());
         }
