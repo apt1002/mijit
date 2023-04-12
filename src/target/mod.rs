@@ -615,14 +615,23 @@ mod tests {
             },
             |_, p| p.as_mut_ptr() as u64,
         )};
-        // Check returned address gets stored.
+        // Check value stored at the returned address.
+        unsafe {test_mem(
+            |lo| {
+                lo.action(Constant(P64, R1, DATA as i64));
+                lo.action(Store(R0, R1.into(), (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+            },
+            |_, _p| DATA,
+        )};
+        // Check value stored at the returned address when `dest == src`.
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
                 lo.action(Store(R0, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
                 lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
             },
-            |_, p| p.as_mut_ptr() as u64,
+            |_, _p| DATA,
         )};
         // Check all `Width`s.
         unsafe {test_mem(

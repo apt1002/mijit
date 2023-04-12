@@ -449,10 +449,14 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Store(dest, src, (addr, width), _) => {
                 let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP0);
-                let base = self.src_to_register(addr, dest);
+                let base = if dest == src {
+                    self.src_to_register(addr, TEMP0)
+                } else {
+                    self.src_to_register(addr, dest)
+                };
                 let offset = Offset::new(width, 0).unwrap();
-                self.move_(dest, base);
                 self.a.mem(STR, src, (base, offset));
+                self.move_(dest, base);
             },
             Action::Push(src1, src2) => {
                 let src1 = src1.map_or(RZR, |src1| self.src_to_register(src1, TEMP0));

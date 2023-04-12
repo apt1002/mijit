@@ -608,10 +608,14 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Store(dest, src, (addr, width), _) => {
                 let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP);
-                let addr = self.src_to_register(addr, dest);
-                self.move_(dest, addr);
+                let addr = if dest == src {
+                    self.src_to_register(addr, TEMP)
+                } else {
+                    self.src_to_register(addr, dest)
+                };
                 let width = width.into();
                 self.a.store_narrow(width, (addr, 0), src);
+                self.move_(dest, addr);
             },
             Action::Push(src1, src2) => {
                 match (src1, src2) {
