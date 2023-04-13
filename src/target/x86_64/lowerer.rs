@@ -641,7 +641,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 }
                 *self.slots_used_mut() += 2;
             },
-            Action::DropMany(n) => {
+            Action::Drop(n) => {
                 assert!(*self.slots_used_mut() >= n);
                 self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 16);
                 *self.slots_used_mut() -= 2 * n;

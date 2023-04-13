@@ -141,7 +141,7 @@ impl Propagator {
                 }
                 self.slots_used -= 2;
             },
-            DropMany(n) => {
+            Drop(n) => {
                 self.slots_used += 2 * n;
             },
             Debug(src) => {

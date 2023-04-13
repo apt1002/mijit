@@ -25,9 +25,11 @@ pub enum Action {
     Store(Register, Variable, (Variable, Width)),
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
     /// If either `src` is `None`, push a dead value.
+    /// Note that this creates two [`Slot`]s.
     Push(Option<Variable>, Option<Variable>),
     /// sp <- sp + 16*n
-    DropMany(usize),
+    /// Note that this drops `2*n` [`Slot`]s.
+    Drop(usize),
     /// Pass `src` to [`debug_word()`].
     Debug(Variable),
 }
@@ -49,8 +51,8 @@ impl std::fmt::Debug for Action {
                 write!(f, "Store_{:?} {:?}, {:?}, [{:?}]", width, dest, src, addr),
             Action::Push(src1, src2) =>
                 write!(f, "Push ({:?}, {:?})", src1, src2),
-            Action::DropMany(n) =>
-                write!(f, "DropMany 2*{:?}", n),
+            Action::Drop(n) =>
+                write!(f, "Drop 2*{:?}", n),
             Action::Debug(src) =>
                 write!(f, "Debug {:?}", src),
         }

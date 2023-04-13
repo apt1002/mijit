@@ -155,7 +155,7 @@ mod tests {
         }
     }
 
-    // Move, Constant, Push, DropMany.
+    // Move, Constant, Push, Drop.
 
     #[test]
     fn push() {
@@ -165,7 +165,7 @@ mod tests {
                 lo.action(Push(None, Some(Global(0).into())));
                 assert_eq!(*lo.slots_used_mut(), 2);
                 lo.action(Move(R0.into(), Slot(0).into()));
-                lo.action(DropMany(1));
+                lo.action(Drop(1));
                 assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
@@ -176,7 +176,7 @@ mod tests {
                 lo.action(Push(Some(Global(0).into()), None));
                 assert_eq!(*lo.slots_used_mut(), 2);
                 lo.action(Move(R0.into(), Slot(1).into()));
-                lo.action(DropMany(1));
+                lo.action(Drop(1));
                 assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
@@ -184,7 +184,7 @@ mod tests {
     }
 
     #[test]
-    fn drop_many() {
+    fn drop() {
         unsafe {test_unary(
             |lo| {
                 assert_eq!(*lo.slots_used_mut(), 0);
@@ -196,11 +196,11 @@ mod tests {
                 assert_eq!(*lo.slots_used_mut(), 6);
                 lo.action(Push(None, None));
                 assert_eq!(*lo.slots_used_mut(), 8);
-                lo.action(DropMany(2));
+                lo.action(Drop(2));
                 assert_eq!(*lo.slots_used_mut(), 4);
                 lo.action(Move(R0.into(), Slot(2).into()));
                 assert_eq!(*lo.slots_used_mut(), 4);
-                lo.action(DropMany(2));
+                lo.action(Drop(2));
                 assert_eq!(*lo.slots_used_mut(), 0);
             },
             |x| x,
@@ -217,7 +217,7 @@ mod tests {
                     lo.action(Move(Slot(0).into(), R0.into()));
                     lo.action(Move(variable, Global(0).into()));
                     lo.action(Move(R0.into(), variable));
-                    lo.action(DropMany(1));
+                    lo.action(Drop(1));
                 },
                 |x| x,
             )};

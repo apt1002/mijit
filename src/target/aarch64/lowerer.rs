@@ -464,7 +464,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 *self.slots_used_mut() += 2;
                 self.a.push(src1, src2);
             },
-            Action::DropMany(n) => {
+            Action::Drop(n) => {
                 assert!(*self.slots_used_mut() >= 2 * n);
                 self.const_add(ADD, P64, RSP, RSP, n as u64 * 16, TEMP0);
                 *self.slots_used_mut() -= 2 * n;

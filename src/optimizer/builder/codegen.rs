@@ -181,7 +181,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         let num_drops = self.slots_used.checked_sub(after.slots_used).unwrap();
         if num_drops > 0 {
             assert_eq!(num_drops & 1, 0);
-            self.actions.push(Action::DropMany(num_drops >> 1));
+            self.actions.push(Action::Drop(num_drops >> 1));
         }
 
         // Unwind the stack of `colds` and construct the final `EBB`.

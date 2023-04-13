@@ -119,7 +119,7 @@ impl Simulation {
                     }
                 }
             },
-            Action::DropMany(n) => {
+            Action::Drop(n) => {
                 for _ in 0..(2 * n) {
                     self.drop(self.top());
                     self.slots_used -= 1;
