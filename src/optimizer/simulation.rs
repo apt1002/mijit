@@ -13,15 +13,11 @@ pub struct Simulation {
     slots_used: usize,
     /// Maps each [`Variable`] to the corresponding [`Out`].
     bindings: HashMap<Variable, Out>,
-    /// An instruction whose execution represents successfully passing all
-    /// preceding [`Op::Guard`] instructions.
+    /// The most recent [`Op::Guard`], [Op::Store] or [`Op::Debug`]
+    /// instruction.
     sequence: Node,
-    /// The most recent [`Op::Store`] instruction, or the entry node.
-    store: Node,
     /// All [`Op::Load`] instructions since `store`.
     loads: Vec<Node>,
-    /// The most recent debug operation, or the entry node.
-    debug: Node,
 }
 
 impl Simulation {
@@ -38,9 +34,7 @@ impl Simulation {
             slots_used: before.slots_used,
             bindings: bindings,
             sequence: entry_node,
-            store: entry_node,
             loads: vec![],
-            debug: entry_node,
         }
     }
 
@@ -99,17 +93,16 @@ impl Simulation {
                 let _ = self.op(dataflow, Op::Binary(prec, bin_op), &[], &[src1, src2], &[dest]);
             },
             Action::Load(dest, (addr, width)) => {
-                let node = self.op(dataflow, Op::Load(width), &[self.sequence, self.store], &[addr], &[dest]);
+                let node = self.op(dataflow, Op::Load(width), &[self.sequence], &[addr], &[dest]);
                 self.loads.push(node);
             },
             Action::Store(dest, src, (addr, width)) => {
                 let mut deps = Vec::new();
                 std::mem::swap(&mut deps, &mut self.loads);
                 deps.push(self.sequence);
-                deps.push(self.store);
                 let node = self.op(dataflow, Op::Store(width), &deps, &[src, addr], &[dest]);
                 self.move_(dest.into(), src);
-                self.store = node;
+                self.sequence = node;
             },
             Action::Push(src1, src2) => {
                 for src in [src2, src1] {
@@ -126,8 +119,8 @@ impl Simulation {
                 }
             },
             Action::Debug(src) => {
-                let node = self.op(dataflow, Op::Debug, &[self.sequence, self.debug], &[src], &[]);
-                self.debug = node;
+                let node = self.op(dataflow, Op::Debug, &[self.sequence], &[src], &[]);
+                self.sequence = node;
             },
         };
     }
@@ -146,7 +139,7 @@ impl Simulation {
     /// Returns the exit `Node`.
     pub fn exit(mut self, dataflow: &mut Dataflow, after: &Convention) -> Node {
         assert_eq!(self.slots_used, after.slots_used);
-        let deps = [self.sequence, self.store, self.debug];
+        let deps = [self.sequence];
         self.op(dataflow, Op::Convention, &deps, &after.live_values, &[])
     }
 
