@@ -464,17 +464,6 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 *self.slots_used_mut() += 2;
                 self.a.push(src1, src2);
             },
-            Action::Pop(dest1, dest2) => {
-                assert!(*self.slots_used_mut() >= 2);
-                if dest1.is_none() && dest2.is_none() {
-                    self.const_add(ADD, P64, RSP, RSP, 16, TEMP0);
-                } else {
-                    let dest1 = dest1.map_or(RZR, Register::from);
-                    let dest2 = dest2.map_or(RZR, Register::from);
-                    self.a.pop(dest1, dest2);
-                }
-                *self.slots_used_mut() -= 2;
-            },
             Action::DropMany(n) => {
                 assert!(*self.slots_used_mut() >= 2 * n);
                 self.const_add(ADD, P64, RSP, RSP, n as u64 * 16, TEMP0);

@@ -141,15 +141,6 @@ impl Propagator {
                 }
                 self.slots_used -= 2;
             },
-            Pop(dest1, dest2) => {
-                if let Some(dest) = dest1 {
-                    self.remove(dest);
-                }
-                if let Some(dest) = dest2 {
-                    self.remove(dest);
-                }
-                self.slots_used += 2;
-            },
             DropMany(n) => {
                 self.slots_used += 2 * n;
             },

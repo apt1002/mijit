@@ -18,15 +18,15 @@ pub trait Lower {
     fn pool_mut(&mut self) -> &mut Pool;
 
     /// The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
-    /// by [`Push`] instructions and destroyed by [`Pop`] instructions. The
-    /// number of spill slots at a `jump()` or `Switch` must match the number at
-    /// its `Label`.
+    /// by [`Push`] instructions and destroyed by [`DropMany`] instructions.
+    /// The number of spill slots at a `jump()` or `Switch` must match the
+    /// number at its `Label`.
     ///
     /// Do not mutate the number of spill slots (other that using `Push` and
-    /// `Pop`) when the current assembly address is reachable.
+    /// `DropMany`) when the current assembly address is reachable.
     ///
     /// [`Push`]: Action::Push
-    /// [`Pop`]: Action::Pop
+    /// [`DropMany`]: Action::DropMany
     fn slots_used_mut(&mut self) -> &mut usize;
 
     /// Returns the current assembly address as a fresh [`Label`].

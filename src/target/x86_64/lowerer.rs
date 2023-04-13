@@ -641,27 +641,6 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 }
                 *self.slots_used_mut() += 2;
             },
-            Action::Pop(dest1, dest2) => {
-                assert!(*self.slots_used_mut() >= 2);
-                match (dest1, dest2) {
-                    (Some(dest1), Some(dest2)) => {
-                        self.a.pop(dest1.into());
-                        self.a.pop(dest2.into());
-                    },
-                    (Some(dest1), None) => {
-                        self.a.load(P64, dest1.into(), (RSP, 0));
-                        self.a.const_op(BinaryOp::Add, P64, RSP, 16);
-                    },
-                    (None, Some(dest2)) => {
-                        self.a.load(P64, dest2.into(), (RSP, 8));
-                        self.a.const_op(BinaryOp::Add, P64, RSP, 16);
-                    },
-                    (None, None) => {
-                        self.a.const_op(BinaryOp::Add, P64, RSP, 16);
-                    },
-                }
-                *self.slots_used_mut() -= 2;
-            },
             Action::DropMany(n) => {
                 assert!(*self.slots_used_mut() >= n);
                 self.a.const_op(BinaryOp::Add, P64, RSP, (n as i32) * 16);

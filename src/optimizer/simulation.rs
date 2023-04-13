@@ -121,15 +121,6 @@ impl Simulation {
                     }
                 }
             },
-            Action::Pop(dest1, dest2) => {
-                for dest in [dest1, dest2] {
-                    if let Some(dest) = dest {
-                        self.move_(dest.into(), self.top());
-                    }
-                    self.drop(self.top());
-                    self.slots_used -= 1;
-                }
-            },
             Action::DropMany(n) => {
                 for _ in 0..(2 * n) {
                     self.drop(self.top());

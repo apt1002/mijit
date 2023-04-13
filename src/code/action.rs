@@ -26,9 +26,6 @@ pub enum Action {
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
     /// If either `src` is `None`, push a dead value.
     Push(Option<Variable>, Option<Variable>),
-    /// dest1 <- \[sp]; dest2 <- \[sp + 8]; sp <- sp + 16
-    /// If either `dest` is `None`, pop a dead value.
-    Pop(Option<Register>, Option<Register>),
     /// sp <- sp + 16*n
     DropMany(usize),
     /// Pass `src` to [`debug_word()`].
@@ -52,8 +49,6 @@ impl std::fmt::Debug for Action {
                 write!(f, "Store_{:?} {:?}, {:?}, [{:?}]", width, dest, src, addr),
             Action::Push(src1, src2) =>
                 write!(f, "Push ({:?}, {:?})", src1, src2),
-            Action::Pop(dest1, dest2) =>
-                write!(f, "Pop ({:?}, {:?})", dest1, dest2),
             Action::DropMany(n) =>
                 write!(f, "DropMany 2*{:?}", n),
             Action::Debug(src) =>
