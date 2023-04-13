@@ -4,7 +4,7 @@
 //! be useful.
 
 use super::{
-    UnaryOp, BinaryOp, Precision, Width, AliasMask,
+    UnaryOp, BinaryOp, Precision, Width,
     Register, REGISTERS, Variable,
     Action, Switch, EBB, Ending,
 };
@@ -177,11 +177,10 @@ impl<T> Builder<T> {
         dest: impl Into<Register>,
         addr: (impl Into<Variable>, i64),
         width: Width,
-        am: AliasMask,
     ) {
         let dest = dest.into();
         self.const_binary64(Add, dest, addr.0, addr.1);
-        self.actions.push(Action::Load(dest, (dest.into(), width), am));
+        self.actions.push(Action::Load(dest, (dest.into(), width)));
     }
 
     /// Assembles `Action`s to compute `addr.0 + addr.1` into `dest` and to
@@ -192,10 +191,9 @@ impl<T> Builder<T> {
         src: impl Into<Variable>,
         addr: (impl Into<Variable>, i64),
         width: Width,
-        am: AliasMask,
     ) {
         self.const_binary64(Add, TEMP, addr.0, addr.1);
-        self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width), am));
+        self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
     }
 
     /// Assembles `Action`s to load `dest` from `addr.0 + width * addr.1`.
@@ -205,11 +203,10 @@ impl<T> Builder<T> {
         dest: impl Into<Register>,
         addr: (impl Into<Variable>, impl Into<Variable>),
         width: Width,
-        am: AliasMask,
     ) {
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
         self.binary64(Add, TEMP, addr.0, TEMP);
-        self.actions.push(Action::Load(dest.into(), (TEMP.into(), width), am));
+        self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
     }
 
     /// Assembles `Action`s to compute `addr.0 + width * addr.1` into `dest` and
@@ -220,11 +217,10 @@ impl<T> Builder<T> {
         src: impl Into<Variable>,
         addr: (impl Into<Variable>, impl Into<Variable>),
         width: Width,
-        am: AliasMask,
     ) {
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
         self.binary64(Add, TEMP, addr.0, TEMP);
-        self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width), am));
+        self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
     }
 
     fn increment (
@@ -256,12 +252,11 @@ impl<T> Builder<T> {
         dest: impl Into<Register>,
         addr: impl Into<Register>,
         width: Width,
-        am: AliasMask,
     ) {
         let dest = dest.into();
         let addr = addr.into();
         self.increment(increment, addr, 1 << (width as usize), |b| {
-            b.load(dest, (addr, 0), width, am);
+            b.load(dest, (addr, 0), width);
         });
     }
 
@@ -274,12 +269,11 @@ impl<T> Builder<T> {
         src: impl Into<Variable>,
         addr: impl Into<Register>,
         width: Width,
-        am: AliasMask,
     ) {
         let src = src.into();
         let addr = addr.into();
         self.increment(increment, addr, 1 << (width as usize), |b| {
-            b.store(src, (addr, 0), width, am);
+            b.store(src, (addr, 0), width);
         });
     }
 

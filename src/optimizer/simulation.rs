@@ -98,18 +98,16 @@ impl Simulation {
             Action::Binary(bin_op, prec, dest, src1, src2) => {
                 let _ = self.op(dataflow, Op::Binary(prec, bin_op), &[], &[src1, src2], &[dest]);
             },
-            Action::Load(dest, (addr, width), alias_mask) => {
-                // TODO: Use AliasMask.
-                let node = self.op(dataflow, Op::Load(width, alias_mask), &[self.sequence, self.store], &[addr], &[dest]);
+            Action::Load(dest, (addr, width)) => {
+                let node = self.op(dataflow, Op::Load(width), &[self.sequence, self.store], &[addr], &[dest]);
                 self.loads.push(node);
             },
-            Action::Store(dest, src, (addr, width), alias_mask) => {
-                // TODO: Use AliasMask.
+            Action::Store(dest, src, (addr, width)) => {
                 let mut deps = Vec::new();
                 std::mem::swap(&mut deps, &mut self.loads);
                 deps.push(self.sequence);
                 deps.push(self.store);
-                let node = self.op(dataflow, Op::Store(width, alias_mask), &deps, &[src, addr], &[dest]);
+                let node = self.op(dataflow, Op::Store(width), &deps, &[src, addr], &[dest]);
                 self.move_(dest.into(), src);
                 self.store = node;
             },

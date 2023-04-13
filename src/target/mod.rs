@@ -32,7 +32,7 @@ pub fn native() -> Native {
 mod tests {
     use super::*;
 
-    use code::{Register, REGISTERS, Slot, Global, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
+    use code::{Register, REGISTERS, Slot, Global, Precision, UnaryOp, BinaryOp, Width, Action};
     use Precision::*;
     use UnaryOp::*;
     use BinaryOp::*;
@@ -589,19 +589,19 @@ mod tests {
     #[test]
     fn load() {
         unsafe {test_mem(
-            |lo| { lo.action(Load(R0, (Global(0).into(), One), AliasMask(1))); },
+            |lo| { lo.action(Load(R0, (Global(0).into(), One))); },
             |x, _| x as u8 as u64,
         )};
         unsafe {test_mem(
-            |lo| { lo.action(Load(R0, (Global(0).into(), Two), AliasMask(1))); },
+            |lo| { lo.action(Load(R0, (Global(0).into(), Two))); },
             |x, _| x as u16 as u64,
         )};
         unsafe {test_mem(
-            |lo| { lo.action(Load(R0, (Global(0).into(), Four), AliasMask(1))); },
+            |lo| { lo.action(Load(R0, (Global(0).into(), Four))); },
             |x, _| x as u32 as u64,
         )};
         unsafe {test_mem(
-            |lo| { lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1))); },
+            |lo| { lo.action(Load(R0, (Global(0).into(), Eight))); },
             |x, _| x,
         )};
     }
@@ -613,7 +613,7 @@ mod tests {
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R1, DATA as i64));
-                lo.action(Store(R0, R1.into(), (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R0, R1.into(), (Global(0).into(), Eight)));
             },
             |_, p| p.as_mut_ptr() as u64,
         )};
@@ -621,8 +621,8 @@ mod tests {
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R1, DATA as i64));
-                lo.action(Store(R0, R1.into(), (Global(0).into(), Eight), AliasMask(1)));
-                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R0, R1.into(), (Global(0).into(), Eight)));
+                lo.action(Load(R0, (Global(0).into(), Eight)));
             },
             |_, _p| DATA,
         )};
@@ -630,8 +630,8 @@ mod tests {
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
-                lo.action(Store(R0, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
-                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R0, R0.into(), (Global(0).into(), Eight)));
+                lo.action(Load(R0, (Global(0).into(), Eight)));
             },
             |_, _p| DATA,
         )};
@@ -639,8 +639,8 @@ mod tests {
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
-                lo.action(Store(R1, R0.into(), (Global(0).into(), One), AliasMask(1)));
-                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), One)));
+                lo.action(Load(R0, (Global(0).into(), Eight)));
             },
             |x, _| {
                 (x ^ DATA) as u8 as u64 ^ x
@@ -649,24 +649,24 @@ mod tests {
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
-                lo.action(Store(R1, R0.into(), (Global(0).into(), Two), AliasMask(1)));
-                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), Two)));
+                lo.action(Load(R0, (Global(0).into(), Eight)));
             },
             |x, _| (x ^ DATA) as u16 as u64 ^ x,
         )};
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
-                lo.action(Store(R1, R0.into(), (Global(0).into(), Four), AliasMask(1)));
-                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), Four)));
+                lo.action(Load(R0, (Global(0).into(), Eight)));
             },
             |x, _| (x ^ DATA) as u32 as u64 ^ x,
         )};
         unsafe {test_mem(
             |lo| {
                 lo.action(Constant(P64, R0, DATA as i64));
-                lo.action(Store(R1, R0.into(), (Global(0).into(), Eight), AliasMask(1)));
-                lo.action(Load(R0, (Global(0).into(), Eight), AliasMask(1)));
+                lo.action(Store(R1, R0.into(), (Global(0).into(), Eight)));
+                lo.action(Load(R0, (Global(0).into(), Eight)));
             },
             |_, _| DATA,
         )};

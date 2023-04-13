@@ -24,7 +24,7 @@ mod variable;
 pub use variable::{Register, REGISTERS, Global, Slot, Variable, IntoVariable};
 
 mod enums;
-pub use enums::{Precision, UnaryOp, BinaryOp, Width, AliasMask};
+pub use enums::{Precision, UnaryOp, BinaryOp, Width};
 
 mod action;
 pub use action::{Action, debug_word};

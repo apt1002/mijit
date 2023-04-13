@@ -440,13 +440,13 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Binary(op, prec, dest, src1, src2) => {
                 self.binary_op(op, prec, dest, src1, src2);
             },
-            Action::Load(dest, (addr, width), _) => {
+            Action::Load(dest, (addr, width)) => {
                 let dest = dest.into();
                 let base = self.src_to_register(addr, dest);
                 let offset = Offset::new(width, 0).unwrap();
                 self.a.mem(LDR, dest, (base, offset));
             },
-            Action::Store(dest, src, (addr, width), _) => {
+            Action::Store(dest, src, (addr, width)) => {
                 let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP0);
                 let base = if dest == src {

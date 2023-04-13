@@ -599,13 +599,13 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Binary(op, prec, dest, src1, src2) => {
                 self.binary_op(op, prec, dest, src1, src2);
             },
-            Action::Load(dest, (addr, width), _) => {
+            Action::Load(dest, (addr, width)) => {
                 let dest = dest.into();
                 let addr = self.src_to_register(addr, dest);
                 let width = width.into();
                 self.a.load_narrow(P64, width, dest, (addr, 0));
             },
-            Action::Store(dest, src, (addr, width), _) => {
+            Action::Store(dest, src, (addr, width)) => {
                 let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP);
                 let addr = if dest == src {

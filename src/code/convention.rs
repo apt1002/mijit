@@ -123,11 +123,11 @@ impl Propagator {
                 self.insert(src1);
                 self.insert(src2);
             },
-            Load(dest, (addr, _), _) => {
+            Load(dest, (addr, _)) => {
                 self.remove(dest);
                 self.insert(addr);
             },
-            Store(dest, src, (addr, _), _) => {
+            Store(dest, src, (addr, _)) => {
                 self.remove(dest);
                 self.insert(src);
                 self.insert(addr);

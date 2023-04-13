@@ -145,7 +145,7 @@ pub fn with_fill<T>(
 mod tests {
     use super::*;
     use super::super::{code, Op};
-    use code::{Precision, BinaryOp, Width, AliasMask};
+    use code::{Precision, BinaryOp, Width};
     use Precision::*;
     use crate::util::{AsUsize};
 
@@ -161,7 +161,7 @@ mod tests {
         let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[], &[a, b], 1);
         let c = df.outs(add).next().unwrap();
         let exit1 = df.add_node(Op::Convention, &[guard, entry], &[c], 0);
-        let store = df.add_node(Op::Store(Width::Eight, AliasMask(1)), &[entry, guard], &[b, a], 1);
+        let store = df.add_node(Op::Store(Width::Eight), &[entry, guard], &[b, a], 1);
         let d = df.outs(store).next().unwrap();
         let exit2 = df.add_node(Op::Convention, &[guard, store], &[d], 0);
         let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[], &[b, b], 1);

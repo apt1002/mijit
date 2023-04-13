@@ -5,7 +5,7 @@
 
 use memoffset::{offset_of};
 
-use super::code::{self, UnaryOp, BinaryOp, Width, Register, REGISTERS, Global, EBB, Marshal};
+use super::code::{UnaryOp, BinaryOp, Width, Register, REGISTERS, Global, EBB, Marshal};
 use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
@@ -46,13 +46,6 @@ const NOT_IMPLEMENTED: i64 = 0;
 /// Dummy return code which should never actually occur.
 const UNDEFINED: i64 = i64::MAX;
 
-/// Beetle's address space is unified, so we always use the same `AliasMask`.
-const AM_MEMORY: code::AliasMask = code::AliasMask(0x1);
-
-/// Beetle's registers are not in Beetle's memory, so we use a different
-/// `AliasMask`.
-const AM_REGISTER: code::AliasMask = code::AliasMask(0x2);
-
 //-----------------------------------------------------------------------------
 
 /// Computes into `BI` the native address corresponding to `addr`.
@@ -63,13 +56,13 @@ fn native_address(b: &mut Builder<EntryId>, addr: Register) {
 /// Loads `dest` from `addr`. `BI` is corrupted.
 fn load(b: &mut Builder<EntryId>, dest: Register, addr: Register) {
     native_address(b, addr);
-    b.load(dest, (BI, 0), Four, AM_MEMORY);
+    b.load(dest, (BI, 0), Four);
 }
 
 /// Stores `dest` at `addr`. `BI` is corrupted.
 fn store(b: &mut Builder<EntryId>, src: Register, addr: Register) {
     native_address(b, addr);
-    b.store(src, (BI, 0), Four, AM_MEMORY);
+    b.store(src, (BI, 0), Four);
 }
 
 /// Pops `dest` from the stack at `sp`. `BI` is corrupted.
@@ -97,19 +90,19 @@ impl<T: Target> Beetle<T> {
         let mut jit = Jit::new(target, 2);
         let marshal = Marshal {
             prologue: build_block(|b| {
-                b.load(BEP, register!(ep), Four, AM_REGISTER);
-                b.load(BI, register!(i), Four, AM_REGISTER);
-                b.load(BA, register!(a), Four, AM_REGISTER);
-                b.load(BSP, register!(sp), Four, AM_REGISTER);
-                b.load(BRP, register!(rp), Four, AM_REGISTER);
+                b.load(BEP, register!(ep), Four);
+                b.load(BI, register!(i), Four);
+                b.load(BA, register!(a), Four);
+                b.load(BSP, register!(sp), Four);
+                b.load(BRP, register!(rp), Four);
                 b.move_(M0, Global(1));
             }),
             epilogue: build_block(|b| {
-                b.store(BEP, register!(ep), Four, AM_REGISTER);
-                b.store(BI, register!(i), Four, AM_REGISTER);
-                b.store(BA, register!(a), Four, AM_REGISTER);
-                b.store(BSP, register!(sp), Four, AM_REGISTER);
-                b.store(BRP, register!(rp), Four, AM_REGISTER);
+                b.store(BEP, register!(ep), Four);
+                b.store(BI, register!(i), Four);
+                b.store(BA, register!(a), Four);
+                b.store(BSP, register!(sp), Four);
+                b.store(BRP, register!(rp), Four);
                 b.move_(Global(1), M0);
             }),
         };

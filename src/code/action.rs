@@ -1,4 +1,4 @@
-use super::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, AliasMask};
+use super::{Register, Variable, Precision, UnaryOp, BinaryOp, Width};
 
 /// Called by [`Action::Debug`].
 #[no_mangle]
@@ -19,10 +19,10 @@ pub enum Action {
     /// dest <- op(src1, src2)
     Binary(BinaryOp, Precision, Register, Variable, Variable),
     /// dest <- \[addr]
-    Load(Register, (Variable, Width), AliasMask),
+    Load(Register, (Variable, Width)),
     /// dest <- addr; \[addr] <- \[src]
     /// `dest` exists to make the optimizer allocate a temporary register.
-    Store(Register, Variable, (Variable, Width), AliasMask),
+    Store(Register, Variable, (Variable, Width)),
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
     /// If either `src` is `None`, push a dead value.
     Push(Option<Variable>, Option<Variable>),
@@ -43,9 +43,9 @@ impl std::fmt::Debug for Action {
                 write!(f, "{:?}_{:?} {:?}, {:?}", op, prec, dest, src),
             Action::Binary(op, prec, dest, src1, src2) =>
                 write!(f, "{:?}_{:?} {:?}, {:?}, {:?}", op, prec, dest, src1, src2),
-            Action::Load(dest, (addr, width), _) =>
+            Action::Load(dest, (addr, width)) =>
                 write!(f, "Load_{:?} {:?}, [{:?}]", width, dest, addr),
-            Action::Store(dest, src, (addr, width), _) =>
+            Action::Store(dest, src, (addr, width)) =>
                 write!(f, "Store_{:?} {:?}, {:?}, [{:?}]", width, dest, src, addr),
             Action::Push(src1, src2) =>
                 write!(f, "Push ({:?}, {:?})", src1, src2),

@@ -1,4 +1,4 @@
-use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, AliasMask, Action};
+use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Action};
 
 /// Annotates a [`Node`] of a [`Dataflow`] graph.
 ///
@@ -18,8 +18,8 @@ pub enum Op {
     Constant(i64),
     Unary(Precision, UnaryOp),
     Binary(Precision, BinaryOp),
-    Load(Width, AliasMask),
-    Store(Width, AliasMask),
+    Load(Width),
+    Store(Width),
     Debug,
 }
 
@@ -47,15 +47,15 @@ impl Op {
                 assert_eq!(ins.len(), 2);
                 Action::Binary(op, prec, outs[0], ins[0], ins[1])
             },
-            Op::Load(width, alias) => {
+            Op::Load(width) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 1);
-                Action::Load(outs[0], (ins[0], width), alias)
+                Action::Load(outs[0], (ins[0], width))
             },
-            Op::Store(width, alias) => {
+            Op::Store(width) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 2);
-                Action::Store(outs[0], ins[0], (ins[1], width), alias)
+                Action::Store(outs[0], ins[0], (ins[1], width))
             },
             Op::Debug => {
                 assert_eq!(outs.len(), 0);
