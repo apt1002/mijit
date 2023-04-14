@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, target, cost, Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, CFT};
+use super::{code, target, cost, Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, Exit, CFT};
 use code::{Register, Variable, Convention, EBB};
 
 mod fill;
@@ -82,12 +82,12 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
 
         // Find nodes on the hot path.
         let (colds, exit, leaf) = cft.hot_path();
-        fill.visit(exit);
+        fill.exit(exit);
 
         // Record info about each new `Op::Guard` `Node`.
         let guard_failures = colds.into_iter().map(|(guard, cold)| {
             let mut fill2 = fill.nested();
-            cold.map(|&child| child.exits().for_each(|node| { fill2.visit(node); }));
+            cold.map(|&child| child.exits().for_each(|e| fill2.exit(e)));
             (guard, GuardFailure {cold, fontier: fill2.drain().1})
         }).collect::<HashMap<Node, GuardFailure<_>>>();
         let lookup_guard = |guard| guard_failures.get(&guard)
@@ -110,6 +110,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             df,
             &*nodes,
             |node| if is_guard(node) { Some(&lookup_guard(node).fontier.inputs) } else { None },
+            &*exit.outputs,
         );
 
         // Build the EBB.
@@ -182,6 +183,7 @@ mod tests {
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
 
+    /// The optimizer doesn't reorder guards at the moment. Maybe it will?
     #[test]
     fn reorder_guards() {
         // Each leaf will return a single `Register`.
@@ -224,12 +226,12 @@ mod tests {
         let m_4 = df.add_node(Op::Binary(P64, Mul), &[], &[x_3, x_3], 1);
         let x_4 = df.outs(m_4).next().unwrap();
         let g_1 = df.add_node(Op::Guard, &[entry], &[x_4], 0);
-        let e_1 = df.add_node(Op::Convention, &[g_1], &[inputs[1]], 0);
-        let g_2 = df.add_node(Op::Guard, &[entry], &[x_3], 0);
-        let e_2 = df.add_node(Op::Convention, &[g_1, g_2], &[inputs[2]], 0);
-        let g_3 = df.add_node(Op::Guard, &[entry], &[x_2], 0);
-        let e_3 = df.add_node(Op::Convention, &[g_1, g_2, g_3], &[inputs[3]], 0);
-        let e_x = df.add_node(Op::Convention, &[g_1, g_2, g_3], &[x_1], 0);
+        let e_1 = Exit {sequence: g_1, outputs: Box::new([inputs[1]])};
+        let g_2 = df.add_node(Op::Guard, &[g_1], &[x_3], 0);
+        let e_2 = Exit {sequence: g_2, outputs: Box::new([inputs[2]])};
+        let g_3 = df.add_node(Op::Guard, &[g_2], &[x_2], 0);
+        let e_3 = Exit {sequence: g_3, outputs: Box::new([inputs[3]])};
+        let e_x = Exit {sequence: g_3, outputs: Box::new([x_1])};
         // Make a CFT.
         let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
         cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: REGISTERS[3]}, 0);

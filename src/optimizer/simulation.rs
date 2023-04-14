@@ -1,7 +1,7 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
 use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch, EBB, Ending};
-use super::{CFT, Op, Dataflow, Node, Out, LookupLeaf};
+use super::{Exit, CFT, Op, Dataflow, Node, Out, LookupLeaf};
 
 /// Represents the state of an abstract execution of some code which builds a
 /// [`Dataflow`] graph.
@@ -134,15 +134,6 @@ impl Simulation {
         guard
     }
 
-    /// Add to `dataflow` an exit [`Node`] that depends on all dataflow and
-    /// non-dataflow outputs. On exit, `after.live_values` are live.
-    /// Returns the exit `Node`.
-    pub fn exit(mut self, dataflow: &mut Dataflow, after: &Convention) -> Node {
-        assert_eq!(self.slots_used, after.slots_used);
-        let deps = [self.sequence];
-        self.op(dataflow, Op::Convention, &deps, &after.live_values, &[])
-    }
-
     /// Simulate every control-flow path in `ebb`, adding to `dataflow` as
     /// necessary. Returns a [`CFT`] and its total weight.
     fn walk<L: LookupLeaf>(mut self, dataflow: &mut Dataflow, ebb: &EBB<L::Leaf>, lookup_leaf: &L)
@@ -152,7 +143,12 @@ impl Simulation {
         }
         match ebb.ending {
             Ending::Leaf(ref leaf) => {
-                let exit = self.exit(dataflow, lookup_leaf.after(leaf));
+                let after = lookup_leaf.after(leaf);
+                assert_eq!(self.slots_used, after.slots_used);
+                let exit = Exit {
+                    sequence: self.sequence,
+                    outputs: after.live_values.iter().map(|&in_| self.lookup(in_)).collect(),
+                };
                 (CFT::Merge {exit, leaf: leaf.clone()}, lookup_leaf.weight(leaf))
             },
             Ending::Switch(discriminant, Switch {ref cases, ref default_}) => {

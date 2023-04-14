@@ -1,6 +1,10 @@
 use std::collections::{HashMap};
 
-use super::{code, NUM_REGISTERS, all_registers, Op, Resources, Dataflow, Node, Out, LookupLeaf, Cold, moves};
+use super::{
+    code, NUM_REGISTERS,
+    Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, Exit,
+    moves, all_registers,
+};
 use code::{Register, Slot, Variable, Action, EBB, Ending};
 use crate::util::{ArrayMap};
 
@@ -122,11 +126,11 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         self.blocks.push((actions, discriminant, cold));
     }
 
-    pub fn finish(mut self, exit: Node, leaf: L::Leaf) -> EBB<L::Leaf> {
+    pub fn finish(mut self, exit: &Exit, leaf: L::Leaf) -> EBB<L::Leaf> {
         // Work out which live values need to be moved where.
         let after = self.lookup_leaf.after(&leaf);
         let mut dest_to_src: HashMap<Variable, Variable> =
-            self.dataflow.ins(exit).iter().zip(&*after.live_values)
+            exit.outputs.iter().zip(&*after.live_values)
                 .map(|(&out, &dest)| (dest, self.read(out)))
                 .collect();
 

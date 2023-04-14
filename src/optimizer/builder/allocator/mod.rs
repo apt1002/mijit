@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers, Resources, Op, Dataflow, Node, Out};
+use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Out};
 use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable};
 use crate::util::{ArrayMap, map_filter_max, Usage};
@@ -106,6 +106,18 @@ impl<'a> Allocator<'a> {
         )
     }
 
+    /// Pop one [`Out`] from `self.usage`.
+    /// Frees its [`Register`], if any, if the `Out` has no remaining uses.
+    fn pop_use(&mut self) -> Out {
+        let out = self.usage.pop().expect("Incorrect usage information");
+        if self.usage.topmost(&out).is_none() {
+            if let Some(reg) = self.current_reg(out) {
+                self.pool.free(reg);
+            }
+        }
+        out
+    }
+
     /// Record that we accessed `out` at `time` (either reading or writing).
     fn access(&mut self, out: Out, time: Time) {
         self.read_times.entry(out).or_insert(EARLY).max_with(time);
@@ -150,16 +162,7 @@ impl<'a> Allocator<'a> {
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Free every input `Register` that won't be used again.
-        let keep_alives: Vec<Out> = (0..num_keep_alives).map(|_| {
-            let in_ = self.usage.pop().expect("Incorrect usage information");
-            if self.usage.topmost(&in_).is_none() {
-                // This can happen at most once for each distinct `in_`.
-                if let Some(reg) = self.current_reg(in_) {
-                    self.pool.free(reg);
-                }
-            }
-            in_
-        }).collect();
+        let keep_alives: Vec<Out> = (0..num_keep_alives).map(|_| self.pop_use()).collect();
         // Spill until we have enough registers to hold the outputs of `node`.
         self.spill_until(df.num_outs(node));
         // Bump `time` until the dependencies are available.
@@ -210,19 +213,12 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /// Exit node should be last. Read its inputs.
-    fn exit_node(&mut self, num_keep_alives: usize) {
-        for _ in 0..num_keep_alives {
-            let in_ = self.usage.pop().expect("Incorrect usage information");
-            if self.usage.topmost(&in_).is_none() {
-                // This can happen at most once for each distinct `in_`.
-                if let Some(reg) = self.current_reg(in_) {
-                    self.pool.free(reg);
-                }
-            }
-        }
+    /// Read the [`Out`]s that are live on exit.
+    fn finish(mut self, num_outputs: usize) -> (Vec<Instruction>, HashMap<Out, Register>) {
+        for _ in 0..num_outputs { let _ = self.pop_use(); }
         assert_eq!(self.usage.len(), 0);
         assert!(all_registers().all(|reg| self.pool.is_clean(reg)));
+        (self.placer.iter().cloned().collect(), self.allocation)
     }
 }
 
@@ -232,12 +228,13 @@ impl<'a> Allocator<'a> {
 /// - variables - the [`Variable`]s passed on entry to the hot path.
 /// - dataflow - the dataflow graph.
 /// - nodes - the [`Node`]s that need to be executed on the hot path,
-///   topologically sorted. Includes the exit node.
+///   topologically sorted.
 /// - get_keep_alives - for [`Op::Guard`] `Node`s, returns the dataflow
 ///   dependencies of the cold paths.
+/// - outputs - the [`Out`]s that are live on exit.
 ///
 /// Returns:
-/// - instructions - the execution order. Excludes the exit node.
+/// - instructions - the execution order.
 /// - allocation - which `Register` each `Out` should be computed into.
 pub fn allocate<'a>(
     effects: &HashSet<Node>,
@@ -245,26 +242,24 @@ pub fn allocate<'a>(
     dataflow: &Dataflow,
     nodes: &[Node],
     get_keep_alives: impl Fn(Node) -> Option<&'a HashSet<Out>>,
+    outputs: &[Out],
 ) -> (
     Vec<Instruction>,
     HashMap<Out, Register>
 ) {
     // Reverse `nodes` and compute the `Out`s each one uses.
     let mut usage = Usage::default();
+    for &out in outputs { usage.push(out); }
     let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
         let mut keep_alives: Vec<Out> = dataflow.ins(node).iter().copied().collect();
         if let Some(ins) = get_keep_alives(node) { keep_alives.extend(ins); }
         for &in_ in &keep_alives { usage.push(in_); }
         (node, keep_alives.len())
     }).collect();
-    // Schedule and allocate registers for every `Node`s except the exit node.
+    // Schedule and allocate registers for every `Node`.
     let mut a = Allocator::new(effects, variables, dataflow, usage);
     while let Some((node, num_keep_alives)) = nodes_rev.pop() {
-        if !matches!(dataflow.op(node), Op::Convention) {
-            a.add_node(node, num_keep_alives);
-        } else {
-            a.exit_node(num_keep_alives);
-        }
+        a.add_node(node, num_keep_alives);
     }
-    (a.placer.iter().cloned().collect(), a.allocation)
+    a.finish(outputs.len())
 }

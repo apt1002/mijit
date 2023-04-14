@@ -1,6 +1,6 @@
 use std::collections::{HashSet};
 
-use super::{Dataflow, Node, Out};
+use super::{Dataflow, Node, Out, Exit};
 use crate::util::{ArrayMap};
 
 /// Ways in which the marked [`Node`]s of a [`Fill`] depends on its boundary.
@@ -90,6 +90,12 @@ impl<'a> Fill<'a> {
         }
     }
 
+    /// Find and mark all dependencies of `Exit`.
+    pub fn exit(&mut self, exit: &Exit) {
+        self.effect(exit.sequence);
+        for &out in &*exit.outputs { self.input(out); }
+    }
+
     /// Call [`effect`] on each of `frontier.effects` and [`input`] on each of
     /// `frontier.inputs`. This method can be used to resume a flood fill with a
     /// smaller boundary set.
@@ -155,15 +161,15 @@ mod tests {
         let mut df = Dataflow::new(1);
         let entry = df.entry_node();
         let a = df.outs(entry).next().unwrap();
-        let guard = df.add_node(Op::Guard, &[], &[a], 0);
+        let guard = df.add_node(Op::Guard, &[entry], &[a], 0);
         let constant = df.add_node(Op::Constant(1), &[], &[], 1);
         let b = df.outs(constant).next().unwrap();
         let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[], &[a, b], 1);
         let c = df.outs(add).next().unwrap();
-        let exit1 = df.add_node(Op::Convention, &[guard, entry], &[c], 0);
-        let store = df.add_node(Op::Store(Width::Eight), &[entry, guard], &[b, a], 1);
+        let exit1 = Exit {sequence: guard, outputs: Box::new([c])};
+        let store = df.add_node(Op::Store(Width::Eight), &[guard], &[b, a], 1);
         let d = df.outs(store).next().unwrap();
-        let exit2 = df.add_node(Op::Convention, &[guard, store], &[d], 0);
+        let exit2 = Exit {sequence: store, outputs: Box::new([d])};
         let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[], &[b, b], 1);
         // Mark `entry` with `1`.
         let mut marks = df.node_map();
@@ -171,10 +177,9 @@ mod tests {
         fill.mark(entry);
         // Flood from `exit1` with colour `2`.
         let mut fill1 = fill.nested();
-        let is_boundary1 = fill1.visit(exit1);
-        assert!(!is_boundary1);
+        fill1.exit(&exit1);
         let (nodes1, frontier1) = fill1.drain();
-        assert_eq!(&nodes1, &[guard, constant, add, exit1]);
+        assert_eq!(&nodes1, &[guard, constant, add]);
         let mut inputs1 = Vec::from_iter(frontier1.inputs);
         inputs1.sort_by_key(|out| out.as_usize());
         assert_eq!(&inputs1, &[a]);
@@ -184,18 +189,17 @@ mod tests {
         for node in nodes1 { fill1.mark(node); }
         // Flood from `exit2` with colour `12`.
         let mut fill2 = fill1.nested();
-        let is_boundary2 = fill2.visit(exit2);
-        assert!(!is_boundary2);
+        fill2.exit(&exit2);
         let (nodes2, frontier2) = fill2.drain();
-        assert_eq!(&nodes2, &[store, exit2]);
+        assert_eq!(&nodes2, &[store]);
         let mut inputs2 = Vec::from_iter(frontier2.inputs);
         inputs2.sort_by_key(|out| out.as_usize());
         assert_eq!(&inputs2, &[a, b]);
         let mut effects2 = Vec::from_iter(frontier2.effects);
         effects2.sort_by_key(|node| node.as_usize());
-        assert_eq!(&effects2, &[entry, guard]);
+        assert_eq!(&effects2, &[guard]);
         for node in nodes2 { fill2.mark(node); }
         // Check the marks.
-        assert_eq!(marks.as_ref(), &[1, 2, 2, 2, 2, 3, 3, 0]);
+        assert_eq!(marks.as_ref(), &[1, 2, 2, 2, 3, 0]);
     }
 }

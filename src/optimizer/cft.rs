@@ -1,7 +1,7 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
 
-use super::{Switch, Node};
+use super::{Switch, Node, Out};
 
 //-----------------------------------------------------------------------------
 
@@ -93,12 +93,24 @@ impl<C: Debug> Debug for Cold<C> {
 
 //-----------------------------------------------------------------------------
 
+/// Represents the conditions for exiting a control-flow tree.
+/// Code will be considered dead unless it contributes to one of these goals.
+#[derive(Debug, Clone)]
+pub struct Exit {
+    /// The last [`Op::Guard`], [`Op::Store] or [`Op::Debug`] on this path.
+    /// This must be executed before exiting.
+    pub sequence: Node,
+    /// The `Out` which computes each of the live variables.
+    /// These must be computed before exiting, and must remain alive.
+    pub outputs: Box<[Out]>,
+}
+
 /// Represents a control-flow tree.
 #[derive(Debug, Clone)]
 pub enum CFT<L: Clone> {
     Merge {
-        /// The exit [`Node`] of the dataflow graph for this path.
-        exit: Node,
+        /// The conditions for exiting the tree.
+        exit: Exit,
         /// Where to merge into the existing compiled code.
         leaf: L,
     },
@@ -125,18 +137,18 @@ impl<L: Clone> CFT<L> {
     }
 
     /// Returns an iterator over the exit [`Node`]s of `self`.
-    pub fn exits<'a>(&'a self) -> impl 'a + Iterator<Item=Node> {
+    pub fn exits<'a>(&'a self) -> impl 'a + Iterator<Item=&'a Exit> {
         ExitIter(vec![self])
     }
 
     /// Follows the hot path through `self`.
     /// Returns the [`Colds`]es and the exit [`Node`].
-    pub fn hot_path(&self) -> (HashMap<Node, Cold<&Self>>, Node, L) {
+    pub fn hot_path(&self) -> (HashMap<Node, Cold<&Self>>, &Exit, L) {
         let mut cft = self;
         let mut colds = HashMap::new();
         loop {
             match cft {
-                &CFT::Merge {exit, ref leaf} => {
+                &CFT::Merge {ref exit, ref leaf} => {
                     return (colds, exit, leaf.clone());
                 },
                 &CFT::Switch {guard, ref switch, hot_index} => {
@@ -154,12 +166,12 @@ impl<L: Clone> CFT<L> {
 struct ExitIter<'a, L: Clone>(Vec<&'a CFT<L>>);
 
 impl<'a, L: Clone> Iterator for ExitIter<'a, L> {
-    type Item = Node;
+    type Item = &'a Exit;
 
     fn next(&mut self) -> Option<Self::Item> {
         while let Some(cft) = self.0.pop() {
             match *cft {
-                CFT::Merge {exit, leaf: _} => {
+                CFT::Merge {ref exit, leaf: _} => {
                     return Some(exit);
                 },
                 CFT::Switch {guard: _, ref switch, hot_index: _} => {
