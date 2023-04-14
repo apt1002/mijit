@@ -9,8 +9,8 @@ use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Actio
 pub enum Op {
     /// Represents a control-flow decision.
     Guard,
-    /// A no-op used at the external boundaries of a Dataflow graph.
-    Convention,
+    /// A no-op used on entry to a Dataflow graph.
+    Input,
     Constant(i64),
     Unary(Precision, UnaryOp),
     Binary(Precision, BinaryOp),
@@ -22,11 +22,11 @@ pub enum Op {
 impl Op {
     /// Aggregates this [`Op`] with the specified outputs and inputs to make an
     /// [`Action`].
-    /// Panics if the `Op` is a `Guard` or `Convention`.
+    /// Panics if the `Op` is a `Guard`.
     pub fn to_action(self, outs: &[Register], ins: &[Variable]) -> Action {
         match self {
             Op::Guard => panic!("Cannot convert a guard to an action"),
-            Op::Convention => panic!("Cannot convert a convention to an action"),
+            Op::Input => panic!("Cannot convert an input to an action"),
             Op::Constant(c) => {
                 assert_eq!(outs.len(), 1);
                 assert_eq!(ins.len(), 0);

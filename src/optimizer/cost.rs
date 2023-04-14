@@ -31,9 +31,9 @@ pub struct Cost {
 }
 
 /// The cost of a no-op.
-pub const ZERO_COST: Cost = Cost {
+pub const INPUT_COST: Cost = Cost {
     input_latencies: &[],
-    output_latencies: &[],
+    output_latencies: &[0],
     resources: Resources::new(0x0000000),
 };
 
@@ -124,14 +124,13 @@ pub const DEBUG_COST: Cost = Cost {
 //-----------------------------------------------------------------------------
 
 /// Returns the [`Cost`] of `op`.
-/// Returns `ZERO_COST` if `op` is [`Op::Convention`] or [`Op::Sequence`].
 #[allow(clippy::module_name_repetitions)]
 pub fn op_cost(op: Op) -> &'static Cost {
     use Op::*;
     use super::code::{UnaryOp::*, BinaryOp::*};
     match op {
         Guard => &GUARD_COST,
-        Convention => &ZERO_COST,
+        Input => &INPUT_COST,
         Constant(_) => &CONST_COST, // TODO: Make the cost depend on `n`.
         Unary(_, op) => match op {
             Abs => &ABS_COST,

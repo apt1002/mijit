@@ -92,7 +92,7 @@ impl<'a> Fill<'a> {
 
     /// Find and mark all dependencies of `Exit`.
     pub fn exit(&mut self, exit: &Exit) {
-        self.effect(exit.sequence);
+        if let Some(node) = exit.sequence { self.effect(node); }
         for &out in &*exit.outputs { self.input(out); }
     }
 
@@ -134,14 +134,14 @@ impl<'a> std::ops::Index<Node> for Fill<'a> {
 }
 
 /// Construct a `marks` array, wrap it in a [`Fill`], and invoke `callback`.
-/// `dataflow.entry_node()` will be treated as a boundary node.
+/// The [`Op::Input`] [`Node`]s will be treated as boundary nodes.
 pub fn with_fill<T>(
     dataflow: &Dataflow,
     callback: impl FnOnce(Fill) -> T,
 ) -> T {
     let mut marks = dataflow.node_map();
     let mut fill = Fill::new(dataflow, &mut marks);
-    fill.mark(dataflow.entry_node());
+    for &out in dataflow.inputs() { fill.input(out); }
     callback(fill.nested())
 }
 
@@ -159,22 +159,21 @@ mod tests {
     fn test() {
         // Construct a `Dataflow` with two exits and a dead `Node`.
         let mut df = Dataflow::new(1);
-        let entry = df.entry_node();
-        let a = df.outs(entry).next().unwrap();
-        let guard = df.add_node(Op::Guard, &[entry], &[a], 0);
+        let a = df.inputs()[0];
+        let guard = df.add_node(Op::Guard, &[], &[a], 0);
         let constant = df.add_node(Op::Constant(1), &[], &[], 1);
         let b = df.outs(constant).next().unwrap();
         let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[], &[a, b], 1);
         let c = df.outs(add).next().unwrap();
-        let exit1 = Exit {sequence: guard, outputs: Box::new([c])};
+        let exit1 = Exit {sequence: Some(guard), outputs: Box::new([c])};
         let store = df.add_node(Op::Store(Width::Eight), &[guard], &[b, a], 1);
         let d = df.outs(store).next().unwrap();
-        let exit2 = Exit {sequence: store, outputs: Box::new([d])};
+        let exit2 = Exit {sequence: Some(store), outputs: Box::new([d])};
         let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[], &[b, b], 1);
         // Mark `entry` with `1`.
         let mut marks = df.node_map();
         let mut fill = Fill::new(&df, &mut marks);
-        fill.mark(entry);
+        fill.input(a);
         // Flood from `exit1` with colour `2`.
         let mut fill1 = fill.nested();
         fill1.exit(&exit1);
@@ -185,7 +184,7 @@ mod tests {
         assert_eq!(&inputs1, &[a]);
         let mut effects1 = Vec::from_iter(frontier1.effects);
         effects1.sort_by_key(|node| node.as_usize());
-        assert_eq!(&effects1, &[entry]);
+        assert_eq!(&effects1, &[]);
         for node in nodes1 { fill1.mark(node); }
         // Flood from `exit2` with colour `12`.
         let mut fill2 = fill1.nested();

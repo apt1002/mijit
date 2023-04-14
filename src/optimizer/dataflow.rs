@@ -67,12 +67,14 @@ struct Info {
 /// Represents a dataflow graph of some code.
 /// The nodes are [`Node`]s and the edges are [`Out`]s.
 ///
-/// There is a dummy `Node` that has an output for each [`Value`] that is live
+/// There is a dummy [`Op::Input`] `Node` for each [`Value`] that is live
 /// on entry to the [`Dataflow`].
 ///
 /// [`Value`]: super::code::Value
 #[derive(Clone)]
 pub struct Dataflow {
+    /// The live values on entry.
+    inputs: Box<[Out]>,
     /// One per [`Node`].
     nodes: Vec<Info>,
     /// One per non-dataflow dependency: a predecessor [`Node`].
@@ -87,18 +89,21 @@ impl Dataflow {
     /// Construct a `Dataflow` with `num_inputs` values live on entry.
     pub fn new(num_inputs: usize) -> Self {
         let mut ret = Dataflow {
+            inputs: (0..num_inputs).map(|i| Out::new(i).unwrap()).collect(),
             nodes: Vec::new(),
             deps: Vec::new(),
             ins: Vec::new(),
             outs: Vec::new(),
         };
-        ret.add_node(Op::Convention, &[], &[], num_inputs);
+        for _ in 0..num_inputs {
+            let _ = ret.add_node(Op::Input, &[], &[], 1);
+        }
         ret
     }
 
-    /// Returns the entry [`Node`].
-    pub fn entry_node(&self) -> Node {
-        Node::new(0).unwrap()
+    /// Returns the [`Out`]s representing the values live on entry.
+    pub fn inputs(&self) -> &[Out] {
+        &*self.inputs
     }
 
     /// Returns the [`Info`] about `node`.
@@ -116,19 +121,9 @@ impl Dataflow {
         self.info(node).cost
     }
 
-    /// Tests whether `node` is the dummy [`Node`] that represents the Values
-    /// that are live on entry to the Dataflow.
-    pub fn is_entry(&self, node: Node) -> bool {
-        node.as_usize() == 0
-    }
-
     /// Returns the [`Info`] about the previous `node`, if any.
     fn prev(&self, node: Node) -> Option<&Info> {
-        if self.is_entry(node) {
-            None
-        } else {
-            Some(&self.nodes[node.as_usize() - 1])
-        }
+        node.as_usize().checked_sub(1).map(|i| &self.nodes[i])
     }
 
     /// Returns the [`Node`]s which must be executed before `node`.
