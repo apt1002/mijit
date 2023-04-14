@@ -14,10 +14,10 @@ pub use Op::*;
 /// to most significant.
 pub const BUDGET: Resources = Resources::new(0x1412316);
 
-/// The resources needed to spill an Out.
+/// The resources needed to spill a [`Node`].
 pub const SPILL_COST: Resources = Resources::new(0x0010202);
 
-/// The additional resources needed per operand that is a Slot.
+/// The additional resources needed per operand that is a [`Slot`].
 pub const SLOT_COST: Resources = Resources::new(0x0001100);
 
 //-----------------------------------------------------------------------------
@@ -26,98 +26,98 @@ pub const SLOT_COST: Resources = Resources::new(0x0001100);
 #[derive(Debug)]
 pub struct Cost {
     pub input_latencies: &'static [u8],
-    pub output_latencies: &'static [u8],
+    pub output_latency: Option<u8>,
     pub resources: Resources,
 }
 
 /// The cost of a no-op.
 pub const INPUT_COST: Cost = Cost {
     input_latencies: &[],
-    output_latencies: &[0],
+    output_latency: Some(0),
     resources: Resources::new(0x0000000),
 };
 
 /// The cost of a compare and branch.
 pub const GUARD_COST: Cost = Cost {
     input_latencies: &[0],
-    output_latencies: &[],
+    output_latency: None,
     resources: Resources::new(0x0100012),
 };
 
 /// The cost of a typical `Constant`.
 pub const CONST_COST: Cost = Cost {
     input_latencies: &[],
-    output_latencies: &[0],
+    output_latency: Some(0),
     resources: Resources::new(0x0100001),
 };
 
 /// The cost of a typical unary ALU operation such as `Not`, `Neg`.
 pub const UNARY_COST: Cost = Cost {
     input_latencies: &[0],
-    output_latencies: &[1],
+    output_latency: Some(1),
     resources: Resources::new(0x0100001),
 };
 
 /// The cost of a typical binary ALU operation such as `Add`, `And`.
 pub const BINARY_COST: Cost = Cost {
     input_latencies: &[0, 0],
-    output_latencies: &[1],
+    output_latency: Some(1),
     resources: Resources::new(0x0100001),
 };
 
 /// The cost of a unary conditional operation such as `Abs`.
 pub const ABS_COST: Cost = Cost {
     input_latencies: &[0],
-    output_latencies: &[2],
+    output_latency: Some(2),
     resources: Resources::new(0x0200013),
 };
 
 /// The cost of a binary conditional operation such as `Abs`, `Max`.
 pub const CONDITIONAL_COST: Cost = Cost {
     input_latencies: &[0, 0],
-    output_latencies: &[2],
+    output_latency: Some(2),
     resources: Resources::new(0x0200013),
 };
 
 /// The cost of a `Mul` operation.
 pub const MUL_COST: Cost = Cost {
     input_latencies: &[0, 0],
-    output_latencies: &[3],
+    output_latency: Some(3),
     resources: Resources::new(0x1100001),
 };
 
 /// The cost of a `UDiv` or `SDiv` operation.
 pub const DIV_COST: Cost = Cost {
     input_latencies: &[0, 0],
-    output_latencies: &[30],
+    output_latency: Some(30),
     resources: Resources::new(0x1012306),
 };
 
 /// The cost of a typical shift operation such as `Lsl`.
 pub const SHIFT_COST: Cost = Cost {
     input_latencies: &[0, 0],
-    output_latencies: &[1],
+    output_latency: Some(1),
     resources: Resources::new(0x0100002),
 };
 
 /// The cost of a `Load` operation.
 pub const LOAD_COST: Cost = Cost {
     input_latencies: &[2],
-    output_latencies: &[1],
+    output_latency: Some(1),
     resources: Resources::new(0x0001101),
 };
 
 /// The cost of a `Load` operation.
 pub const STORE_COST: Cost = Cost {
     input_latencies: &[0, 2],
-    output_latencies: &[0],
+    output_latency: Some(0),
     resources: Resources::new(0x0010101),
 };
 
 /// A cost used for Debug operations. This won't affect other instructions.
 pub const DEBUG_COST: Cost = Cost {
     input_latencies: &[0],
-    output_latencies: &[],
+    output_latency: None,
     resources: Resources::new(0x0000000),
 };
 

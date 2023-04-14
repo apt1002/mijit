@@ -6,19 +6,10 @@ use super::{Op, Cost, op_cost};
 //-----------------------------------------------------------------------------
 
 array_index! {
-    /// A node in a Dataflow graph.
+    /// A node in a Dataflow graph. Also represents the value it computes.
     #[derive(Copy, Clone, Hash, PartialEq, Eq)]
     pub struct Node(std::num::NonZeroUsize) {
         debug_name: "Node",
-        UInt: usize,
-    }
-}
-
-array_index! {
-    /// A value produced by a [`Node`] in a Dataflow graph.
-    #[derive(Copy, Clone, Hash, PartialEq, Eq)]
-    pub struct Out(std::num::NonZeroUsize) {
-        debug_name: "Out",
         UInt: usize,
     }
 }
@@ -33,9 +24,8 @@ struct NodeAdapter<'a> {
 
 impl<'a> Debug for NodeAdapter<'a> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "{:?}: ({:?}) <- {:?} ({:?})",
+        write!(f, "{:?} <- {:?} ({:?})",
             self.node,
-            CommaSeparated(|| self.dataflow.outs(self.node)),
             self.dataflow.op(self.node),
             CommaSeparated(|| self.dataflow.ins(self.node)),
         )?;
@@ -60,49 +50,44 @@ struct Info {
     end_dep: usize,
     /// The index in [`Dataflow::ins`] after the last input of the `Node`.
     end_in: usize,
-    /// The index in [`Dataflow::outs`] after the last [`Out`] of the `Node`.
-    end_out: usize,
 }
 
-/// Represents a dataflow graph of some code.
-/// The nodes are [`Node`]s and the edges are [`Out`]s.
+/// Represents a dataflow graph of some code. The nodes are [`Node`]s.
 ///
-/// There is a dummy [`Op::Input`] `Node` for each [`Value`] that is live
+/// There is a dummy [`Op::Input`] `Node` for each [`Variable`] that is live
 /// on entry to the [`Dataflow`].
 ///
-/// [`Value`]: super::code::Value
+/// [`Variable`]: super::code::Variable
 #[derive(Clone)]
 pub struct Dataflow {
     /// The live values on entry.
-    inputs: Box<[Out]>,
+    inputs: Box<[Node]>,
     /// One per [`Node`].
     nodes: Vec<Info>,
     /// One per non-dataflow dependency: a predecessor [`Node`].
     deps: Vec<Node>,
-    /// One per input. Connects the input to the [`Out`].
-    ins: Vec<Out>,
-    /// One per [`Out`]: the [`Node`] that generates the `Out`.
-    outs: Vec<Node>,
+    /// One per input. Connects the input to the [`Node`] that computes it.
+    ins: Vec<Node>,
 }
 
 impl Dataflow {
     /// Construct a `Dataflow` with `num_inputs` values live on entry.
     pub fn new(num_inputs: usize) -> Self {
         let mut ret = Dataflow {
-            inputs: (0..num_inputs).map(|i| Out::new(i).unwrap()).collect(),
+            inputs: (0..num_inputs).map(|i| Node::new(i).unwrap()).collect(),
             nodes: Vec::new(),
             deps: Vec::new(),
             ins: Vec::new(),
-            outs: Vec::new(),
         };
-        for _ in 0..num_inputs {
-            let _ = ret.add_node(Op::Input, &[], &[], 1);
+        for i in 0..num_inputs {
+            let node = ret.add_node(Op::Input, &[], &[]);
+            assert_eq!(node, ret.inputs[i]);
         }
         ret
     }
 
-    /// Returns the [`Out`]s representing the values live on entry.
-    pub fn inputs(&self) -> &[Out] {
+    /// Returns the [`Node`]s representing the values live on entry.
+    pub fn inputs(&self) -> &[Node] {
         &*self.inputs
     }
 
@@ -132,43 +117,26 @@ impl Dataflow {
         &self.deps[start_dep .. self.info(node).end_dep]
     }
 
-    /// Returns the [`Out`]s which are consumed by the inputs of `node`.
-    pub fn ins(&self, node: Node) -> &[Out] {
+    /// Returns the [`Nodes`]s which compute the inputs of `node`.
+    pub fn ins(&self, node: Node) -> &[Node] {
         let start_in = self.prev(node).map_or(0, |prev| prev.end_in);
         &self.ins[start_in .. self.info(node).end_in]
     }
 
-    /// Returns the number of [`Out`]s which are produced by `node`.
-    pub fn num_outs(&self, node: Node) -> usize {
-        let start_out = self.prev(node).map_or(0, |prev| prev.end_out);
-        self.info(node).end_out - start_out
+    /// Returns whether `node` computes a result.
+    pub fn has_out(&self, node: Node) -> bool {
+        self.cost(node).output_latency.is_some()
     }
 
-    /// Returns the [`Out`]s which are produced by `node`.
-    pub fn outs(&self, node: Node) -> impl Iterator<Item=Out> {
-        let start_out = self.prev(node).map_or(0, |prev| prev.end_out);
-        (start_out .. self.info(node).end_out).map(|index| Out::new(index).unwrap())
-    }
-
-    /// Returns the [`Node`] which produces `out`, and the index of `out` among
-    /// the outputs of the `Node`.
-    pub fn out(&self, out: Out) -> (Node, usize) {
-        let node = self.outs[out.as_usize()];
-        let start_out = self.prev(node).map_or(0, |prev| prev.end_out);
-        (node, out.as_usize() - start_out)
-    }
-
-    pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Out], num_outs: usize) -> Node {
+    pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Node]) -> Node {
         let node = Node::new(self.nodes.len()).unwrap();
         self.deps.extend(deps);
         self.ins.extend(ins);
-        self.outs.extend((0..num_outs).map(|_| node));
         self.nodes.push(Info {
             op: op,
             cost: op_cost(op),
             end_dep: self.deps.len(),
             end_in: self.ins.len(),
-            end_out: self.outs.len(),
         });
         node
     }
@@ -177,12 +145,6 @@ impl Dataflow {
     /// each [`Node`] of this Dataflow.
     pub fn node_map<V: Default>(&self) -> ArrayMap<Node, V> {
         ArrayMap::new(self.nodes.len())
-    }
-
-    /// Returns a fresh ArrayMap that initally associates `V::default()` with
-    /// each output of each [`Node`] of this Dataflow.
-    pub fn out_map<V: Default>(&self) -> ArrayMap<Out, V> {
-        ArrayMap::new(self.outs.len())
     }
 
     /// Returns all [`Node`]s in the order they were added.

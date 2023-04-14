@@ -1,7 +1,7 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
 
-use super::{Switch, Node, Out};
+use super::{Switch, Node};
 
 //-----------------------------------------------------------------------------
 
@@ -100,9 +100,9 @@ pub struct Exit {
     /// The last [`Op::Guard`], [Op::Store] or [`Op::Debug`], if any.
     /// This must be executed before exiting.
     pub sequence: Option<Node>,
-    /// The `Out` which computes each of the live variables.
+    /// The `Node` which computes each of the live variables.
     /// These must be computed before exiting, and must remain alive.
-    pub outputs: Box<[Out]>,
+    pub outputs: Box<[Node]>,
 }
 
 /// Represents a control-flow tree.

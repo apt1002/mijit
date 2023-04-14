@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, target, cost, Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, Exit, CFT};
+use super::{code, target, cost, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
 use code::{Register, Variable, Convention, EBB};
 
 mod fill;
@@ -74,7 +74,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         fill: &'w mut Fill<'f>,
         cft: &'a CFT<L::Leaf>,
         slots_used: usize,
-        lookup_input: &'w dyn Fn(Out) -> Variable,
+        lookup_input: &'w dyn Fn(Node) -> Variable,
         lookup_guard: &'w dyn Fn(Node) -> &'w GuardFailure<'a, L::Leaf>,
     ) -> EBB<L::Leaf> {
         let df = fill.dataflow();
@@ -100,8 +100,8 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         // Build an instruction schedule and allocate registers.
         let (nodes, Frontier {effects, inputs}) = fill.drain();
         let variables = inputs.into_iter().map(
-            |out| (out, lookup_input(out))
-        ).collect::<HashMap<Out, Variable>>();
+            |node| (node, lookup_input(node))
+        ).collect::<HashMap<Node, Variable>>();
         let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
         assert_eq!(variables.len(), distinct_variables.len());
         let (instructions, allocation) = allocate(
@@ -135,7 +135,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
                             &mut fill2,
                             child,
                             cg.slots_used(),
-                            &|out| cg.read(out),
+                            &|node| cg.read(node),
                             &|guard| lookup_guard(guard),
                         ));
                         cg.add_guard(node, cold);
@@ -157,10 +157,10 @@ pub fn build<L: LookupLeaf>(
     lookup_leaf: &L,
 ) -> EBB<L::Leaf> {
     // Work out what is where.
-    let input_map: HashMap<Out, Variable> =
+    let input_map: HashMap<Node, Variable> =
         dataflow.inputs().iter()
         .zip(&*before.live_values)
-        .map(|(&out, &variable)| (out, variable))
+        .map(|(&node, &variable)| (node, variable))
         .collect();
     // Build the new `EBB`.
     let mut builder = Builder::new(lookup_leaf);
@@ -168,7 +168,7 @@ pub fn build<L: LookupLeaf>(
         &mut fill,
         cft,
         before.slots_used,
-        &|out| *input_map.get(&out).unwrap(),
+        &|node| *input_map.get(&node).unwrap(),
         &|guard| panic!("Unknown guard {:?}", guard),
     ))
 }
@@ -215,21 +215,17 @@ mod tests {
         // but tested in reverse order.
         let mut df = Dataflow::new(4);
         let x_0 = df.inputs()[0];
-        let m_1 = df.add_node(Op::Binary(P64, Mul), &[], &[x_0, x_0], 1);
-        let x_1 = df.outs(m_1).next().unwrap();
-        let m_2 = df.add_node(Op::Binary(P64,  Mul), &[], &[x_1, x_1], 1);
-        let x_2 = df.outs(m_2).next().unwrap();
-        let m_3 = df.add_node(Op::Binary(P64, Mul), &[], &[x_2, x_2], 1);
-        let x_3 = df.outs(m_3).next().unwrap();
-        let m_4 = df.add_node(Op::Binary(P64, Mul), &[], &[x_3, x_3], 1);
-        let x_4 = df.outs(m_4).next().unwrap();
-        let g_1 = df.add_node(Op::Guard, &[], &[x_4], 0);
+        let m_1 = df.add_node(Op::Binary(P64, Mul), &[], &[x_0, x_0]);
+        let m_2 = df.add_node(Op::Binary(P64,  Mul), &[], &[m_1, m_1]);
+        let m_3 = df.add_node(Op::Binary(P64, Mul), &[], &[m_2, m_2]);
+        let m_4 = df.add_node(Op::Binary(P64, Mul), &[], &[m_3, m_3]);
+        let g_1 = df.add_node(Op::Guard, &[], &[m_4]);
         let e_1 = Exit {sequence: Some(g_1), outputs: Box::new([df.inputs()[1]])};
-        let g_2 = df.add_node(Op::Guard, &[g_1], &[x_3], 0);
+        let g_2 = df.add_node(Op::Guard, &[g_1], &[m_3]);
         let e_2 = Exit {sequence: Some(g_2), outputs: Box::new([df.inputs()[2]])};
-        let g_3 = df.add_node(Op::Guard, &[g_2], &[x_2], 0);
+        let g_3 = df.add_node(Op::Guard, &[g_2], &[m_2]);
         let e_3 = Exit {sequence: Some(g_3), outputs: Box::new([df.inputs()[3]])};
-        let e_x = Exit {sequence: Some(g_3), outputs: Box::new([x_1])};
+        let e_x = Exit {sequence: Some(g_3), outputs: Box::new([m_1])};
         // Make a CFT.
         let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
         cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: REGISTERS[3]}, 0);

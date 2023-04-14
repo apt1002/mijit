@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use super::{
     code, NUM_REGISTERS,
-    Dataflow, Node, Out, Op, Resources, LookupLeaf, Cold, Exit,
+    Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit,
     moves, all_registers,
 };
 use code::{Register, Slot, Variable, Action, EBB, Ending};
@@ -15,14 +15,14 @@ pub struct CodeGen<'a, L: LookupLeaf> {
     dataflow: &'a Dataflow,
     /// Lookup information about merge points.
     lookup_leaf: &'a L,
-    /// For each `out`, the [`Register`] it should be computed into.
-    allocation: HashMap<Out, Register>,
+    /// For each `Node`, the [`Register`] it should be computed into.
+    allocation: HashMap<Node, Register>,
     /// The current number of stack [`Slot`]s.
     slots_used: usize,
     /// For each `Register`, what is in that `Register`.
-    registers: ArrayMap<Register, Option<Out>>,
-    /// For each [`Out`], the [`Variable`] it is currently held in.
-    variables: HashMap<Out, Variable>,
+    registers: ArrayMap<Register, Option<Node>>,
+    /// For each [`Node`], the [`Variable`] it is currently held in.
+    variables: HashMap<Node, Variable>,
     /// The list of [`Action`]s since the last [`Op::Guard`].
     actions: Vec<Action>,
     /// The list of basic blocks, each ending with an [`Op::Guard`].
@@ -33,14 +33,14 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     pub fn new(
         dataflow: &'a Dataflow,
         lookup_leaf: &'a L,
-        allocation: HashMap<Out, Register>,
+        allocation: HashMap<Node, Register>,
         slots_used: usize,
-        variables: HashMap<Out, Variable>,
+        variables: HashMap<Node, Variable>,
     ) -> Self {
         let mut registers = ArrayMap::new(NUM_REGISTERS);
-        for (&out, &v) in variables.iter() {
+        for (&node, &v) in variables.iter() {
             if let Variable::Register(r) = v {
-                registers[r] = Some(out);
+                registers[r] = Some(node);
             }
         }
         Self {
@@ -55,8 +55,8 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         }
     }
 
-    fn set_variable(&mut self, out: Out, new_v: impl Into<Variable>, old_v: Option<Variable>) {
-        let v = self.variables.insert(out, new_v.into());
+    fn set_variable(&mut self, node: Node, new_v: impl Into<Variable>, old_v: Option<Variable>) {
+        let v = self.variables.insert(node, new_v.into());
         assert_eq!(v, old_v);
     }
 
@@ -65,44 +65,44 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         self.slots_used
     }
 
-    /// Return `out`'s [`Register`].
-    fn write(&mut self, out: Out) -> Register {
-        let r = self.allocation[&out];
-        self.set_variable(out, r, None);
-        self.registers[r] = Some(out);
+    /// Return `node`'s [`Register`].
+    fn write(&mut self, node: Node) -> Register {
+        let r = self.allocation[&node];
+        self.set_variable(node, r, None);
+        self.registers[r] = Some(node);
         r
     }
 
-    /// Spill `out`, returning its [`Register`].
-    fn spill(&mut self, out: Out) -> Register {
-        let r = self.allocation[&out];
-        assert_eq!(self.registers[r], Some(out));
+    /// Spill `node`, returning its [`Register`].
+    fn spill(&mut self, node: Node) -> Register {
+        let r = self.allocation[&node];
+        assert_eq!(self.registers[r], Some(node));
         let slot = Slot(self.slots_used);
         self.slots_used += 1;
-        self.set_variable(out, slot, Some(r.into()));
+        self.set_variable(node, slot, Some(r.into()));
         r
     }
 
-    /// Returns `out`'s [`Variable`].
-    pub fn read(&self, out: Out) -> Variable {
-        if let Some(&r) = self.allocation.get(&out) {
-            if self.registers[r] == Some(out) {
-               // `out` is still in the `Register` it was computed into.
+    /// Returns `node`'s [`Variable`].
+    pub fn read(&self, node: Node) -> Variable {
+        if let Some(&r) = self.allocation.get(&node) {
+            if self.registers[r] == Some(node) {
+               // `node` is still in the `Register` it was computed into.
                return r.into();
            }
         }
-        let v = self.variables[&out];
+        let v = self.variables[&node];
         if let Variable::Register(_) = v {
-            // We already know `out`'s `Register` holds something else.
+            // We already know `node`'s `Register` holds something else.
             panic!("Value is in a register that has been clobbered");
         }
         v
     }
 
     /// Generate an [`Action`] to spill `out1` and `out2`.
-    pub fn add_spill(&mut self, out1: Out, out2: Out) {
-        let r1 = self.spill(out1);
-        let r2 = self.spill(out2);
+    pub fn add_spill(&mut self, node1: Node, node2: Node) {
+        let r1 = self.spill(node1);
+        let r2 = self.spill(node2);
         self.actions.push(Action::Push(Some(r1.into()), Some(r2.into())));
     }
 
@@ -111,14 +111,13 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         let df = self.dataflow;
         if df.cost(n).resources == Resources::new(0) { return; }
         let ins: Vec<Variable> = df.ins(n).iter().map(|&in_| self.read(in_)).collect();
-        let outs: Vec<Register> = df.outs(n).map(|out| self.write(out)).collect();
-        self.actions.push(Op::to_action(df.op(n), &outs, &ins));
+        let out = if df.has_out(n) { Some(self.write(n)) } else { None };
+        self.actions.push(Op::to_action(df.op(n), out, &ins));
     }
 
     pub fn add_guard(&mut self, guard: Node, cold: Cold<EBB<L::Leaf>>) {
         let df = self.dataflow;
         assert_eq!(df.op(guard), Op::Guard);
-        assert_eq!(df.num_outs(guard), 0);
         assert_eq!(df.ins(guard).len(), 1);
         let discriminant = self.read(df.ins(guard)[0]);
         let mut actions = Vec::new();
@@ -131,7 +130,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         let after = self.lookup_leaf.after(&leaf);
         let mut dest_to_src: HashMap<Variable, Variable> =
             exit.outputs.iter().zip(&*after.live_values)
-                .map(|(&out, &dest)| (dest, self.read(out)))
+                .map(|(&node, &dest)| (dest, self.read(node)))
                 .collect();
 
         // Create spill slots if necessary to match `after`.

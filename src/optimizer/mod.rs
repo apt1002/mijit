@@ -15,7 +15,7 @@ mod cost;
 pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
 
 mod dataflow;
-pub use dataflow::{Dataflow, Node, Out};
+pub use dataflow::{Dataflow, Node};
 
 mod cft;
 pub use cft::{Cold, Exit, CFT};
