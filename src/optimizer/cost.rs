@@ -131,7 +131,6 @@ pub fn op_cost(op: Op) -> &'static Cost {
     use super::code::{UnaryOp::*, BinaryOp::*};
     match op {
         Guard => &GUARD_COST,
-        Sequence => &ZERO_COST,
         Convention => &ZERO_COST,
         Constant(_) => &CONST_COST, // TODO: Make the cost depend on `n`.
         Unary(_, op) => match op {
