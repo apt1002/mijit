@@ -19,9 +19,8 @@ language. It compiles to some kind of virtual code,
 which runs on an interpreter, written in C, say. You
 want it to go faster.
 
-You write a Rust program that uses crate `mijit`. You
-implement trait `Machine`, porting the performance-
-critical parts of your interpreter to Mijit code.
+You write a Rust program that uses crate `mijit`. You construct a `Jit`,
+porting the performance-critical parts of your interpreter to Mijit code.
 Mijit provides you with an equivalent JIT compiler.
 You wrap it in an ergonomic Rust API that is specific
 to your language. You write C bindings for your Rust

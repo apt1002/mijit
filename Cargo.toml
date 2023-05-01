@@ -1,6 +1,6 @@
 [package]
 name = "mijit"
-version = "0.2.2"
+version = "0.2.3"
 authors = ["apt1002"]
 edition = "2021"
 description = "Experimental JIT compiler generator"
@@ -18,11 +18,11 @@ crate_type = ["rlib"]
 
 [dependencies]
 memmap = "0.7.0"
-memoffset = "0.6.4"
-indexmap = "1.7.0"
+memoffset = "0.8"
+indexmap = "1.9.3"
 
 [dev-dependencies]
-bad64 = "0.4.0"
+bad64 = "0.6.0"
 rand = "0.8.5"
 rand_pcg = "0.3.1"
 
