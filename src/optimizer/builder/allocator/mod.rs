@@ -251,7 +251,7 @@ pub fn allocate<'a>(
     let mut usage = Usage::default();
     for &node in outputs { usage.push(node); }
     let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
-        let mut keep_alives: Vec<Node> = dataflow.ins(node).iter().copied().collect();
+        let mut keep_alives: Vec<Node> = dataflow.ins(node).to_vec();
         if let Some(ins) = get_keep_alives(node) { keep_alives.extend(ins); }
         for &in_ in &keep_alives { usage.push(in_); }
         (node, keep_alives.len())

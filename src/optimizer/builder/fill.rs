@@ -38,9 +38,9 @@ impl<'a> Fill<'a> {
 
     /// Constructs a `Fill` whose boundary is the union of the boundary of
     /// `self` and [`Node`]s marked by `self`.
-    pub fn nested<'b>(&'b mut self) -> Fill<'b> {
+    pub fn nested(&mut self) -> Fill<'_> {
         Fill {
-            dataflow: &*self.dataflow,
+            dataflow: self.dataflow,
             marks: &mut *self.marks,
             marker: self.marker + 1,
             nodes: Vec::new(),  

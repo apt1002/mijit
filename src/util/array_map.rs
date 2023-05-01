@@ -119,9 +119,7 @@ macro_rules! array_index {
         impl $Name {
             /// Safety
             ///
-            /// We reserve the maximum value rather than zero.
-            /// The maximum value is not usable as an array index anyway,
-            /// because it is not less than the maximum length.
+            /// `index` must not be the maximum value of its type.
             #[allow(clippy::missing_safety_doc)] // Work around bug in clippy.
             #[allow(dead_code)]
             pub const unsafe fn new_unchecked(index: $UInt) -> Self {

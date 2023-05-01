@@ -77,7 +77,7 @@ impl<T> Cycle<T> {
     }
 
     /// Yields the items in this `Cycle` in the order they were pushed.
-    pub fn iter<'a>(&'a self) -> impl Iterator<Item = &'a T> {
+    pub fn iter(&self) -> impl Iterator<Item = &'_ T> {
         self.items[0..self.num_items].iter().map(Option::as_ref).map(Option::unwrap)
     }
 }

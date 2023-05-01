@@ -34,27 +34,27 @@ impl<T: Target> Factorial<T> {
         let loop_ = jit.new_entry(&marshal, LOOP);
         let halt = jit.new_entry(&marshal, HALT);
         jit.define(start, &EBB {
-            actions: vec![
+            actions: Box::new([
                 Constant(P32, R0, 1),
                 Move(reg::RESULT, R0.into()),
-            ],
+            ]),
             ending: Ending::Leaf(loop_),
         });
         jit.define(loop_, &EBB {
-            actions: vec![],
+            actions: Box::new([]),
             ending: Ending::Switch(reg::N, Switch::if_(
                 EBB {
-                    actions: vec![
+                    actions: Box::new([
                         Binary(Mul, P32, R0, reg::RESULT, reg::N),
                         Move(reg::RESULT, R0.into()),
                         Constant(P32, R0, 1),
                         Binary(Sub, P32, R0, reg::N, R0.into()),
                         Move(reg::N, R0.into()),
-                    ],
+                    ]),
                     ending: Ending::Leaf(loop_),
                 },
                 EBB {
-                    actions: vec![],
+                    actions: Box::new([]),
                     ending: Ending::Leaf(halt),
                 },
             )),

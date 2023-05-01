@@ -432,7 +432,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                     P32 => u64::from(value as u32),
                     P64 => value as u64,
                 };
-                self.const_(dest, value as u64);
+                self.const_(dest, value);
             },
             Action::Unary(op, prec, dest, src) => {
                 self.unary_op(op, prec, dest, src);

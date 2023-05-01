@@ -30,6 +30,8 @@ impl<T: Clone + Hash + Eq> Usage<T> {
     /// Returns the number of `T`s on this stack.
     pub fn len(&self) -> usize { self.ts.len() }
 
+    pub fn is_empty(&self) -> bool { self.ts.is_empty() }
+
     /// Yields borrows of the `T`s on this stack.
     pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {
         self.into_iter()

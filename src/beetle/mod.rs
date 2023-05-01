@@ -490,6 +490,9 @@ impl<T: Target> Beetle<T> {
         self.jit.global_mut(global)
     }
 
+    /// # Safety
+    ///
+    /// There is no memory bounds checking in this implementation of Beetle.
     pub unsafe fn run(&mut self, registers: &mut Registers, m0: &mut[u32]) {
         *self.jit.global_mut(Global(0)) = Word {mp: (registers as *mut Registers).cast()};
         *self.jit.global_mut(Global(1)) = Word {mp: (m0.as_mut_ptr()).cast()};

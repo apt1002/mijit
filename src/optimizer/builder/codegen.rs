@@ -8,6 +8,17 @@ use super::{
 use code::{Register, Slot, Variable, Action, EBB, Ending};
 use crate::util::{ArrayMap};
 
+/// The element type of [`CodeGen::blocks`].
+#[derive(Debug)]
+struct Block<L> {
+    /// The [`Action`]s to execute.
+    actions: Box<[Action]>,
+    /// The [`Variable`] to check.
+    discriminant: Variable,
+    /// What to do if `discriminant` does not have its expected value.
+    cold: Cold<EBB<L>>,
+}
+
 /// The state of an algorithm that builds a list of [`Action`].
 #[derive(Debug)]
 pub struct CodeGen<'a, L: LookupLeaf> {
@@ -26,7 +37,7 @@ pub struct CodeGen<'a, L: LookupLeaf> {
     /// The list of [`Action`]s since the last [`Op::Guard`].
     actions: Vec<Action>,
     /// The list of basic blocks, each ending with an [`Op::Guard`].
-    blocks: Vec<(Vec<Action>, Variable, Cold<EBB<L::Leaf>>)>,
+    blocks: Vec<Block<L::Leaf>>,
 }
 
 impl<'a, L: LookupLeaf> CodeGen<'a, L> {
@@ -122,7 +133,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         let discriminant = self.read(df.ins(guard)[0]);
         let mut actions = Vec::new();
         std::mem::swap(&mut actions, &mut self.actions);
-        self.blocks.push((actions, discriminant, cold));
+        self.blocks.push(Block {actions: actions.into(), discriminant, cold});
     }
 
     pub fn finish(mut self, exit: &Exit, leaf: L::Leaf) -> EBB<L::Leaf> {
@@ -188,8 +199,8 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         }
 
         // Unwind the stack of `colds` and construct the final `EBB`.
-        let mut ebb = EBB {actions: self.actions, ending: Ending::Leaf(leaf)};
-        for (actions, discriminant, cold) in self.blocks.into_iter().rev() {
+        let mut ebb = EBB {actions: self.actions.into(), ending: Ending::Leaf(leaf)};
+        for Block {actions, discriminant, cold} in self.blocks.into_iter().rev() {
             ebb = EBB {actions, ending: Ending::Switch(discriminant, cold.finish(ebb))};
         };
         ebb

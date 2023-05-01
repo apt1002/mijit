@@ -146,7 +146,7 @@ impl Simulation {
     /// necessary. Returns a [`CFT`] and its total weight.
     fn walk<L: LookupLeaf>(mut self, dataflow: &mut Dataflow, ebb: &EBB<L::Leaf>, lookup_leaf: &L)
     -> (CFT<L::Leaf>, usize) {
-        for ref action in &ebb.actions {
+        for action in &*ebb.actions {
             self.action(dataflow, action);
         }
         match ebb.ending {
@@ -162,7 +162,7 @@ impl Simulation {
             Ending::Switch(discriminant, Switch {ref cases, ref default_}) => {
                 let guard = self.guard(dataflow, discriminant);
                 // Recurse on all branches and study the weights.
-                let (default_, mut hot_weight) = self.clone().walk(dataflow, &*default_, lookup_leaf);
+                let (default_, mut hot_weight) = self.clone().walk(dataflow, default_, lookup_leaf);
                 let mut hot_index = usize::MAX;
                 let mut total_weight = hot_weight;
                 let cases: Box<[_]> = cases.iter().enumerate().map(|(i, case)| {
@@ -185,7 +185,7 @@ impl Simulation {
 pub fn simulate<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
 -> (Dataflow, CFT<L::Leaf>) {
     let mut dataflow = Dataflow::new(before.live_values.len());
-    let simulation = Simulation::new(&dataflow, &before);
-    let (cft, _) = simulation.walk(&mut dataflow, &input, lookup_leaf);
+    let simulation = Simulation::new(&dataflow, before);
+    let (cft, _) = simulation.walk(&mut dataflow, input, lookup_leaf);
     (dataflow, cft)
 }

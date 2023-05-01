@@ -76,8 +76,8 @@ impl<C> Cold<C> {
     }
 
     /// Returns a [`Switch`] with a dummy value in place of the hot case.
-    pub fn debug<'a>(&'a self) -> Switch<impl 'a + Debug> where C: Debug {
-        self.map(|c| CaseAdapter::Cold(c)).finish(CaseAdapter::Hot)
+    pub fn debug(&self) -> Switch<impl '_ + Debug> where C: Debug {
+        self.map(CaseAdapter::Cold).finish(CaseAdapter::Hot)
     }
 }
 
@@ -137,7 +137,7 @@ impl<L: Clone> CFT<L> {
     }
 
     /// Returns an iterator over the exit [`Node`]s of `self`.
-    pub fn exits<'a>(&'a self) -> impl 'a + Iterator<Item=&'a Exit> {
+    pub fn exits(&self) -> impl '_ + Iterator<Item=&'_ Exit> {
         ExitIter(vec![self])
     }
 
@@ -147,11 +147,11 @@ impl<L: Clone> CFT<L> {
         let mut cft = self;
         let mut colds = HashMap::new();
         loop {
-            match cft {
-                &CFT::Merge {ref exit, ref leaf} => {
+            match *cft {
+                CFT::Merge {ref exit, ref leaf} => {
                     return (colds, exit, leaf.clone());
                 },
-                &CFT::Switch {guard, ref switch, hot_index} => {
+                CFT::Switch {guard, ref switch, hot_index} => {
                     let (hot, cold) = Cold::new(switch.map(|t| t), hot_index);
                     cft = hot;
                     colds.insert(guard, cold);

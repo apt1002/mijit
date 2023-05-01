@@ -126,7 +126,7 @@ impl Internals {
         lo.steal(&mut self[id].label, &mut here);
         self[id].label = here;
         // Compile `retire`.
-        lo.actions(&*retire.actions);
+        lo.actions(&retire.actions);
         let slots_used = *lo.slots_used_mut();
         assert_eq!(self.convention(retire.jump).slots_used, slots_used);
         if let Some(jump) = retire.jump {
@@ -164,7 +164,7 @@ impl Internals {
         lo.steal(&mut self[id].label, &mut here);
         self[id].label = here;
         // Compile `fetch`.
-        lo.actions(&*fetch.actions);
+        lo.actions(&fetch.actions);
         let slots_used = *lo.slots_used_mut();
         let check_child = |child: &Case| {
             assert_eq!(child.convention().slots_used, slots_used);
@@ -324,7 +324,7 @@ impl<T: Target> Engine<T> {
                     ending: Ending::Switch(
                         fetch.discriminant,
                         fetch.switch.map(|&jump| EBB {
-                            actions: Vec::new(),
+                            actions: Box::new([]),
                             ending: Ending::Leaf(jump),
                         },
                     )),

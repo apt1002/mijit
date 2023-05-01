@@ -33,7 +33,7 @@ pub fn build_block(callback: impl FnOnce(&mut Builder<()>)) -> Box<[Action]> {
 /// Represents everything that was built up to and including a [`guard()`].
 #[derive(Debug)]
 struct Guard<T> {
-    pub actions: Vec<Action>,
+    pub actions: Box<[Action]>,
     pub condition: Variable,
     pub expected: bool,
     pub if_fail: EBB<T>,
@@ -288,14 +288,19 @@ impl<T> Builder<T> {
     pub fn guard(&mut self, condition: impl Into<Variable>, expected: bool, if_fail: EBB<T>) {
         let mut actions = Vec::new();
         std::mem::swap(&mut actions, &mut self.actions);
-        self.guards.push(Guard {actions, condition: condition.into(), expected, if_fail});
+        self.guards.push(Guard {
+            actions: actions.into(),
+            condition: condition.into(),
+            expected,
+            if_fail,
+        });
     }
 
     /// Consume this `Builder` and return the finished `EBB`.
     /// Usually, you will prefer to call one of [`jump()`], [`index()`] or
     /// [`if_()`] which call this.
     pub fn ending(mut self, ending: Ending<T>) -> EBB<T> {
-        let mut ret = EBB {actions: self.actions, ending};
+        let mut ret = EBB {actions: self.actions.into(), ending};
         while let Some(Guard {actions, condition, expected, if_fail}) = self.guards.pop() {
             let switch = if expected {
                 Switch::if_(ret, if_fail)
@@ -345,4 +350,8 @@ impl<T> Builder<T> {
     ) -> EBB<T> {
         self.switch(condition, Switch::if_(if_true, if_false))
     }
+}
+
+impl<T> Default for Builder<T> {
+    fn default() -> Self { Self::new() }
 }

@@ -34,7 +34,7 @@ impl<C> Switch<C> {
 /// [extended basic block]: https://en.wikipedia.org/wiki/Extended_basic_block
 #[derive(Debug, Clone)]
 pub struct EBB<L> {
-    pub actions: Vec<Action>,
+    pub actions: Box<[Action]>,
     pub ending: Ending<L>,
 }
 
@@ -160,7 +160,7 @@ pub mod tests {
         // Emulate execution of `ebb`.
         pub fn ebb<L: Clone>(&mut self, mut ebb: &EBB<L>) -> L {
             loop {
-                for action in &ebb.actions {
+                for action in &*ebb.actions {
                     self.action(action);
                 }
                 match &ebb.ending {

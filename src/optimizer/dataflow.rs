@@ -88,7 +88,7 @@ impl Dataflow {
 
     /// Returns the [`Node`]s representing the values live on entry.
     pub fn inputs(&self) -> &[Node] {
-        &*self.inputs
+        &self.inputs
     }
 
     /// Returns the [`Info`] about `node`.

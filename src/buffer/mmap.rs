@@ -11,12 +11,10 @@ pub enum Mmap {
 }
 
 impl Mmap {
-    /// Make this [`Mmap`] executable, pass it to `callback`, then make it
-    /// writeable again.
+    /// Make this [`Mmap`] executable if necessary, and pass it to `callback`.
     ///
-    /// If we can't change the buffer permissions, you get an [`Err`] and the [`Mmap`]
-    /// is gone. T can itself be a Result if necessary to represent errors
-    /// returned by `callback`
+    /// Panics if it can't change the buffer permissions. In this case the
+    /// `Mmap` will be poisoned.
     pub fn execute<T>(&mut self, callback: impl FnOnce(&[u8]) -> T) -> T {
         let m: &mut MmapExec = self.as_mut();
         callback(&*m)
@@ -58,8 +56,8 @@ impl Deref for Mmap {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Mut(ref m) => &*m,
-            Self::Exec(ref m) => &*m,
+            Self::Mut(ref m) => m,
+            Self::Exec(ref m) => m,
             Self::Poisoned => panic!("Poisoned by an earlier error"),
         }
     }
