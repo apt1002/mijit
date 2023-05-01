@@ -1,4 +1,4 @@
-use super::{buffer, code, Patch, Label, Word, Pool, Lower, ExecuteFn, Execute, RESULT};
+use super::{buffer, code, Word, Patch, Label, Lower, ExecuteFn, Execute, RESULT};
 use buffer::{Mmap};
 
 mod enums;
@@ -36,7 +36,7 @@ impl super::Target for Target {
 
     const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
-    fn lowerer(&self, pool: super::Pool) -> Self::Lowerer {
-        Lowerer::new(pool)
+    fn lowerer(&self, globals: Box<[Word]>) -> Self::Lowerer {
+        Lowerer::new(globals)
     }
 }

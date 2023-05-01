@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{
     buffer, code,
-    Patch, Label, Word, Pool, RESULT,
+    Word, Patch, Label, RESULT,
     Assembler, Register, BinaryOp, ShiftOp, Condition, Width,
     CALLEE_SAVES, ARGUMENTS, RESULTS,
 };
@@ -14,7 +14,7 @@ use ShiftOp::*;
 
 //-----------------------------------------------------------------------------
 
-/// The constants that [`Lowerer`] requires to be in the [`Pool`].
+/// The constants that [`Lowerer`] requires to be in the [`Buffer`].
 pub const CONSTANTS: [Word; 8] = [
     Word {u: 0},
     Word {u: 0}, // unused
@@ -29,14 +29,14 @@ pub const CONSTANTS: [Word; 8] = [
 /// The address of zero.
 const ZERO_ADDRESS: usize = 0;
 
-/// The [`Register`] used for the pool pointer.
-const POOL: Register = R8;
+/// The [`Register`] used for the pointer to the array of [`Global`] values.
+const GLOBALS: Register = R8;
 
 /// The [`Register`] used as a temporary variable.
 const TEMP: Register = R12;
 
 /// The registers available for allocation. This omits:
-///  - `POOL`, which holds the pool base address.
+///  - `GLOBALS`, which holds the address of the array of [`Global`] values.
 ///  - `TEMP`, which is used as temporary workspace.
 // TODO: Write a test that compares this to `ALL_REGISTERS`.
 pub const ALLOCATABLE_REGISTERS: [Register; 13] =
@@ -110,20 +110,20 @@ impl From<code::Variable> for Value {
 pub struct Lowerer<B: Buffer> {
     /// The underlying [`Assembler`].
     a: Assembler<B>,
-    /// The [`Pool`].
-    pool: Pool,
+    /// The array of [`Global`] value.
+    globals: Box<[Word]>,
     /// The number of stack-allocated spill [`Slot`]s.
     slots_used: usize,
 }
 
 impl<B: Buffer> Lowerer<B> {
-    pub fn new(pool: Pool) -> Self {
+    pub fn new(globals: Box<[Word]>) -> Self {
         let mut a = Assembler::new();
         // Fill the first cache line with useful constants.
         for &word in &CONSTANTS {
             a.write_imm64(unsafe {word.s});
         }
-        Self {a, pool, slots_used: 0}
+        Self {a, globals, slots_used: 0}
     }
 
     /// Apply `callback` to the contained [`Assembler`].
@@ -190,7 +190,7 @@ impl<B: Buffer> Lowerer<B> {
 
     /// Returns the base and offset of `global`.
     fn global_address(&self, global: Global) -> (Register, i32) {
-        (POOL, (self.pool.index_of_global(global) * 8) as i32)
+        (GLOBALS, (global.0 * 8) as i32)
     }
 
     /// Returns the base and offset of `slot` in the stack-allocated data.
@@ -508,9 +508,9 @@ impl<B: Buffer> Lowerer<B> {
 //-----------------------------------------------------------------------------
 
 impl<B: Buffer> super::Lower for Lowerer<B> {
-    fn pool(&self) -> &Pool { &self.pool }
+    fn globals(&self) -> &[Word] { &self.globals }
 
-    fn pool_mut(&mut self) -> &mut Pool { &mut self.pool }
+    fn globals_mut(&mut self) -> &mut [Word] { &mut self.globals }
 
     fn slots_used_mut(&mut self) -> &mut usize { &mut self.slots_used }
 
@@ -532,7 +532,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         for &r in CALLEE_SAVES.iter().rev() {
             self.a.push(r);
         }
-        self.move_(POOL, ARGUMENTS[0]);
+        self.move_(GLOBALS, ARGUMENTS[0]);
     }
 
     fn epilogue(&mut self) {
@@ -660,14 +660,14 @@ impl super::Execute for Lowerer<Mmap> {
     fn execute<T>(
         &mut self,
         label: &Label,
-        callback: impl FnOnce(super::ExecuteFn, &mut Pool) -> T,
+        callback: impl FnOnce(super::ExecuteFn, &mut [Word]) -> T,
     ) -> T {
         let target = label.target().expect("Label is not defined");
-        let pool = &mut self.pool;
+        let globals = &mut self.globals;
         self.a.use_buffer(|b| {
             b.execute(|bytes| {
                 let f = unsafe { std::mem::transmute(&bytes[target]) };
-                callback(f, pool)
+                callback(f, globals)
             })
         })
     }
@@ -689,7 +689,7 @@ pub mod tests {
     #[test]
     fn allocatable_regs() {
         for &r in &ALLOCATABLE_REGISTERS {
-            assert_ne!(r, POOL);
+            assert_ne!(r, GLOBALS);
             assert_ne!(r, TEMP);
         }
     }
@@ -697,8 +697,8 @@ pub mod tests {
     /// Test that we can patch jumps and calls.
     #[test]
     fn steal() {
-        let pool = Pool::new(0);
-        let mut lo = Lowerer::<Vec<u8>>::new(pool);
+        let globals = Box::new([]);
+        let mut lo = Lowerer::<Vec<u8>>::new(globals);
         let start = lo.here().target().unwrap();
         let mut label = Label::new(None);
         lo.jump_if(Z, &mut label);
@@ -733,8 +733,8 @@ pub mod tests {
 
     #[test]
     fn shift_binary() {
-        let pool = Pool::new(0);
-        let mut lo = Lowerer::<Vec<u8>>::new(pool);
+        let globals = Box::new([]);
+        let mut lo = Lowerer::<Vec<u8>>::new(globals);
         let start = lo.here().target().unwrap();
         for (dest, src1, src2) in [
             (RA, RA, RA),

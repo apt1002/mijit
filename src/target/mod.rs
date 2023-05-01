@@ -1,7 +1,7 @@
 use super::{buffer, code};
 
-mod pool;
-pub use pool::{Word, Pool};
+mod word;
+pub use word::{Word};
 
 mod label;
 pub use label::{Patch, Label};
@@ -48,7 +48,7 @@ mod tests {
     impl VM {
         /// Constructs a `Native::Lowerer` and passes it to `compile()`.
         pub fn new(num_globals: usize, compile: impl FnOnce(&mut dyn Lower)) -> Self {
-            let mut lowerer = native().lowerer(Pool::new(num_globals));
+            let mut lowerer = native().lowerer(vec![Word {u: 0}; num_globals].into());
             let entry = lowerer.here();
             lowerer.prologue();
             compile(&mut lowerer);
@@ -59,13 +59,14 @@ mod tests {
         /// Calls the compiled code after setting the `Global`s to the specified
         /// values, and checks that the return value is `expected_result`.
         pub unsafe fn run(mut self, globals: &[Word], expected_result: Word) -> Self {
-            assert_eq!(globals.len(), self.lowerer.pool().num_globals());
+            assert_eq!(globals.len(), self.lowerer.globals().len());
             for (i, &global) in globals.iter().enumerate() {
-                self.lowerer.pool_mut()[Global(i)] = global;
+                self.lowerer.globals_mut()[i] = global;
             }
-            let observed_result = self.lowerer.execute(&self.entry, |f, pool| {
-                f(pool.as_mut().as_mut_ptr())
-            });
+            let observed_result = self.lowerer.execute(
+                &self.entry,
+                |f, globals| f(globals.as_mut_ptr())
+            );
             if observed_result != expected_result {
                 println!("globals = {:?}", globals);
                 println!("observed = {:?}", observed_result);

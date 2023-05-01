@@ -1,9 +1,10 @@
-use super::{code, Word, Pool, Patch, Label};
+use super::{code, Word, Patch, Label};
 use code::{Variable, Action};
 
 /// Wraps a contiguous block of executable memory, and provides methods for
-/// assembling machine code into it. Also wraps a [`Pool`] that can be accessed
-/// by the machine code.
+/// assembling machine code into it. Also wraps an array of [`Word`]s that can
+/// be accessed by the machine code, and which represents the values of the
+/// [`code::Global`]s.
 ///
 /// The low-level memory address of the executable memory will remain constant
 /// while the code is executing, but it could change at other times, e.g.
@@ -11,11 +12,11 @@ use code::{Variable, Action};
 /// absolute memory addresses. `Lower` itself always expresses addresses using
 /// [`Label`].
 pub trait Lower {
-    /// The [`Pool`].
-    fn pool(&self) -> &Pool;
+    /// The array of [`code::Global`] values.
+    fn globals(&self) -> &[Word];
 
-    /// The [`Pool`].
-    fn pool_mut(&mut self) -> &mut Pool;
+    /// The array of [`code::Global`] values.
+    fn globals_mut(&mut self) -> &mut [Word];
 
     /// The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
     /// by [`Push`] instructions and destroyed by [`Drop`] instructions.
@@ -62,11 +63,11 @@ pub trait Lower {
     fn jump(&mut self, label: &mut Label);
 
     /// Assemble Mijit's function prologue. The function takes one argument:
-    ///  - The pool pointer.
+    /// - The pointer to the array of [`code::Global`] values.
     fn prologue(&mut self);
 
     /// Assemble Mijit's function epilogue. The function returns one result:
-    ///  - The exit code, which is moved from [`RESULT`].
+    /// - The exit code, which is moved from [`RESULT`].
     ///
     /// [`RESULT`]: super::RESULT
     fn epilogue(&mut self);
@@ -100,16 +101,16 @@ pub trait Lower {
 
 /// The type of the generated code.
 pub type ExecuteFn = unsafe extern "C" fn(
-    /* pool */ *mut Word,
+    /* globals */ *mut Word,
 ) -> /* result */ Word;
 
 /// Add to [`Lower`] the ability to execute the compiled code.
 pub trait Execute: Sized + Lower {
     /// Make the memory backing `self` executable, and pass the code at `label`
-    /// and the words of the [`Pool`] to `callback`.
+    /// and the array of [`code::Global`] values to `callback`.
     ///
     /// `callback` is typically something like
-    /// `|f, pool| f(pool.as_mut().as_mut_ptr())`.
+    /// `|f, globals| f(globals.as_mut_ptr())`.
     ///
     /// # Panics
     ///
@@ -117,7 +118,7 @@ pub trait Execute: Sized + Lower {
     fn execute<T>(
         &mut self,
         label: &Label,
-        callback: impl FnOnce(ExecuteFn, &mut Pool) -> T,
+        callback: impl FnOnce(ExecuteFn, &mut [Word]) -> T,
     ) -> T;
 }
 
@@ -137,6 +138,6 @@ pub trait Target: Default {
     const NUM_REGISTERS: usize;
 
     /// Construct a [`Self::Lowerer`].
-    /// - `pool` - The per-VM pool of memory.
-    fn lowerer(&self, pool: Pool) -> Self::Lowerer;
+    /// - `globals` - The per-VM array of [`code::Global`] values.
+    fn lowerer(&self, globals: Box<[Word]>) -> Self::Lowerer;
 }

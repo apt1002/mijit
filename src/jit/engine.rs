@@ -3,7 +3,7 @@ use std::ops::{Index, IndexMut};
 use std::marker::{PhantomData};
 
 use crate::util::{AsUsize};
-use super::target::{Label, Word, Pool, Lower, Execute, Target, RESULT};
+use super::target::{Label, Word, Lower, Execute, Target, RESULT};
 use super::code::{Precision, Global, Variable, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
 use super::optimizer::{LookupLeaf, optimize};
 use Precision::*;
@@ -223,8 +223,8 @@ impl<T: Target> Engine<T> {
     ///  - num_globals - the number of [`Global`]s needed to pass values to and
     ///    from the compiled code.
     pub fn new(target: T, num_globals: usize) -> Self {
-        let pool = Pool::new(num_globals);
-        let lowerer = target.lowerer(pool);
+        let globals = vec![Word {u: 0}; num_globals].into();
+        let lowerer = target.lowerer(globals);
         let i = Internals {
             convention: Convention::empty(num_globals),
             cases: Vec::new(),
@@ -234,7 +234,7 @@ impl<T: Target> Engine<T> {
 
     /// Borrows the value of variable `global`.
     pub fn global_mut(&mut self, global: Global) -> &mut Word {
-        &mut self.lowerer.pool_mut()[global]
+        &mut self.lowerer.globals_mut()[global.0]
     }
 
     /// Define the code for case `id`.
@@ -355,17 +355,18 @@ impl<T: Target> Engine<T> {
         }
     }
 
-    /// Call the compiled code starting at `label`, passing the [`Pool`].
+    /// Call the compiled code starting at `label`, passing the array of
+    /// [`Global`] values.
     ///
     /// # Safety
     ///
     /// This will crash if the code is compiled for the wrong [`Target`] or if
     /// the code is invalid.
     pub unsafe fn run(&mut self, label: &Label) -> Word {
-        self.lowerer.execute(label, |f, pool| {
-            let pool = pool.as_mut().as_mut_ptr();
+        self.lowerer.execute(label, |f, globals| {
+            let globals = globals.as_mut_ptr();
             // Here is a good place to set a debugger breakpoint.
-            f(pool)
+            f(globals)
         })
     }
 }
