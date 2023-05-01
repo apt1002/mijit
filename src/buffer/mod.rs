@@ -18,7 +18,7 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
     fn resize(&mut self, min_length: usize);
 
     /// Writes a single byte at `pos`.
-    /// Writes beyond [`len()`] resize the buffer to a power-of-two length.
+    /// Writes beyond the end of the buffer resize it to a power-of-two length.
     fn write_byte(&mut self, pos: usize, byte: u8) {
         if pos >= self.len() {
             self.resize(std::cmp::max(pos + 1, 0x1000).checked_next_power_of_two().unwrap());
@@ -28,6 +28,8 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
 
     /// Writes up to 8 bytes at `pos`, as if using [`write_byte()`] repeatedly,
     /// incrementing `pos` after each call.
+    ///
+    /// [`write_byte()`]: Self::write_byte
     fn write(&mut self, pos: usize, mut bytes: u64, len: usize) {
         assert!(len <= 8);
         for i in 0..len {
@@ -37,7 +39,7 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
         assert_eq!(bytes, 0);
     }
 
-    /// Reads a single byte. Reading beyond [`len()`] gives `0`.
+    /// Reads a single byte. Reading beyond the end of the buffer gives `0`.
     fn read_byte(&self, pos: usize) -> u8 {
         if pos < self.len() {
             self[pos]
@@ -47,6 +49,8 @@ pub trait Buffer: Sized + DerefMut<Target=[u8]> {
     }
 
     /// Reads up to 8 bytes, as if using [`read_byte()`] repeatedly.
+    ///
+    /// [`read_byte()`]: Self::read_byte
     fn read(&self, pos: usize, len: usize) -> u64 {
         assert!(len <= 8);
         let mut bytes: u64 = 0;

@@ -183,14 +183,15 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /// Constructs a (Register, Offset) pair representing `base + offset`.
+    /// `offset` must be 8-byte aligned.
     /// Corrupts `temp`.
-    fn address(&mut self, width: Width, base: Register, offset: u64, temp: Register) -> (Register, Offset) {
-        if let Ok(imm) = Offset::new(width, offset) {
+    fn address(&mut self, base: Register, offset: u64, temp: Register) -> (Register, Offset) {
+        if let Ok(imm) = Offset::new(Width::Eight, offset) {
             // `offset` fits in an immediate constant.
             (base, imm)
         } else {
             // `offset` needs to be constructed.
-            let imm_bits = 12 + (width as u64);
+            let imm_bits = 12 + (Width::Eight as u64);
             let offset_high = offset >> imm_bits;
             let offset_low = offset - (offset_high << imm_bits);
             let imm = Offset::new(Width::Eight, offset_low).expect("Cannot encode offset");
@@ -201,9 +202,9 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /// Access 8 bytes at `address`, which must be 8-byte aligned.
-    /// Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `dest`.
+    /// Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `data`.
     fn mem(&mut self, op: MemOp, data: Register, address: (Register, u64), temp: Register) {
-        let address = self.address(Width::Eight, address.0, address.1, temp);
+        let address = self.address(address.0, address.1, temp);
         self.a.mem(op, data, address);
     }
 

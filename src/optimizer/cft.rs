@@ -27,8 +27,7 @@ impl<C: Debug> Debug for CaseAdapter<C> {
 /// information needed to combine them with the hot branch to reconstruct the
 /// whole [`Switch`].
 ///
-/// This is used in the return types of [`Switch::remove_hot()`] and
-/// [`CFT::hot_path()`].
+/// This is used in the return type of [`CFT::hot_path()`].
 #[derive(Clone, PartialEq, Eq)]
 pub struct Cold<C> {
     /// The index of the most probable case, or `usize::MAX`.
@@ -97,8 +96,12 @@ impl<C: Debug> Debug for Cold<C> {
 /// Code will be considered dead unless it contributes to one of these goals.
 #[derive(Debug, Clone)]
 pub struct Exit {
-    /// The last [`Op::Guard`], [Op::Store] or [`Op::Debug`], if any.
+    /// The last [`Guard`], [`Store`] or [`Debug`], if any.
     /// This must be executed before exiting.
+    ///
+    /// [`Guard`]: super::Op::Guard
+    /// [`Store`]: super::Op::Store
+    /// [`Debug`]: super::Op::Debug
     pub sequence: Option<Node>,
     /// The `Node` which computes each of the live variables.
     /// These must be computed before exiting, and must remain alive.
@@ -115,7 +118,9 @@ pub enum CFT<L: Clone> {
         leaf: L,
     },
     Switch {
-        /// The [`Op::Guard`] that discriminates the cases.
+        /// The [`Guard`] that discriminates the cases.
+        ///
+        /// [`Guard`]: super::Op::Guard
         guard: Node,
         /// The control-flow decision.
         switch: Switch<CFT<L>>,
@@ -136,13 +141,13 @@ impl<L: Clone> CFT<L> {
         CFT::Switch {guard, switch, hot_index}
     }
 
-    /// Returns an iterator over the exit [`Node`]s of `self`.
+    /// Returns an iterator over the [`Exit`]s of `self`.
     pub fn exits(&self) -> impl '_ + Iterator<Item=&'_ Exit> {
         ExitIter(vec![self])
     }
 
     /// Follows the hot path through `self`.
-    /// Returns the [`Colds`]es and the exit [`Node`].
+    /// Returns the [`Cold`]s and the [`Exit`].
     pub fn hot_path(&self) -> (HashMap<Node, Cold<&Self>>, &Exit, L) {
         let mut cft = self;
         let mut colds = HashMap::new();
@@ -163,6 +168,7 @@ impl<L: Clone> CFT<L> {
 
 //-----------------------------------------------------------------------------
 
+/// The return type of [`CFT::exits`].
 struct ExitIter<'a, L: Clone>(Vec<&'a CFT<L>>);
 
 impl<'a, L: Clone> Iterator for ExitIter<'a, L> {

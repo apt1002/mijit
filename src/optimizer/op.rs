@@ -2,8 +2,8 @@ use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Actio
 
 /// Annotates a [`Node`] of a [`Dataflow`] graph.
 ///
-/// `Node`: super::Node
-/// `Dataflow`: super::Dataflow
+/// [`Node`]: super::Node
+/// [`Dataflow`]: super::Dataflow
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Op {

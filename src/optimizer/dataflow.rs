@@ -44,7 +44,7 @@ impl<'a> Debug for NodeAdapter<'a> {
 struct Info {
     /// What kind of operation the `Node` represents.
     op: Op,
-    /// A cache of [`Dataflow::op_cost(op)`].
+    /// A cache of [`Dataflow::cost`]`(op)`.
     cost: &'static Cost,
     /// The index in [`Dataflow::deps`] after the last dep of the `Node`.
     end_dep: usize,
@@ -101,7 +101,7 @@ impl Dataflow {
         self.info(node).op
     }
 
-    /// Equivalent to `op_cost(self.op(node))` but faster.
+    /// Equivalent to [`op_cost`]`(self.op(node))` but faster.
     pub fn cost(&self, node: Node) -> &'static Cost {
         self.info(node).cost
     }
@@ -117,7 +117,7 @@ impl Dataflow {
         &self.deps[start_dep .. self.info(node).end_dep]
     }
 
-    /// Returns the [`Nodes`]s which compute the inputs of `node`.
+    /// Returns the [`Node`]s which compute the inputs of `node`.
     pub fn ins(&self, node: Node) -> &[Node] {
         let start_in = self.prev(node).map_or(0, |prev| prev.end_in);
         &self.ins[start_in .. self.info(node).end_in]
@@ -128,6 +128,7 @@ impl Dataflow {
         self.cost(node).output_latency.is_some()
     }
 
+    /// Construct a [`Node`] and append it to the graph.
     pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Node]) -> Node {
         let node = Node::new(self.nodes.len()).unwrap();
         self.deps.extend(deps);

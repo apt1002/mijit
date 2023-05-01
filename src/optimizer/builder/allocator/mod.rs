@@ -34,7 +34,7 @@ impl Debug for Instruction {
 //-----------------------------------------------------------------------------
 
 /// The state of the code generation algorithm. The state is mutated as
-/// [`Instruction`]s are added, in the order specified by a [`Schedule`].
+/// [`Instruction`]s are added.
 #[derive(Debug)]
 struct Allocator<'a> {
     /// The dataflow graph.
@@ -50,9 +50,9 @@ struct Allocator<'a> {
     read_times: HashMap<Node, Time>,
     /// The `Time` at which each `Node`'s result became available.
     write_times: HashMap<Node, Time>,
-    /// The `Time` at which each [`Node`] was executed.
+    /// The `Time` at which each `Node` was executed.
     node_times: HashMap<Node, Time>,
-    /// The contents of each `Register` at the current time.
+    /// The contents of each [`Register`] at the current time.
     regs: ArrayMap<Register, Option<Node>>,
     /// The `Register` allocator state.
     pool: RegisterPool,
@@ -229,13 +229,15 @@ impl<'a> Allocator<'a> {
 /// - dataflow - the dataflow graph.
 /// - nodes - the [`Node`]s that need to be executed on the hot path,
 ///   topologically sorted.
-/// - get_keep_alives - for [`Op::Guard`] `Node`s, returns the dataflow
+/// - get_keep_alives - for [`Guard`] `Node`s, returns the dataflow
 ///   dependencies of the cold paths.
 /// - outputs - the [`Node`]s that are live on exit.
 ///
 /// Returns:
 /// - instructions - the execution order.
 /// - allocation - which `Register` holds each `Node`'s result.
+///
+/// [`Guard`]: super::Op::Guard
 pub fn allocate<'a>(
     effects: &HashSet<Node>,
     variables: &HashMap<Node, Variable>,

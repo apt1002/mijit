@@ -19,7 +19,8 @@ struct Block<L> {
     cold: Cold<EBB<L>>,
 }
 
-/// The state of an algorithm that builds a list of [`Action`].
+/// The state of an algorithm that builds an [`EBB`] given `EBB`s for the cold
+/// paths.
 #[derive(Debug)]
 pub struct CodeGen<'a, L: LookupLeaf> {
     /// The [`Dataflow`] graph of the code.
@@ -126,6 +127,9 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         self.actions.push(Op::to_action(df.op(n), out, &ins));
     }
 
+    /// Generate an `Ending::Switch` to execute `guard`.
+    ///
+    /// - cold - What happens if `guard` fails.
     pub fn add_guard(&mut self, guard: Node, cold: Cold<EBB<L::Leaf>>) {
         let df = self.dataflow;
         assert_eq!(df.op(guard), Op::Guard);
@@ -136,6 +140,8 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         self.blocks.push(Block {actions: actions.into(), discriminant, cold});
     }
 
+    /// Generate an `Ending::Leaf` to fulfil `exit` and merge with `leaf`.
+    /// Returns the finished [`EBB`].
     pub fn finish(mut self, exit: &Exit, leaf: L::Leaf) -> EBB<L::Leaf> {
         // Work out which live values need to be moved where.
         let after = self.lookup_leaf.after(&leaf);

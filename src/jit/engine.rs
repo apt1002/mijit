@@ -281,7 +281,7 @@ impl<T: Target> Engine<T> {
 
     /// Construct an entry to this [`Engine`]. Initially, the code at the
     /// entry will immediately return `exit_value`. To change this behaviour,
-    /// use [`build()`].
+    /// use [`Self::build()`].
     ///
     ///  - marshal.prologue - executed on every entry to the compiled code.
     ///  - marshal.epilogue - executed on every exit from the compiled code.

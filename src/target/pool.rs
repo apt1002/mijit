@@ -57,6 +57,8 @@ impl Pool {
 
     /// The number of [`Global`]s that persist when Mijit is not running.
     /// This is the value passed to [`Target::lowerer()`].
+    ///
+    /// [`Target::lowerer()`]: super::Target::lowerer
     pub fn num_globals(&self) -> usize { self.num_globals }
 
     /// The position in the pool of the given [`Global`].

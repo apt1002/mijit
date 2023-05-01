@@ -11,7 +11,7 @@ use Register::*;
 //-----------------------------------------------------------------------------
 
 /// Computes the displacement from `from` to `to`.
-pub fn disp(from: usize, to: usize) -> i64 {
+fn disp(from: usize, to: usize) -> i64 {
     if from > i64::MAX as usize || to > i64::MAX as usize {
         panic!("Displacements greater than isize::MAX are not supported");
     }
@@ -31,7 +31,9 @@ fn signed(x: i64, bits: usize) -> Option<u32> {
 /// Computes a bitmask representing the offset from [`get_pos()`] to
 /// `target`. Returns a dummy value if the target is `None`. Returns `None`
 /// if the offset is not encodable.
-pub fn jump_offset(from: usize, to: Option<usize>, bits: usize) -> Option<u32> {
+///
+/// [`get_pos()`]: Assembler::get_pos
+fn jump_offset(from: usize, to: Option<usize>, bits: usize) -> Option<u32> {
     match to {
         Some(to) => {
             let offset = disp(from, to);
@@ -231,6 +233,8 @@ impl<B: Buffer> Assembler<B> {
     ///
     /// The [`Width`] is taken from the [`Offset`]. Some combinations of `op`
     /// and `Width` make no sense, and this method will panic in those cases.
+    ///
+    /// [`Width`]: code::Width
     pub fn mem(&mut self, op: MemOp, data: Register, address: (Register, Offset)) {
         let (base, offset) = address;
         let width = offset.width();
@@ -268,9 +272,7 @@ impl<B: Buffer> Assembler<B> {
     /// Assembles an instruction that does `dest <- src ± constant`. `dest` or `src`
     /// can be `RSP` but not `RZR`.
     ///  - prec - `P32` to zero-extend the result from 32 bits.
-    ///    flags.
-    ///  - constant - A 12-bit unsigned integer. This method will panic if the
-    ///    constant is not encodable.
+    ///  - constant - A 12-bit unsigned integer.
     pub fn const_add(&mut self, op: AddOp, prec: Precision, dest: Register, src: Register, constant: Unsigned<12>) {
         let mut opcode = 0x11000000;
         opcode |= constant.as_u32() << 10;

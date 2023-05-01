@@ -58,8 +58,7 @@ pub fn optional_disp32(from: usize, to: Option<usize>) -> i32 {
 ///  - Variants of [`const_()`], [`load()`], and [`store()`], which assemble
 ///  `MOV` instructions.
 ///  - Variants of [`op()`], which assemble arithmetic instructions, including
-///  `CMP` instructions. For now, only 32-bit arithmetic operations are
-///  supported.
+///  `CMP` instructions.
 ///  - [`jump_if()`], [`ret()`], and variants of [`jump()`] and [`call()`],
 ///  which assemble control-flow instructions.
 ///  - [`push()`] and [`pop()`], which assemble `PUSH` and `POP` instructions.
@@ -388,6 +387,7 @@ impl<B: Buffer> Assembler<B> {
         self.buffer.write(at, optional_disp32(at + 4, new_target) as u32 as u64, 4);
     }
 
+    /// Return from subroutine.
     pub fn ret(&mut self) {
         self.write_ro_0(0xC340);
     }

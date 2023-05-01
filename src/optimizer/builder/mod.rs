@@ -8,13 +8,13 @@ mod fill;
 use fill::{Frontier, Fill, with_fill};
 
 mod allocator;
-pub use allocator::{Instruction, allocate};
+use allocator::{Instruction, allocate};
 
 mod moves;
-pub use moves::{moves};
+use moves::{moves};
 
 mod codegen;
-pub use codegen::{CodeGen};
+use codegen::{CodeGen};
 
 //-----------------------------------------------------------------------------
 
@@ -64,9 +64,10 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
     ///   executed before the guard from which the `HotPathTree` diverges. On
     ///   entry and exit all [`Node`]s must be unmarked.
     /// - `cft` - the code to optimise.
-    /// - slots_used - the number of [`Slot`]s on entry to the code.
-    /// - lookup_input - called once for each input to the code. It
+    /// - `slots_used` - the number of [`Slot`]s on entry to the code.
+    /// - `lookup_input` - called once for each input to the code. It
     ///   returns the [`Variable`] that holds it.
+    /// - `lookup_guard` - returns the `GuardFailure` for an [`Op::Guard`]
     ///
     /// [`Slot`]: code::Slot
     pub fn walk<'w, 'f>(
@@ -150,6 +151,12 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
     }
 }
 
+/// Convert `cft` into an [`EBB`].
+///
+/// - `before` - the [`Convention`] on entry to `cft`.
+/// - `dataflow` - the [`Dataflow`] dependencies of `cft`.
+/// - `cft` - the control-flow tree to convert.
+/// - `lookup_leaf` - looks up properties of the leaves of `cft`.
 pub fn build<L: LookupLeaf>(
     before: &Convention,
     dataflow: &Dataflow,

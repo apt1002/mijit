@@ -25,6 +25,7 @@ pub trait Lower {
     /// Do not mutate the number of spill slots (other that using `Push` and
     /// `Drop`) when the current assembly address is reachable.
     ///
+    /// [`Slot`]: code::Slot
     /// [`Push`]: Action::Push
     /// [`Drop`]: Action::Drop
     fn slots_used_mut(&mut self) -> &mut usize;
@@ -65,7 +66,9 @@ pub trait Lower {
     fn prologue(&mut self);
 
     /// Assemble Mijit's function epilogue. The function returns one result:
-    ///  - The exit code, which is moved from `RESULT`.
+    ///  - The exit code, which is moved from [`RESULT`].
+    ///
+    /// [`RESULT`]: super::RESULT
     fn epilogue(&mut self);
 
     /// Assemble code that branches to `eq_label` if the equality test passes.
@@ -102,15 +105,15 @@ pub type ExecuteFn = unsafe extern "C" fn(
 
 /// Add to [`Lower`] the ability to execute the compiled code.
 pub trait Execute: Sized + Lower {
-    /// Make the memory backing `self` executable, pass the code at `label` and
-    /// the words of the [`Pool`] to `callback`, then make the memory writeable
-    /// (and not executable) again.
+    /// Make the memory backing `self` executable, and pass the code at `label`
+    /// and the words of the [`Pool`] to `callback`.
     ///
     /// `callback` is typically something like
     /// `|f, pool| f(pool.as_mut().as_mut_ptr())`.
     ///
-    /// If we can't change the memory permissions, you get an [`Err`] and `self`
-    /// is gone.
+    /// # Panics
+    ///
+    /// If we can't change the memory permissions.
     fn execute<T>(
         &mut self,
         label: &Label,
@@ -133,9 +136,7 @@ pub trait Target: Default {
     /// The number of registers available for allocation.
     const NUM_REGISTERS: usize;
 
-    /// Construct a [`Lowerer`] for this `Target`.
-    ///  - `pool` - The per-VM pool of memory.
-    ///  - `code_size` - The amount of memory to allocate for executable code.
-    // TODO: Remove `code_size` and make the lowerer auto-extend its buffer.
+    /// Construct a [`Self::Lowerer`].
+    /// - `pool` - The per-VM pool of memory.
     fn lowerer(&self, pool: Pool) -> Self::Lowerer;
 }

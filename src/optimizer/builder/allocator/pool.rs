@@ -17,10 +17,7 @@ pub struct RegisterPool {
 }
 
 impl RegisterPool {
-    /// Initialise a `RegisterPool` with specified dirty [`Value`]s.
-    /// Non-Registers are ignored.
-    ///
-    /// [`Value`]: super::code::Value
+    /// Initialise a `RegisterPool` with specified dirty bits.
     pub fn new(dirty: ArrayMap<Register, bool>) -> Self {
         // Enumerate the clean registers.
         let mut clean = Vec::with_capacity(NUM_REGISTERS);

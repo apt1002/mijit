@@ -31,6 +31,8 @@ pub fn build_block(callback: impl FnOnce(&mut Builder<()>)) -> Box<[Action]> {
 //-----------------------------------------------------------------------------
 
 /// Represents everything that was built up to and including a [`guard()`].
+///
+/// [`guard()`]: Builder::guard
 #[derive(Debug)]
 struct Guard<T> {
     pub actions: Box<[Action]>,
@@ -59,7 +61,7 @@ use Increment::*;
 
 /// A utility for building [`EBB`]s. `T` is usually [`EntryId`].
 ///
-/// [`EntryId`]: mijit::jit::EntryId
+/// [`EntryId`]: crate::jit::EntryId
 #[derive(Debug)]
 pub struct Builder<T> {
     /// All [`Action`]s generated since the last call to `guard()`, if any.
@@ -284,7 +286,7 @@ impl<T> Builder<T> {
 
     /// Assemble code to check that `condition` is `expected`, and if not, to
     /// abort by running `if_fail`.
-    /// See also [`if_()`] which is more symmetrical.
+    /// See also [`Self::if_()`] which is more symmetrical.
     pub fn guard(&mut self, condition: impl Into<Variable>, expected: bool, if_fail: EBB<T>) {
         let mut actions = Vec::new();
         std::mem::swap(&mut actions, &mut self.actions);
@@ -297,8 +299,8 @@ impl<T> Builder<T> {
     }
 
     /// Consume this `Builder` and return the finished `EBB`.
-    /// Usually, you will prefer to call one of [`jump()`], [`index()`] or
-    /// [`if_()`] which call this.
+    /// Usually, you will prefer to call one of [`Self::jump()`],
+    /// [`Self::index()`] or [`Self::if_()`] which call this.
     pub fn ending(mut self, ending: Ending<T>) -> EBB<T> {
         let mut ret = EBB {actions: self.actions.into(), ending};
         while let Some(Guard {actions, condition, expected, if_fail}) = self.guards.pop() {
@@ -320,8 +322,8 @@ impl<T> Builder<T> {
 
     /// Assembles code to select a continuation based on `switch`.
     /// Equivalent to `ending(Ending::Switch(switch))`.
-    /// Usually, you will prefer to call one of [`index()`] or [`if_()`] which
-    /// call this.
+    /// Usually, you will prefer to call one of [`Self::index()`] or
+    /// [`Self::if_()`] which call this.
     pub fn switch(self, discriminant: impl Into<Variable>, switch: Switch<EBB<T>>) -> EBB<T> {
         self.ending(Ending::Switch(discriminant.into(), switch))
     }

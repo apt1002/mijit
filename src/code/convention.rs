@@ -17,12 +17,17 @@ pub struct Convention {
     /// The values that are live on entry.
     pub live_values: Box<[Variable]>,
     /// The number of spill [`Slot`]s used by the `Convention`.
+    ///
+    /// [`Slot`]: super::Slot
     pub slots_used: usize,
 }
 
 impl Convention {
     /// Returns a [`Convention`] with no [`Slot`]s, no live [`Register`]s, and the
     /// specified number of [`Global`]s.
+    ///
+    /// [`Slot`]: super::Slot
+    /// [`Register`]: super::Register
     pub fn empty(num_globals: usize) -> Self {
         Self {
             live_values: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
@@ -48,6 +53,8 @@ pub struct Propagator {
     /// The [`Variable`]s that are live.
     live_variables: HashSet<Variable>,
     /// The number of spill [`Slot`]s that are allocated.
+    ///
+    /// [`Slot`]: super::Slot
     slots_used: usize,
 }
 

@@ -5,7 +5,7 @@ use code::{Global, Marshal, EBB};
 
 // EntryId.
 array_index! {
-    /// Identifies an entry point of an [`Engine`].
+    /// Identifies an entry point of an [`Jit`].
     #[derive(Copy, Clone, Hash, PartialEq, Eq)]
     pub struct EntryId(std::num::NonZeroUsize) {
         debug_name: "EntryId",

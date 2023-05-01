@@ -12,8 +12,8 @@ pub use traits::{Lower, ExecuteFn, Execute, Target};
 pub mod x86_64;
 pub mod aarch64;
 
-/// The [`Register`] which holds the exit code on exit from Mijit.
-/// This is guaranteed to be [`REGISTERS`][[`0`]].
+/// The [`code::Register`] which holds the exit code on exit from Mijit.
+/// This is guaranteed to be [`code::REGISTERS`]`[[0]]`.
 pub const RESULT: code::Register = code::REGISTERS[0];
 
 #[cfg(target_arch="x86_64")]

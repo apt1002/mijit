@@ -21,7 +21,7 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    /// Constructs an initial [`State`] representing the entry point of
+    /// Constructs an initial [`Simulation`] representing the entry point of
     /// `dataflow`, which obeys `before`.
     fn new(dataflow: &Dataflow, before: &Convention) -> Self {
         assert_eq!(dataflow.inputs().len(), before.live_values.len());
@@ -61,7 +61,7 @@ impl Simulation {
 
     /// Returns a [`Node`] representing `op` applied to `ins`.
     /// Side-effect dependencies are deduced from `op`.
-    /// Binds `outs` to the `Node`'s outputs.
+    /// Binds `out` to the `Node`'s output, if any.
     fn op(
         &mut self,
         dataflow: &mut Dataflow,

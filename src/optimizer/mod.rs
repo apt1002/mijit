@@ -6,25 +6,25 @@ use code::{Switch, EBB, Convention};
 //-----------------------------------------------------------------------------
 
 mod op;
-pub use op::{Op};
+use op::{Op};
 
 mod resources;
-pub use resources::{Resources};
+use resources::{Resources};
 
 mod cost;
-pub use cost::{BUDGET, SPILL_COST, SLOT_COST, Cost, op_cost};
+use cost::{Cost, op_cost};
 
 mod dataflow;
-pub use dataflow::{Dataflow, Node};
+use dataflow::{Dataflow, Node};
 
 mod cft;
-pub use cft::{Cold, Exit, CFT};
+use cft::{Cold, Exit, CFT};
 
 mod simulation;
-pub use simulation::{Simulation, simulate};
+use simulation::{simulate};
 
 mod builder;
-pub use builder::{build};
+use builder::{build};
 
 /// Look up information about a control-flow merge point.
 pub trait LookupLeaf {

@@ -13,13 +13,14 @@ impl Patch {
 
 /// Represents a possibly unknown control-flow target, and accumulates a
 /// set of instructions that jump to it. Undefined `Label`s can be resolved
-/// using `Lowerer::define()`. The instructions that jump to a `Label`
-/// can be redirected to another `Label` using `Lowerer::steal()`.
+/// using [`define()`]. The instructions that jump to a `Label`
+/// can be redirected to another `Label` using [`steal()`].
 ///
 /// There may be more than one `Label` targeting the same address; each can
 /// be [`steal()`]ed separately. Each control-flow instruction targets
 /// exactly one `Label`.
 ///
+/// [`define()`]: super::Lower::define
 /// [`steal()`]: super::Lower::steal
 #[derive(Debug)]
 pub struct Label {
@@ -32,7 +33,7 @@ impl Label {
     ///  - target - the low-level target address of the `Label`, if known,
     ///    expressed as a byte offset into the compiled code.
     ///
-    /// [here()]: super::Lower::here
+    /// [`here()`]: super::Lower::here
     pub fn new(target: Option<usize>) -> Self {
         Label {target, patches: Vec::new()}
     }

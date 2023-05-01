@@ -1,5 +1,4 @@
 use super::{Op, Resources};
-pub use Op::*;
 
 /// The CPU resources available per cycle. The different resources are as
 /// follows (modelled on Skylake):
@@ -14,10 +13,12 @@ pub use Op::*;
 /// to most significant.
 pub const BUDGET: Resources = Resources::new(0x1412316);
 
-/// The resources needed to spill a [`Node`].
+/// The resources needed to spill a value.
 pub const SPILL_COST: Resources = Resources::new(0x0010202);
 
 /// The additional resources needed per operand that is a [`Slot`].
+///
+/// [`Slot`]: super::code::Slot
 pub const SLOT_COST: Resources = Resources::new(0x0001100);
 
 //-----------------------------------------------------------------------------

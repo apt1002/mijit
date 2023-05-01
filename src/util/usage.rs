@@ -49,6 +49,8 @@ impl<T: Clone + Hash + Eq> Usage<T> {
     }
 
     /// Removes the most recently [`push()`]ed item, if any.
+    ///
+    /// [`push()`]: Self::push
     pub fn pop(&mut self) -> Option<T> {
         self.ts.pop().map(|(t, prev)| {
             let top = if let Some(mut top) = prev {

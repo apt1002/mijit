@@ -26,9 +26,13 @@ pub enum Action {
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
     /// If either `src` is `None`, push a dead value.
     /// Note that this creates two [`Slot`]s.
+    ///
+    /// [`Slot`]: super::Slot
     Push(Option<Variable>, Option<Variable>),
     /// sp <- sp + 16*n
     /// Note that this drops `2*n` [`Slot`]s.
+    ///
+    /// [`Slot`]: super::Slot
     Drop(usize),
     /// Pass `src` to [`debug_word()`].
     Debug(Variable),

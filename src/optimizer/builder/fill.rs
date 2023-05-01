@@ -3,7 +3,7 @@ use std::collections::{HashSet};
 use super::{Dataflow, Node, Exit};
 use crate::util::{ArrayMap};
 
-/// Ways in which the marked [`Node`]s of a [`Fill`] depends on its boundary.
+/// Ways in which the marked [`Node`]s of a [`Fill`] depend on its boundary.
 #[derive(Debug, Clone, Default)]
 pub struct Frontier {
     /// The side-effects depended on by the nodes but not performed by them.
@@ -72,29 +72,32 @@ impl<'a> Fill<'a> {
         self[node] < self.marker
     }
 
-    /// Find and mark all dependencies of `effect`.
+    /// Mark `effect` and all its dependencies.
     pub fn effect(&mut self, effect: Node) {
         if self.visit(effect) {
             self.frontier.effects.insert(effect);
         }
     }
 
-    /// Find and mark all dependencies of `input`.
+    /// Mark `input` and all its dependencies.
     pub fn input(&mut self, in_: Node) {
         if self.visit(in_) {
             self.frontier.inputs.insert(in_);
         }
     }
 
-    /// Find and mark all dependencies of `Exit`.
+    /// Mark all dependencies of `Exit`.
     pub fn exit(&mut self, exit: &Exit) {
         if let Some(node) = exit.sequence { self.effect(node); }
         for &node in &*exit.outputs { self.input(node); }
     }
 
     /// Call [`effect`] on each of `frontier.effects` and [`input`] on each of
-    /// `frontier.inputs`. This method can be used to resume a flood fill with a
-    /// smaller boundary set.
+    /// `frontier.inputs`. This method can be used to resume a flood fill with
+    /// a smaller boundary set.
+    ///
+    /// [`effect`]: Self::effect
+    /// [`input`]: Self::input
     pub fn resume(&mut self, frontier: &Frontier) {
         for &input in &frontier.inputs { self.input(input); }
         for &effect in &frontier.effects { self.effect(effect); }
@@ -130,7 +133,9 @@ impl<'a> std::ops::Index<Node> for Fill<'a> {
 }
 
 /// Construct a `marks` array, wrap it in a [`Fill`], and invoke `callback`.
-/// The [`Op::Input`] [`Node`]s will be treated as boundary nodes.
+/// The [`Input`] [`Node`]s will be treated as boundary nodes.
+///
+/// [`Input`]: super::Op::Input
 pub fn with_fill<T>(
     dataflow: &Dataflow,
     callback: impl FnOnce(Fill) -> T,

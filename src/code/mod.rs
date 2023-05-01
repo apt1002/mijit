@@ -2,8 +2,8 @@
 //! machines, and it is also used to remember what code Mijit has generated.
 //! 
 //! A virtual machine's control flow is restricted to a finite state machine.
-//! States are defined using [`jit::Jit::new_entry`] and transitions using
-//! [`jit::Jit::define`]. The latter takes an [`EBB`], which consists of
+//! States are defined using [`Jit::new_entry`] and transitions using
+//! [`Jit::define`]. The latter takes an [`EBB`], which consists of
 //! branch-free [`Action`]s and multi-way [`Switch`]es. More complex control
 //! flow can be achieved by driving the finite state machine using values
 //! loaded from memory.
@@ -17,6 +17,9 @@
 //! 32 bits of the destination register to zero.
 //! 
 //! Booleans results are returned as `0` or `-1`.
+//!
+//! [`Jit::new_entry`]: crate::jit::Jit::new_entry
+//! [`Jit::define`]: crate::jit::Jit::define
 
 use std::fmt::{Debug};
 

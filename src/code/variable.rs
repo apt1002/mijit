@@ -12,7 +12,7 @@ array_index! {
     /// non-portably: for example, by invoking the optimizer passing a
     /// particular [`Target`].
     ///
-    /// [`Target`]: super::target::Target
+    /// [`Target`]: crate::target::Target
     #[derive(Copy, Clone, PartialEq, Eq, Hash)]
     pub struct Register(std::num::NonZeroU8) {
         debug_name: "Register",
