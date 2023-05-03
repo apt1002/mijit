@@ -13,11 +13,9 @@ pub struct Simulation {
     slots_used: usize,
     /// Maps each [`Variable`] to the corresponding [`Node`].
     bindings: HashMap<Variable, Node>,
-    /// The most recent [`Op::Guard`], [Op::Store] or [`Op::Debug`], if any.
+    /// The most recent [`Op::Guard`] or [`Op::Debug`], if any.
     /// instruction.
     sequence: Option<Node>,
-    /// All [`Op::Load`] instructions since `store`.
-    loads: Vec<Node>,
 }
 
 impl Simulation {
@@ -33,7 +31,6 @@ impl Simulation {
             slots_used: before.slots_used,
             bindings: bindings,
             sequence: None,
-            loads: vec![],
         }
     }
 
@@ -69,17 +66,14 @@ impl Simulation {
         ins: &[Variable],
         out: impl Into<Option<Register>>,
     ) -> Node {
+        let dep = match op {
+            Op::Guard | Op::Load(_) | Op::Store(_) | Op::Debug => self.sequence,
+            _ => None,
+        };
         let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
-        let mut deps = Vec::new();
-        if matches!(op, Op::Store(_)) {
-            std::mem::swap(&mut deps, &mut self.loads);
-        }
-        if matches!(op, Op::Guard | Op::Load(_) | Op::Store(_) | Op::Debug) {
-            if let Some(node) = self.sequence { deps.push(node); }
-        }
         // TODO: Common subexpression elimination.
         // TODO: Peephole optimizations.
-        let node = dataflow.add_node(op, &deps, &ins);
+        let node = dataflow.add_node(op, dep, &ins);
         if let Some(r) = out.into() { self.bindings.insert(r.into(), node); }
         node
     }
@@ -104,13 +98,11 @@ impl Simulation {
                 let _ = self.op(dataflow, Op::Binary(prec, bin_op), &[src1, src2], dest);
             },
             Action::Load(dest, (addr, width)) => {
-                let node = self.op(dataflow, Op::Load(width), &[addr], dest);
-                self.loads.push(node);
+                let _ = self.op(dataflow, Op::Load(width), &[addr], dest);
             },
             Action::Store(dest, src, (addr, width)) => {
-                let node = self.op(dataflow, Op::Store(width), &[src, addr], dest);
+                let _ = self.op(dataflow, Op::Store(width), &[src, addr], dest);
                 self.move_(dest.into(), src);
-                self.sequence = Some(node);
             },
             Action::Send(dest, src1, src2) => {
                 let _ = self.op(dataflow, Op::Send, &[src1, src2], dest);

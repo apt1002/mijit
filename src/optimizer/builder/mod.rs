@@ -99,8 +99,8 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         for node in guards { fill.resume(&lookup_guard(node).fontier); }
 
         // Build an instruction schedule and allocate registers.
-        let (nodes, Frontier {effects, inputs}) = fill.drain();
-        let variables = inputs.into_iter().map(
+        let (nodes, Frontier {effects, inputs, load_addresses}) = fill.drain();
+        let variables = inputs.into_iter().chain(load_addresses).map(
             |node| (node, lookup_input(node))
         ).collect::<HashMap<Node, Variable>>();
         let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
@@ -110,7 +110,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             &variables,
             df,
             &nodes,
-            |node| if is_guard(node) { Some(&lookup_guard(node).fontier.inputs) } else { None },
+            |node| if is_guard(node) { Some(&lookup_guard(node).fontier) } else { None },
             &exit.outputs,
         );
 
@@ -222,15 +222,15 @@ mod tests {
         // but tested in reverse order.
         let mut df = Dataflow::new(4);
         let x_0 = df.inputs()[0];
-        let m_1 = df.add_node(Op::Binary(P64, Mul), &[], &[x_0, x_0]);
-        let m_2 = df.add_node(Op::Binary(P64,  Mul), &[], &[m_1, m_1]);
-        let m_3 = df.add_node(Op::Binary(P64, Mul), &[], &[m_2, m_2]);
-        let m_4 = df.add_node(Op::Binary(P64, Mul), &[], &[m_3, m_3]);
-        let g_1 = df.add_node(Op::Guard, &[], &[m_4]);
+        let m_1 = df.add_node(Op::Binary(P64, Mul), None, &[x_0, x_0]);
+        let m_2 = df.add_node(Op::Binary(P64, Mul), None, &[m_1, m_1]);
+        let m_3 = df.add_node(Op::Binary(P64, Mul), None, &[m_2, m_2]);
+        let m_4 = df.add_node(Op::Binary(P64, Mul), None, &[m_3, m_3]);
+        let g_1 = df.add_node(Op::Guard, None, &[m_4]);
         let e_1 = Exit {sequence: Some(g_1), outputs: Box::new([df.inputs()[1]])};
-        let g_2 = df.add_node(Op::Guard, &[g_1], &[m_3]);
+        let g_2 = df.add_node(Op::Guard, Some(g_1), &[m_3]);
         let e_2 = Exit {sequence: Some(g_2), outputs: Box::new([df.inputs()[2]])};
-        let g_3 = df.add_node(Op::Guard, &[g_2], &[m_2]);
+        let g_3 = df.add_node(Op::Guard, Some(g_2), &[m_2]);
         let e_3 = Exit {sequence: Some(g_3), outputs: Box::new([df.inputs()[3]])};
         let e_x = Exit {sequence: Some(g_3), outputs: Box::new([m_1])};
         // Make a CFT.

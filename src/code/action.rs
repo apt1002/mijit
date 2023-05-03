@@ -13,18 +13,24 @@ pub extern fn debug_word(x: u64) {
 pub enum Action {
     /// dest <- src
     Move(Variable, Variable),
+
     /// dest <- constant
     Constant(Precision, Register, i64),
+
     /// dest <- op(src)
     Unary(UnaryOp, Precision, Register, Variable),
+
     /// dest <- op(src1, src2)
     Binary(BinaryOp, Precision, Register, Variable, Variable),
+
     /// dest <- \[addr]
     Load(Register, (Variable, Width)),
+
     /// dest <- addr; \[addr] <- \[src]
     ///
     /// If you later `Load` or `Store` via `addr`, the behaviour is undefined.
     Store(Register, Variable, (Variable, Width)),
+
     /// dest <- src1
     /// Memory accesses via `dest` will happen later than memory accesses via
     /// `src2`, if they might be to the same location.
@@ -32,6 +38,7 @@ pub enum Action {
     /// If you later `Load` or `Store` via `src2`, the behaviour is undefined.
     /// Note that `Send` says nothing about accesses via `src1`.
     Send(Register, Variable, Variable),
+
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
     ///
     /// If either `src` is `None`, push a dead value.
@@ -39,12 +46,14 @@ pub enum Action {
     ///
     /// [`Slot`]: super::Slot
     Push(Option<Variable>, Option<Variable>),
+
     /// sp <- sp + 16*n
     ///
     /// Note that this drops `2*n` [`Slot`]s.
     ///
     /// [`Slot`]: super::Slot
     Drop(usize),
+
     /// Pass `src` to [`debug_word()`].
     Debug(Variable),
 }

@@ -8,7 +8,11 @@ use crate::util::{ArrayMap};
 pub struct Frontier {
     /// The side-effects depended on by the nodes but not performed by them.
     pub effects: HashSet<Node>,
-    /// The values depended on by the nodes but not computed by them.
+    /// The [`Load`] addresses used by the nodes but not computed by them.
+    ///
+    /// [`Load`]: super::Op::Load
+    pub load_addresses: HashSet<Node>,
+    /// The values used by the other nodes but not computed by them.
     pub inputs: HashSet<Node>,
 }
 
@@ -53,7 +57,7 @@ impl<'a> Fill<'a> {
     /// Assert that all non-boundary depdendencies of `node` are marked, and
     /// that `node` is non-boundary and unmarked. Then, mark it.
     pub fn mark(&mut self, node: Node) {
-        for &dep in self.dataflow.deps(node) { assert_ne!(self[dep], 0); }
+        if let Some(dep) = self.dataflow.dep(node) { assert_ne!(self[dep], 0); }
         for &in_ in self.dataflow.ins(node) { assert_ne!(self[in_], 0); }
         assert_eq!(self[node], 0);
         self.marks[node] = self.marker;
@@ -65,8 +69,16 @@ impl<'a> Fill<'a> {
     pub fn visit(&mut self, node: Node) -> bool {
         if self[node] == 0 {
             // TODO: Sort `Node`s by latency or breadth or something.
-            for &dep in self.dataflow.deps(node) { self.effect(dep); }
-            for &in_ in self.dataflow.ins(node) { self.input(in_); }
+            if let Some(dep) = self.dataflow.dep(node) {
+                self.effect(dep);
+            }
+            for &in_ in self.dataflow.ins(node) {
+                if self.dataflow.is_load(node) {
+                    self.load_address(in_);
+                } else {
+                    self.input(in_);
+                }
+            }
             self.mark(node);
         }
         self[node] < self.marker
@@ -79,7 +91,14 @@ impl<'a> Fill<'a> {
         }
     }
 
-    /// Mark `input` and all its dependencies.
+    /// Mark `in_` and all its dependencies.
+    pub fn load_address(&mut self, in_: Node) {
+        if self.visit(in_) {
+            self.frontier.inputs.insert(in_);
+        }
+    }
+
+    /// Mark `in_` and all its dependencies.
     pub fn input(&mut self, in_: Node) {
         if self.visit(in_) {
             self.frontier.inputs.insert(in_);
@@ -92,15 +111,17 @@ impl<'a> Fill<'a> {
         for &node in &*exit.outputs { self.input(node); }
     }
 
-    /// Call [`effect`] on each of `frontier.effects` and [`input`] on each of
-    /// `frontier.inputs`. This method can be used to resume a flood fill with
-    /// a smaller boundary set.
+    /// Call [`effect`] on each of `frontier.effects`, [`address`] on each of
+    /// `frontier.addresses` and [`input`] on each of `frontier.inputs`. This
+    /// method can be used to resume a flood fill with a smaller boundary set.
     ///
     /// [`effect`]: Self::effect
+    /// [`address`]: Self::load_address
     /// [`input`]: Self::input
     pub fn resume(&mut self, frontier: &Frontier) {
-        for &input in &frontier.inputs { self.input(input); }
         for &effect in &frontier.effects { self.effect(effect); }
+        for &addr in &frontier.load_addresses { self.load_address(addr); }
+        for &input in &frontier.inputs { self.input(input); }
     }
 
     /// See the marked [`Node`]s.
@@ -159,18 +180,19 @@ mod tests {
     #[test]
     fn test() {
         // Construct a `Dataflow` with two exits and a dead `Node`.
+        // TODO: Use `Send`.
         let mut df = Dataflow::new(1);
         let a = df.inputs()[0];
-        let guard = df.add_node(Op::Guard, &[], &[a]);
-        let constant = df.add_node(Op::Constant(1), &[], &[]);
+        let guard = df.add_node(Op::Guard, None, &[a]);
+        let constant = df.add_node(Op::Constant(1), None, &[]);
         let b = constant;
-        let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[], &[a, b]);
+        let add = df.add_node(Op::Binary(P64, BinaryOp::Add), None, &[a, b]);
         let c = add;
         let exit1 = Exit {sequence: Some(guard), outputs: Box::new([c])};
-        let store = df.add_node(Op::Store(Width::Eight), &[guard], &[b, a]);
+        let store = df.add_node(Op::Store(Width::Eight), Some(guard), &[b, a]);
         let d = store;
         let exit2 = Exit {sequence: Some(store), outputs: Box::new([d])};
-        let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[], &[b, b]);
+        let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), None, &[b, b]);
         // Mark `entry` with `1`.
         let mut marks = df.node_map();
         let mut fill = Fill::new(&df, &mut marks);

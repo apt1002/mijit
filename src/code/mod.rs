@@ -67,6 +67,7 @@
 //!
 //! Booleans results are returned as `0` or `-1`.
 //!
+//! [`Move`]: Action::Move
 //! [`Push`]: Action::Push
 //! [`Drop`]: Action::Drop
 //! [`Send`]: Action::Send

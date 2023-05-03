@@ -29,9 +29,8 @@ impl<'a> Debug for NodeAdapter<'a> {
             self.dataflow.op(self.node),
             CommaSeparated(|| self.dataflow.ins(self.node)),
         )?;
-        let deps = self.dataflow.deps(self.node);
-        if !deps.is_empty() {
-            write!(f, " after ({:?})", CommaSeparated(|| deps))?;
+        if let Some(dep) = self.dataflow.dep(self.node) {
+            write!(f, " after ({:?})", dep)?;
         }
         Ok(())
     }
@@ -39,15 +38,15 @@ impl<'a> Debug for NodeAdapter<'a> {
 
 //-----------------------------------------------------------------------------
 
-/// The internal representation of a [`Node`].
+/// The information remembered about a [`Node`].
 #[derive(Clone)]
 struct Info {
     /// What kind of operation the `Node` represents.
     op: Op,
     /// A cache of [`Dataflow::cost`]`(op)`.
     cost: &'static Cost,
-    /// The index in [`Dataflow::deps`] after the last dep of the `Node`.
-    end_dep: usize,
+    /// A `Node` whose side-effects must happen before the `Node`, if any.
+    dep: Option<Node>,
     /// The index in [`Dataflow::ins`] after the last input of the `Node`.
     end_in: usize,
 }
@@ -64,8 +63,6 @@ pub struct Dataflow {
     inputs: Box<[Node]>,
     /// One per [`Node`].
     nodes: Vec<Info>,
-    /// One per non-dataflow dependency: a predecessor [`Node`].
-    deps: Vec<Node>,
     /// One per input. Connects the input to the [`Node`] that computes it.
     ins: Vec<Node>,
 }
@@ -76,11 +73,10 @@ impl Dataflow {
         let mut ret = Dataflow {
             inputs: (0..num_inputs).map(|i| Node::new(i).unwrap()).collect(),
             nodes: Vec::new(),
-            deps: Vec::new(),
             ins: Vec::new(),
         };
         for i in 0..num_inputs {
-            let node = ret.add_node(Op::Input, &[], &[]);
+            let node = ret.add_node(Op::Input, None, &[]);
             assert_eq!(node, ret.inputs[i]);
         }
         ret
@@ -101,6 +97,11 @@ impl Dataflow {
         self.info(node).op
     }
 
+    /// Tests whether `node` is an [`Op::Load`].
+    pub fn is_load(&self, node: Node) -> bool {
+        matches!(self.op(node), Op::Load(_))
+    }
+
     /// Equivalent to [`op_cost`]`(self.op(node))` but faster.
     pub fn cost(&self, node: Node) -> &'static Cost {
         self.info(node).cost
@@ -111,10 +112,9 @@ impl Dataflow {
         node.as_usize().checked_sub(1).map(|i| &self.nodes[i])
     }
 
-    /// Returns the [`Node`]s which must be executed before `node`.
-    pub fn deps(&self, node: Node) -> &[Node] {
-        let start_dep = self.prev(node).map_or(0, |prev| prev.end_dep);
-        &self.deps[start_dep .. self.info(node).end_dep]
+    /// Returns the [`Node`] which must be executed before `node`, if any.
+    pub fn dep(&self, node: Node) -> Option<Node> {
+        self.info(node).dep
     }
 
     /// Returns the [`Node`]s which compute the inputs of `node`.
@@ -129,16 +129,10 @@ impl Dataflow {
     }
 
     /// Construct a [`Node`] and append it to the graph.
-    pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Node]) -> Node {
+    pub fn add_node(&mut self, op: Op, dep: Option<Node>, ins: &[Node]) -> Node {
         let node = Node::new(self.nodes.len()).unwrap();
-        self.deps.extend(deps);
         self.ins.extend(ins);
-        self.nodes.push(Info {
-            op: op,
-            cost: op_cost(op),
-            end_dep: self.deps.len(),
-            end_in: self.ins.len(),
-        });
+        self.nodes.push(Info {op, cost: op_cost(op), dep, end_in: self.ins.len()});
         node
     }
 

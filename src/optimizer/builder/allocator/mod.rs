@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node};
+use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Frontier};
 use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable};
 use crate::util::{ArrayMap, map_filter_max, Usage};
@@ -166,7 +166,7 @@ impl<'a> Allocator<'a> {
         // Spill until we have enough registers to hold the outputs of `node`.
         if df.has_out(node) { self.spill_until(1); }
         // Bump `time` until the dependencies are available.
-        for &dep in df.deps(node) {
+        if let Some(dep) = df.dep(node) {
             time.max_with(self.node_times[&dep]);
         }
         // Bump `time` until the operands are available.
@@ -229,8 +229,8 @@ impl<'a> Allocator<'a> {
 /// - dataflow - the dataflow graph.
 /// - nodes - the [`Node`]s that need to be executed on the hot path,
 ///   topologically sorted.
-/// - get_keep_alives - for [`Guard`] `Node`s, returns the dataflow
-///   dependencies of the cold paths.
+/// - get_frontier - for [`Guard`] `Node`s, returns the dependencies of the
+///   cold paths.
 /// - outputs - the [`Node`]s that are live on exit.
 ///
 /// Returns:
@@ -238,12 +238,13 @@ impl<'a> Allocator<'a> {
 /// - allocation - which `Register` holds each `Node`'s result.
 ///
 /// [`Guard`]: super::Op::Guard
+// FIXME: Place `Send(x, y)` and `Store(y)` after all `Load(y)`s.
 pub fn allocate<'a>(
     effects: &HashSet<Node>,
     variables: &HashMap<Node, Variable>,
     dataflow: &Dataflow,
     nodes: &[Node],
-    get_keep_alives: impl Fn(Node) -> Option<&'a HashSet<Node>>,
+    get_frontier: impl Fn(Node) -> Option<&'a Frontier>,
     outputs: &[Node],
 ) -> (
     Vec<Instruction>,
@@ -254,7 +255,10 @@ pub fn allocate<'a>(
     for &node in outputs { usage.push(node); }
     let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
         let mut keep_alives: Vec<Node> = dataflow.ins(node).to_vec();
-        if let Some(ins) = get_keep_alives(node) { keep_alives.extend(ins); }
+        if let Some(f) = get_frontier(node) {
+            keep_alives.extend(&f.inputs);
+            keep_alives.extend(&f.load_addresses);
+        }
         for &in_ in &keep_alives { usage.push(in_); }
         (node, keep_alives.len())
     }).collect();
