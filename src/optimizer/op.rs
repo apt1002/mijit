@@ -16,6 +16,7 @@ pub enum Op {
     Binary(Precision, BinaryOp),
     Load(Width),
     Store(Width),
+    Send,
     Debug,
 }
 
@@ -46,6 +47,10 @@ impl Op {
             Op::Store(width) => {
                 assert_eq!(ins.len(), 2);
                 Action::Store(out.unwrap(), ins[0], (ins[1], width))
+            },
+            Op::Send => {
+                assert_eq!(ins.len(), 2);
+                Action::Send(out.unwrap(), ins[0], ins[1])
             },
             Op::Debug => {
                 assert!(out.is_none());

@@ -115,6 +115,13 @@ pub const STORE_COST: Cost = Cost {
     resources: Resources::new(0x0010101),
 };
 
+/// The cost of a `Send` operation.
+pub const SEND_COST: Cost = Cost {
+    input_latencies: &[0, 0],
+    output_latency: Some(0),
+    resources: Resources::new(0x0000000),
+};
+
 /// A cost used for Debug operations. This won't affect other instructions.
 pub const DEBUG_COST: Cost = Cost {
     input_latencies: &[0],
@@ -146,6 +153,7 @@ pub fn op_cost(op: Op) -> &'static Cost {
         },
         Load(_) => &LOAD_COST,
         Store(_) => &STORE_COST,
+        Send => &SEND_COST,
         Debug => &DEBUG_COST,
     }
 }

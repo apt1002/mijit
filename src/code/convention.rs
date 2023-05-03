@@ -139,6 +139,11 @@ impl Propagator {
                 self.insert(src);
                 self.insert(addr);
             },
+            Send(dest, src1, src2) => {
+                self.remove(dest);
+                self.insert(src1);
+                self.insert(src2);
+            },
             Push(src1, src2) => {
                 if let Some(src) = src1 {
                     self.insert(src);

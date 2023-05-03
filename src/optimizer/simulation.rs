@@ -112,6 +112,9 @@ impl Simulation {
                 self.move_(dest.into(), src);
                 self.sequence = Some(node);
             },
+            Action::Send(dest, src1, src2) => {
+                let _ = self.op(dataflow, Op::Send, &[src1, src2], dest);
+            },
             Action::Push(src1, src2) => {
                 for src in [src2, src1] {
                     self.slots_used += 1;
