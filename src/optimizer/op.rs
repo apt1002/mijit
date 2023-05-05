@@ -1,3 +1,4 @@
+use super::{Dep};
 use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Action};
 
 /// Annotates a [`Node`] of a [`Dataflow`] graph.
@@ -21,6 +22,24 @@ pub enum Op {
 }
 
 impl Op {
+    /// Returns the [`Dep`]s of the operands of a [`Node`] annotated with this
+    /// `Op`.
+    ///
+    /// [`Node`]: super::Node
+    pub fn deps(self) -> &'static [Dep] {
+        match self {
+            Op::Guard => &[Dep::GUARD, Dep::VALUE],
+            Op::Input => &[],
+            Op::Constant(_) => &[],
+            Op::Unary(_, _) => &[Dep::VALUE],
+            Op::Binary(_, _) => &[Dep::VALUE, Dep::VALUE],
+            Op::Load(_) => &[Dep::GUARD, Dep::LOAD],
+            Op::Store(_) => &[Dep::GUARD, Dep::VALUE, Dep::STORE],
+            Op::Send => &[Dep::VALUE, Dep::SEND],
+            Op::Debug => &[Dep::GUARD, Dep::VALUE],
+        }
+    }
+
     /// Aggregates this [`Op`] with the specified outputs and inputs to make an
     /// [`Action`].
     /// Panics if the `Op` is a `Guard`.

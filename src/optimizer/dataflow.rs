@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::util::{AsUsize, ArrayMap, CommaSeparated};
-use super::{Op, Cost, op_cost};
+use super::{Dep, Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
 
@@ -29,9 +29,6 @@ impl<'a> Debug for NodeAdapter<'a> {
             self.dataflow.op(self.node),
             CommaSeparated(|| self.dataflow.ins(self.node)),
         )?;
-        if let Some(dep) = self.dataflow.dep(self.node) {
-            write!(f, " after ({:?})", dep)?;
-        }
         Ok(())
     }
 }
@@ -43,12 +40,12 @@ impl<'a> Debug for NodeAdapter<'a> {
 struct Info {
     /// What kind of operation the `Node` represents.
     op: Op,
+    /// A cache of `op::deps()`.
+    deps: &'static [Dep],
     /// A cache of [`Dataflow::cost`]`(op)`.
     cost: &'static Cost,
-    /// A `Node` whose side-effects must happen before the `Node`, if any.
-    dep: Option<Node>,
-    /// The index in [`Dataflow::ins`] after the last input of the `Node`.
-    end_in: usize,
+    /// The index in [`Dataflow::ins`] of the first input of the `Node`.
+    start_in: usize,
 }
 
 /// Represents a dataflow graph of some code. The nodes are [`Node`]s.
@@ -64,7 +61,7 @@ pub struct Dataflow {
     /// One per [`Node`].
     nodes: Vec<Info>,
     /// One per input. Connects the input to the [`Node`] that computes it.
-    ins: Vec<Node>,
+    ins: Vec<Option<Node>>,
 }
 
 impl Dataflow {
@@ -76,7 +73,7 @@ impl Dataflow {
             ins: Vec::new(),
         };
         for i in 0..num_inputs {
-            let node = ret.add_node(Op::Input, None, &[]);
+            let node = ret.add_node(Op::Input, &[]);
             assert_eq!(node, ret.inputs[i]);
         }
         ret
@@ -97,30 +94,31 @@ impl Dataflow {
         self.info(node).op
     }
 
-    /// Tests whether `node` is an [`Op::Load`].
-    pub fn is_load(&self, node: Node) -> bool {
-        matches!(self.op(node), Op::Load(_))
-    }
-
     /// Equivalent to [`op_cost`]`(self.op(node))` but faster.
     pub fn cost(&self, node: Node) -> &'static Cost {
         self.info(node).cost
     }
 
-    /// Returns the [`Info`] about the previous `node`, if any.
-    fn prev(&self, node: Node) -> Option<&Info> {
-        node.as_usize().checked_sub(1).map(|i| &self.nodes[i])
-    }
-
-    /// Returns the [`Node`] which must be executed before `node`, if any.
-    pub fn dep(&self, node: Node) -> Option<Node> {
-        self.info(node).dep
-    }
-
     /// Returns the [`Node`]s which compute the inputs of `node`.
-    pub fn ins(&self, node: Node) -> &[Node] {
-        let start_in = self.prev(node).map_or(0, |prev| prev.end_in);
-        &self.ins[start_in .. self.info(node).end_in]
+    pub fn ins(&self, node: Node) -> &[Option<Node>] {
+        let info = self.info(node);
+        &self.ins[info.start_in..][..info.deps.len()]
+    }
+
+    /// Applies `callback` to each non-`None` input of `node`.
+    pub fn each_input(&self, node: Node, mut callback: impl FnMut(Node, Dep)) {
+        let info = self.info(node);
+        for (&dep, &in_) in info.deps.iter().zip(&self.ins[info.start_in..]) {
+            if let Some(in_) = in_ { callback(in_, dep); }
+        }
+    }
+
+    /// Returns the [`Node`] that computes the discriminant of `guard`.
+    /// Panics if `guard` is not an [`Op::Guard`].
+    pub fn discriminant(&self, guard: Node) -> Node {
+        let info = self.info(guard);
+        assert_eq!(info.op, Op::Guard);
+        self.ins[info.start_in + 1].expect("Discriminant missing")
     }
 
     /// Returns whether `node` computes a result.
@@ -129,10 +127,18 @@ impl Dataflow {
     }
 
     /// Construct a [`Node`] and append it to the graph.
-    pub fn add_node(&mut self, op: Op, dep: Option<Node>, ins: &[Node]) -> Node {
+    pub fn add_node(&mut self, op: Op, ins: &[Option<Node>]) -> Node {
+        let deps = op.deps();
+        assert_eq!(ins.len(), deps.len());
+        for (&in_, &dep) in ins.iter().zip(deps) {
+            if dep.is_value() { assert!(self.has_out(in_.unwrap())); }
+        }
+        let cost = op_cost(op);
+        assert_eq!(cost.input_latencies.len(), deps.len());
+        let start_in = self.ins.len();
         let node = Node::new(self.nodes.len()).unwrap();
         self.ins.extend(ins);
-        self.nodes.push(Info {op, cost: op_cost(op), dep, end_in: self.ins.len()});
+        self.nodes.push(Info {op, deps, cost, start_in});
         node
     }
 

@@ -40,7 +40,7 @@ pub const INPUT_COST: Cost = Cost {
 
 /// The cost of a compare and branch.
 pub const GUARD_COST: Cost = Cost {
-    input_latencies: &[0],
+    input_latencies: &[0, 0],
     output_latency: None,
     resources: Resources::new(0x0100012),
 };
@@ -103,14 +103,14 @@ pub const SHIFT_COST: Cost = Cost {
 
 /// The cost of a `Load` operation.
 pub const LOAD_COST: Cost = Cost {
-    input_latencies: &[2],
+    input_latencies: &[0, 2],
     output_latency: Some(1),
     resources: Resources::new(0x0001101),
 };
 
 /// The cost of a `Load` operation.
 pub const STORE_COST: Cost = Cost {
-    input_latencies: &[0, 2],
+    input_latencies: &[0, 0, 2],
     output_latency: Some(0),
     resources: Resources::new(0x0010101),
 };
@@ -124,7 +124,7 @@ pub const SEND_COST: Cost = Cost {
 
 /// A cost used for Debug operations. This won't affect other instructions.
 pub const DEBUG_COST: Cost = Cost {
-    input_latencies: &[0],
+    input_latencies: &[0, 0],
     output_latency: None,
     resources: Resources::new(0x0000000),
 };

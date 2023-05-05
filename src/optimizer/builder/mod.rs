@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, target, cost, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
+use super::{code, target, dep, cost, Dep, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
 use code::{Register, Variable, Convention, EBB};
 
 mod fill;
@@ -39,8 +39,7 @@ impl<'a, L: Debug + Clone> Debug for GuardFailure<'a, L> {
         f.debug_struct("GuardFailure")
             .field("cases", &switch.cases)
             .field("default_", &switch.default_)
-            .field("effects", &self.fontier.effects)
-            .field("inputs", &self.fontier.inputs)
+            .field("frontier", &self.fontier.0)
             .finish()
     }
 }
@@ -99,10 +98,15 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         for node in guards { fill.resume(&lookup_guard(node).fontier); }
 
         // Build an instruction schedule and allocate registers.
-        let (nodes, Frontier {effects, inputs, load_addresses}) = fill.drain();
-        let variables = inputs.into_iter().chain(load_addresses).map(
-            |node| (node, lookup_input(node))
-        ).collect::<HashMap<Node, Variable>>();
+        let (nodes, frontier) = fill.drain();
+        let effects = frontier.0.iter()
+            .filter(|(_, dep)| !dep.is_value())
+            .map(|(&node, _)| node)
+            .collect::<HashSet<Node>>();
+        let variables = frontier.0.iter()
+            .filter(|(_, dep)| dep.is_value())
+            .map(|(&node, _)| (node, lookup_input(node)))
+            .collect::<HashMap<Node, Variable>>();
         let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
         assert_eq!(variables.len(), distinct_variables.len());
         let (instructions, allocation) = allocate(
@@ -222,15 +226,15 @@ mod tests {
         // but tested in reverse order.
         let mut df = Dataflow::new(4);
         let x_0 = df.inputs()[0];
-        let m_1 = df.add_node(Op::Binary(P64, Mul), None, &[x_0, x_0]);
-        let m_2 = df.add_node(Op::Binary(P64, Mul), None, &[m_1, m_1]);
-        let m_3 = df.add_node(Op::Binary(P64, Mul), None, &[m_2, m_2]);
-        let m_4 = df.add_node(Op::Binary(P64, Mul), None, &[m_3, m_3]);
-        let g_1 = df.add_node(Op::Guard, None, &[m_4]);
+        let m_1 = df.add_node(Op::Binary(P64, Mul), &[Some(x_0), Some(x_0)]);
+        let m_2 = df.add_node(Op::Binary(P64, Mul), &[Some(m_1), Some(m_1)]);
+        let m_3 = df.add_node(Op::Binary(P64, Mul), &[Some(m_2), Some(m_2)]);
+        let m_4 = df.add_node(Op::Binary(P64, Mul), &[Some(m_3), Some(m_3)]);
+        let g_1 = df.add_node(Op::Guard, &[None, Some(m_4)]);
         let e_1 = Exit {sequence: Some(g_1), outputs: Box::new([df.inputs()[1]])};
-        let g_2 = df.add_node(Op::Guard, Some(g_1), &[m_3]);
+        let g_2 = df.add_node(Op::Guard, &[Some(g_1), Some(m_3)]);
         let e_2 = Exit {sequence: Some(g_2), outputs: Box::new([df.inputs()[2]])};
-        let g_3 = df.add_node(Op::Guard, Some(g_2), &[m_2]);
+        let g_3 = df.add_node(Op::Guard, &[Some(g_2), Some(m_2)]);
         let e_3 = Exit {sequence: Some(g_3), outputs: Box::new([df.inputs()[3]])};
         let e_x = Exit {sequence: Some(g_3), outputs: Box::new([m_1])};
         // Make a CFT.

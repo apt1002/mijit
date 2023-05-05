@@ -122,7 +122,10 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     pub fn add_node(&mut self, n: Node) {
         let df = self.dataflow;
         if df.cost(n).resources == Resources::new(0) { return; }
-        let ins: Vec<Variable> = df.ins(n).iter().map(|&in_| self.read(in_)).collect();
+        let mut ins = Vec::with_capacity(3);
+        df.each_input(n, |in_, dep| {
+            if dep.is_value() { ins.push(self.read(in_)); }
+        });
         let out = if df.has_out(n) { Some(self.write(n)) } else { None };
         self.actions.push(Op::to_action(df.op(n), out, &ins));
     }
@@ -132,9 +135,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     /// - cold - What happens if `guard` fails.
     pub fn add_guard(&mut self, guard: Node, cold: Cold<EBB<L::Leaf>>) {
         let df = self.dataflow;
-        assert_eq!(df.op(guard), Op::Guard);
-        assert_eq!(df.ins(guard).len(), 1);
-        let discriminant = self.read(df.ins(guard)[0]);
+        let discriminant = self.read(df.discriminant(guard));
         let mut actions = Vec::new();
         std::mem::swap(&mut actions, &mut self.actions);
         self.blocks.push(Block {actions: actions.into(), discriminant, cold});

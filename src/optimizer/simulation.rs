@@ -66,14 +66,16 @@ impl Simulation {
         ins: &[Variable],
         out: impl Into<Option<Register>>,
     ) -> Node {
-        let dep = match op {
-            Op::Guard | Op::Load(_) | Op::Store(_) | Op::Debug => self.sequence,
-            _ => None,
-        };
-        let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
+        let mut in_nodes = Vec::new();
+        if matches!(op, Op::Guard | Op::Load(_) | Op::Store(_) | Op::Debug) {
+            in_nodes.push(self.sequence);
+        }
+        for &in_ in ins {
+            in_nodes.push(Some(self.lookup(in_)));
+        }
         // TODO: Common subexpression elimination.
         // TODO: Peephole optimizations.
-        let node = dataflow.add_node(op, dep, &ins);
+        let node = dataflow.add_node(op, &in_nodes);
         if let Some(r) = out.into() { self.bindings.insert(r.into(), node); }
         node
     }

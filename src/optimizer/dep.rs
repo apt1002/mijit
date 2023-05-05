@@ -15,6 +15,12 @@ pub enum Value {
     Address = 3,
 }
 
+impl Value {
+    pub fn is_value(self) -> bool {
+        matches!(self, Value::Normal | Value::Address)
+    }
+}
+
 /// How a [`Node`] depends on side-effects of a previous `Node`.
 /// None of these imply that the computed value is needed.
 ///
@@ -34,7 +40,16 @@ pub enum Effect {
     Send = 2,
 }
 
-/// Annotates a dependency of a [`Node`] on a previous `Node`.
+impl Effect {
+    pub fn is_cold(self) -> bool {
+        matches!(self, Effect::Cold)
+    }
+}
+
+/// Annotates an input of a [`Node`], and describes how it behaves relative to
+/// a previous `Node`.
+///
+/// The description is in two parts: a [`Value`] and an [`Effect`].
 ///
 /// Constants are provided for all useful `Dep` values:
 ///
@@ -49,6 +64,21 @@ pub enum Effect {
 /// [`Node`]: super::Node
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Dep(pub Value, pub Effect);
+
+impl Dep {
+    pub const NONE: Dep = Dep(Value::Unused, Effect::Cold);
+    pub const COLD_VALUE: Dep = Dep(Value::Normal, Effect::Cold);
+    pub const COLD_LOAD: Dep = Dep(Value::Address, Effect::Cold);
+    pub const GUARD: Dep = Dep(Value::Unused, Effect::Hot);
+    pub const VALUE: Dep = Dep(Value::Normal, Effect::Hot);
+    pub const LOAD: Dep = Dep(Value::Address, Effect::Hot);
+    pub const SEND: Dep = Dep(Value::Unused, Effect::Send);
+    pub const STORE: Dep = Dep(Value::Address, Effect::Send);
+
+    pub fn is_value(self) -> bool { self.0.is_value() }
+
+    pub fn is_cold(self) -> bool { self.1.is_cold() }
+}
 
 impl PartialOrd for Dep {
     /// Tests whether `self` is a stronger dependency that `other`.
@@ -70,20 +100,6 @@ impl std::ops::BitOr for Dep {
         Self(self.0.max(other.0), self.1.max(other.1))
     }
 }
-
-pub const NONE: Dep = Dep(Value::Unused, Effect::Cold);
-pub const COLD_VALUE: Dep = Dep(Value::Normal, Effect::Cold);
-pub const COLD_LOAD: Dep = Dep(Value::Address, Effect::Cold);
-pub const GUARD: Dep = Dep(Value::Unused, Effect::Hot);
-pub const VALUE: Dep = Dep(Value::Normal, Effect::Hot);
-pub const LOAD: Dep = Dep(Value::Address, Effect::Hot);
-pub const SEND: Dep = Dep(Value::Unused, Effect::Send);
-pub const STORE: Dep = Dep(Value::Address, Effect::Send);
-
-
-
-
-
 
 //-----------------------------------------------------------------------------
 
