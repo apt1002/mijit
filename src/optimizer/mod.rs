@@ -5,6 +5,9 @@ use code::{Switch, EBB, Convention};
 
 //-----------------------------------------------------------------------------
 
+#[allow(unused)]
+mod dep;
+
 mod op;
 use op::{Op};
 
