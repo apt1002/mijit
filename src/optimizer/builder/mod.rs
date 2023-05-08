@@ -225,17 +225,17 @@ mod tests {
         // but tested in reverse order.
         let mut df = Dataflow::new(4);
         let x_0 = df.inputs()[0];
-        let m_1 = df.add_node(Op::Binary(P64, Mul), &[Some(x_0), Some(x_0)]);
-        let m_2 = df.add_node(Op::Binary(P64, Mul), &[Some(m_1), Some(m_1)]);
-        let m_3 = df.add_node(Op::Binary(P64, Mul), &[Some(m_2), Some(m_2)]);
-        let m_4 = df.add_node(Op::Binary(P64, Mul), &[Some(m_3), Some(m_3)]);
-        let g_1 = df.add_node(Op::Guard, &[None, Some(m_4)]);
-        let e_1 = Exit {sequence: Some(g_1), outputs: Box::new([df.inputs()[1]])};
-        let g_2 = df.add_node(Op::Guard, &[Some(g_1), Some(m_3)]);
-        let e_2 = Exit {sequence: Some(g_2), outputs: Box::new([df.inputs()[2]])};
-        let g_3 = df.add_node(Op::Guard, &[Some(g_2), Some(m_2)]);
-        let e_3 = Exit {sequence: Some(g_3), outputs: Box::new([df.inputs()[3]])};
-        let e_x = Exit {sequence: Some(g_3), outputs: Box::new([m_1])};
+        let m_1 = df.add_node(Op::Binary(P64, Mul), &[x_0, x_0]);
+        let m_2 = df.add_node(Op::Binary(P64, Mul), &[m_1, m_1]);
+        let m_3 = df.add_node(Op::Binary(P64, Mul), &[m_2, m_2]);
+        let m_4 = df.add_node(Op::Binary(P64, Mul), &[m_3, m_3]);
+        let g_1 = df.add_node(Op::Guard, &[df.undefined(), m_4]);
+        let e_1 = Exit {sequence: g_1, outputs: Box::new([df.inputs()[1]])};
+        let g_2 = df.add_node(Op::Guard, &[g_1, m_3]);
+        let e_2 = Exit {sequence: g_2, outputs: Box::new([df.inputs()[2]])};
+        let g_3 = df.add_node(Op::Guard, &[g_2, m_2]);
+        let e_3 = Exit {sequence: g_3, outputs: Box::new([df.inputs()[3]])};
+        let e_x = Exit {sequence: g_3, outputs: Box::new([m_1])};
         // Make a CFT.
         let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
         cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: REGISTERS[3]}, 0);

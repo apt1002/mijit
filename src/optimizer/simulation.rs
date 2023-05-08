@@ -13,9 +13,9 @@ pub struct Simulation {
     slots_used: usize,
     /// Maps each [`Variable`] to the corresponding [`Node`].
     bindings: HashMap<Variable, Node>,
-    /// The most recent [`Op::Guard`] or [`Op::Debug`], if any.
-    /// instruction.
-    sequence: Option<Node>,
+    /// The most recent [`Op::Guard`] or [`Op::Debug`], if any, otherwise the
+    /// undefined `Node`.
+    sequence: Node,
 }
 
 impl Simulation {
@@ -30,7 +30,7 @@ impl Simulation {
         Simulation {
             slots_used: before.slots_used,
             bindings: bindings,
-            sequence: None,
+            sequence: dataflow.undefined(),
         }
     }
 
@@ -71,7 +71,7 @@ impl Simulation {
             in_nodes.push(self.sequence);
         }
         for &in_ in ins {
-            in_nodes.push(Some(self.lookup(in_)));
+            in_nodes.push(self.lookup(in_));
         }
         // TODO: Common subexpression elimination.
         // TODO: Peephole optimizations.
@@ -125,7 +125,7 @@ impl Simulation {
             },
             Action::Debug(src) => {
                 let node = self.op(dataflow, Op::Debug, &[src], None);
-                self.sequence = Some(node);
+                self.sequence = node;
             },
         };
     }
@@ -135,7 +135,7 @@ impl Simulation {
     ///  - discriminant - the [`Variable`] tested by the guard.
     pub fn guard(&mut self, dataflow: &mut Dataflow, discriminant: Variable) -> Node {
         let guard = self.op(dataflow, Op::Guard, &[discriminant], None);
-        self.sequence = Some(guard);
+        self.sequence = guard;
         guard
     }
 

@@ -78,7 +78,7 @@ impl<'a> Fill<'a> {
 
     /// Mark all dependencies of `Exit`.
     pub fn exit(&mut self, exit: &Exit) {
-        if let Some(node) = exit.sequence { self.input(node, dep::Value::Unused); }
+        self.input(exit.sequence, dep::Value::Unused);
         for &node in &*exit.outputs { self.input(node, dep::Value::Normal); }
     }
 
@@ -132,6 +132,7 @@ pub fn with_fill<T>(
 ) -> T {
     let mut marks = dataflow.node_map();
     let mut fill = Fill::new(dataflow, &mut marks);
+    fill.mark(dataflow.undefined());
     for &node in dataflow.inputs() { fill.mark(node); }
     callback(fill.nested())
 }
@@ -150,27 +151,30 @@ mod tests {
         // Construct a `Dataflow` with two exits and a dead `Node`.
         // TODO: Use `Send`.
         let mut df = Dataflow::new(1);
+        let u = df.undefined();
         let a = df.inputs()[0];
-        let guard = df.add_node(Op::Guard, &[None, Some(a)]);
+        let guard = df.add_node(Op::Guard, &[u, a]);
         let constant = df.add_node(Op::Constant(1), &[]);
         let b = constant;
-        let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[Some(a), Some(b)]);
+        let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[a, b]);
         let c = add;
-        let exit1 = Exit {sequence: Some(guard), outputs: Box::new([c])};
-        let store = df.add_node(Op::Store(Width::Eight), &[Some(guard), Some(b), Some(a)]);
+        let exit1 = Exit {sequence: guard, outputs: Box::new([c])};
+        let store = df.add_node(Op::Store(Width::Eight), &[guard, b, a]);
         let d = store;
-        let exit2 = Exit {sequence: Some(store), outputs: Box::new([d])};
-        let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[Some(b), Some(b)]);
+        let exit2 = Exit {sequence: store, outputs: Box::new([d])};
+        let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[b, b]);
         // Mark `entry` with `1`.
         let mut marks = df.node_map();
         let mut fill = Fill::new(&df, &mut marks);
+        fill.input(u, dep::Value::Unused);
         fill.input(a, dep::Value::Normal);
         // Flood from `exit1`.
         let mut fill1 = fill.nested();
         fill1.exit(&exit1);
         let (nodes1, frontier1) = fill1.drain();
         assert_eq!(&nodes1, &[guard, constant, add]);
-        assert_eq!(frontier1.0.len(), 1);
+        assert_eq!(frontier1.0.len(), 2);
+        assert_eq!(frontier1.0[&u], dep::Value::Unused);
         assert_eq!(frontier1.0[&a], dep::Value::Normal);
         for node in nodes1 { fill1.mark(node); }
         // Nested flood from `exit2`.
@@ -184,6 +188,6 @@ mod tests {
         assert_eq!(frontier2.0[&guard], dep::Value::Unused);
         for node in nodes2 { fill2.mark(node); }
         // Check the marks.
-        assert_eq!(marks.as_ref(), &[1, 2, 2, 2, 3, 0]);
+        assert_eq!(marks.as_ref(), &[1, 1, 2, 2, 2, 3, 0]);
     }
 }

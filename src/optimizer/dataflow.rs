@@ -50,38 +50,44 @@ struct Info {
 
 /// Represents a dataflow graph of some code. The nodes are [`Node`]s.
 ///
-/// There is a dummy [`Op::Input`] `Node` for each [`Variable`] that is live
-/// on entry to the [`Dataflow`].
+/// There is a dummy [`Op::Input`] for the undefined value and for each
+/// [`Variable`] that is live on entry to the [`Dataflow`].
 ///
 /// [`Variable`]: super::code::Variable
 #[derive(Clone)]
 pub struct Dataflow {
-    /// The live values on entry.
+    /// The undefined value, and the live values on entry.
     inputs: Box<[Node]>,
     /// One per [`Node`].
     nodes: Vec<Info>,
     /// One per input. Connects the input to the [`Node`] that computes it.
-    ins: Vec<Option<Node>>,
+    ins: Vec<Node>,
 }
 
 impl Dataflow {
     /// Construct a `Dataflow` with `num_inputs` values live on entry.
     pub fn new(num_inputs: usize) -> Self {
         let mut ret = Dataflow {
-            inputs: (0..num_inputs).map(|i| Node::new(i).unwrap()).collect(),
+            inputs: (0..(num_inputs+1)).map(|i| Node::new(i).unwrap()).collect(),
             nodes: Vec::new(),
             ins: Vec::new(),
         };
-        for i in 0..num_inputs {
+        for i in 0..(num_inputs+1) {
             let node = ret.add_node(Op::Input, &[]);
             assert_eq!(node, ret.inputs[i]);
         }
         ret
     }
 
+    /// Returns the [`Node`] that represents the undefined value. This is
+    /// considered to cost nothing and to be executed first.
+    pub fn undefined(&self) -> Node {
+        self.inputs[0]
+    }
+
     /// Returns the [`Node`]s representing the values live on entry.
     pub fn inputs(&self) -> &[Node] {
-        &self.inputs
+        &self.inputs[1..]
     }
 
     /// Returns the [`Info`] about `node`.
@@ -100,7 +106,7 @@ impl Dataflow {
     }
 
     /// Returns the [`Node`]s which compute the inputs of `node`.
-    pub fn ins(&self, node: Node) -> &[Option<Node>] {
+    pub fn ins(&self, node: Node) -> &[Node] {
         let info = self.info(node);
         &self.ins[info.start_in..][..info.deps.len()]
     }
@@ -109,7 +115,7 @@ impl Dataflow {
     pub fn each_input(&self, node: Node, mut callback: impl FnMut(Node, Dep)) {
         let info = self.info(node);
         for (&dep, &in_) in info.deps.iter().zip(&self.ins[info.start_in..]) {
-            if let Some(in_) = in_ { callback(in_, dep); }
+            callback(in_, dep);
         }
     }
 
@@ -118,7 +124,7 @@ impl Dataflow {
     pub fn discriminant(&self, guard: Node) -> Node {
         let info = self.info(guard);
         assert_eq!(info.op, Op::Guard);
-        self.ins[info.start_in + 1].expect("Discriminant missing")
+        self.ins[info.start_in + 1]
     }
 
     /// Returns whether `node` computes a result.
@@ -127,11 +133,11 @@ impl Dataflow {
     }
 
     /// Construct a [`Node`] and append it to the graph.
-    pub fn add_node(&mut self, op: Op, ins: &[Option<Node>]) -> Node {
+    pub fn add_node(&mut self, op: Op, ins: &[Node]) -> Node {
         let deps = op.deps();
         assert_eq!(ins.len(), deps.len());
         for (&in_, &dep) in ins.iter().zip(deps) {
-            if dep.is_value() { assert!(self.has_out(in_.unwrap())); }
+            if dep.is_value() { assert!(self.has_out(in_)); }
         }
         let cost = op_cost(op);
         assert_eq!(cost.input_latencies.len(), deps.len());
