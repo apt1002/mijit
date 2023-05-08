@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{dep, NUM_REGISTERS, all_registers, Resources, Dep, Dataflow, Node, Frontier};
+use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Frontier};
 use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable};
 use crate::util::{ArrayMap, map_filter_max, Usage};
@@ -14,6 +14,7 @@ use placer::{Time, LEAST as EARLY, Placer};
 
 //-----------------------------------------------------------------------------
 
+/// Either a `Node` or a `Spill` instruction inserted by the allocator.
 #[derive(Copy, Clone, PartialEq)]
 pub enum Instruction {
     Spill(Node, Node),
@@ -33,6 +34,22 @@ impl Debug for Instruction {
 
 //-----------------------------------------------------------------------------
 
+/// Describes how a [`Node`] depends on one of its input operands.
+///
+/// This is often just an input value or side-effect dependency, but can also
+/// be e.g. a value needed by `node`'s cold paths.
+#[derive(Debug, Copy, Clone)]
+pub struct Input {
+    /// Whether the `Node` needs a value computed by `node`. This affects
+    /// register allocation.
+    is_value: bool,
+    /// Whether `node` is a dependency on a cold path. This affects instruction
+    /// scheduling.
+    is_cold: bool,
+}
+
+//-----------------------------------------------------------------------------
+
 /// The state of the code generation algorithm. The state is mutated as
 /// [`Instruction`]s are added.
 #[derive(Debug)]
@@ -41,9 +58,7 @@ struct Allocator<'a> {
     dataflow: &'a Dataflow,
     /// The concatenation of the `input` lists of all [`Node`]s remaining
     /// to be processed. Each call to `add_node()` pops some `Node`s from this.
-    usage: Usage<Node>,
-    /// A [`Dep`] for each item in `usage`.
-    deps: Vec<Dep>,
+    usage: Usage<Node, Input>,
     /// The [`Instruction`]s processed so far.
     placer: Placer<Instruction>,
     /// The `Register` allocated for each `Node`'s result, if any.
@@ -67,15 +82,13 @@ impl<'a> Allocator<'a> {
     ///   occurred.
     /// - variables - A mapping from the live [`Node`]s to [`Variable`]s.
     /// - dataflow - The data flow graph.
-    /// - usage - The concatenation of the `input` lists of all `Node`s that
+    /// - usage - The concatenation of the `input` lists of all [`Node`]s that
     ///   will be processed.
-    /// - deps - A [`Dep`] for each item in `usage`.
     pub fn new(
         effects: &HashSet<Node>,
         variables: &HashMap<Node, Variable>,
         dataflow: &'a Dataflow,
-        usage: Usage<Node>,
-        deps: Vec<Dep>,
+        usage: Usage<Node, Input>,
     ) -> Self {
         // Initialize the data structures with the live registers of `variables`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
@@ -101,7 +114,7 @@ impl<'a> Allocator<'a> {
         let placer = Placer::new();
         let read_times: HashMap<Node, Time> = HashMap::new();
         let pool = RegisterPool::new(dirty);
-        Allocator {dataflow, usage, deps, placer, allocation, read_times, write_times, node_times, regs, pool}
+        Allocator {dataflow, usage, placer, allocation, read_times, write_times, node_times, regs, pool}
     }
 
     /// Returns the [`Register`] containing `node`, if any.
@@ -111,17 +124,16 @@ impl<'a> Allocator<'a> {
         )
     }
 
-    /// Pop one [`Node`] from `self.usage` and one `dep` from `self.deps`.
+    /// Pop one item from `self.usage`.
     /// Frees its [`Register`], if any, if the `Node` has no remaining uses.
-    fn pop_use(&mut self) -> (Node, Dep) {
-        let node = self.usage.pop().expect("Incorrect usage information");
-        let dep = self.deps.pop().expect("Incorrect dependency information");
+    fn pop_use(&mut self) -> (Node, Input) {
+        let (node, input) = self.usage.pop().expect("Incorrect usage information");
         if self.usage.topmost(&node).is_none() {
             if let Some(reg) = self.current_reg(node) {
                 self.pool.free(reg);
             }
         }
-        (node, dep)
+        (node, input)
     }
 
     /// Record that we accessed `node` at `time` (either reading or writing).
@@ -160,10 +172,9 @@ impl<'a> Allocator<'a> {
     }
 
     /// Called for each [`Node`] in forwards order.
-    /// - `num_inputs` - a [`Dep`] for each input of `node`. For each one, a
-    /// `Node` will be popped from `self.usage` and a [`Dep`] from `self.deps`.
-    /// These `Node`s are often just the inputs of `node`, but can also include
-    /// e.g. values needed by `node`'s cold paths.
+    /// - `num_inputs` - The number of items to pop from `self.usage`.
+    ///   These are often just the inputs of `node`, but can also include e.g.
+    ///   values needed by `node`'s cold paths.
     pub fn add_node(&mut self, node: Node, num_inputs: usize) {
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
@@ -171,18 +182,18 @@ impl<'a> Allocator<'a> {
         // Check for spilled inputs.
         // Free every input `Register` that won't be used again.
         // Bump `time` until the inputs are available.
-        let mut inputs = Vec::<(Node, Dep)>::new();
+        let mut inputs = Vec::<(Node, Input)>::new();
         let mut has_spilled_input = false;
         for _ in 0..num_inputs {
-            let (in_, dep) = self.pop_use();
-            inputs.push((in_, dep));
-            if !dep.is_cold() {
-                if dep.is_value() {
+            let (node, input) = self.pop_use();
+            inputs.push((node, input));
+            if !input.is_cold {
+                if input.is_value {
                     let latency = 1; // TODO.
-                    time.max_with(self.write_times[&in_] + latency as usize);
-                    has_spilled_input |= self.current_reg(in_).is_none();
+                    time.max_with(self.write_times[&node] + latency as usize);
+                    has_spilled_input |= self.current_reg(node).is_none();
                 } else {
-                    time.max_with(self.node_times[&in_]);
+                    time.max_with(self.node_times[&node]);
                 }
             }
         }
@@ -214,9 +225,9 @@ impl<'a> Allocator<'a> {
         // Record the node's placement.
         self.node_times.insert(node, time);
         // Record when the inputs were used.
-        for &(in_, dep) in &inputs {
-            if dep.is_value() {
-                self.access(in_, time);
+        for &(node, input) in &inputs {
+            if input.is_value {
+                self.access(node, time);
             }
         }
         // Record when the output becomes available.
@@ -230,7 +241,6 @@ impl<'a> Allocator<'a> {
     fn finish(mut self, num_outputs: usize) -> (Vec<Instruction>, HashMap<Node, Register>) {
         for _ in 0..num_outputs { let _ = self.pop_use(); }
         assert_eq!(self.usage.len(), 0);
-        assert_eq!(self.deps.len(), 0);
         assert!(all_registers().all(|reg| self.pool.is_clean(reg)));
         (self.placer.iter().cloned().collect(), self.allocation)
     }
@@ -266,30 +276,24 @@ pub fn allocate<'a>(
 ) {
     // Reverse `nodes` and compute their inputs.
     let mut usage = Usage::default();
-    let mut deps = Vec::new();
     for &node in outputs {
-        usage.push(node);
-        deps.push(Dep::VALUE);
+        usage.push(node, Input {is_value: true, is_cold: false});
     }
     let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
         let start = usage.len();
-        assert_eq!(start, deps.len());
         dataflow.each_input(node, |in_, dep| {
-            usage.push(in_);
-            deps.push(dep);
+            usage.push(in_, Input {is_value: dep.is_value(), is_cold: false});
         });
         if let Some(f) = get_frontier(node) {
             for (&in_, &v) in &f.0 {
-                usage.push(in_);
-                deps.push(Dep(v, dep::Effect::Cold));
+                usage.push(in_, Input {is_value: v.is_value(), is_cold: true});
             }
         }
         let end = usage.len();
-        assert_eq!(end, deps.len());
         (node, end - start)
     }).collect();
     // Schedule and allocate registers for every `Node`.
-    let mut a = Allocator::new(effects, variables, dataflow, usage, deps);
+    let mut a = Allocator::new(effects, variables, dataflow, usage);
     while let Some((node, num_inputs)) = nodes_rev.pop() {
         a.add_node(node, num_inputs);
     }

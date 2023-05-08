@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, target, dep, cost, Dep, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
+use super::{code, target, dep, cost, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
 use code::{Register, Variable, Convention, EBB};
 
 mod fill;
@@ -64,8 +64,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
     ///   entry and exit all [`Node`]s must be unmarked.
     /// - `cft` - the code to optimise.
     /// - `slots_used` - the number of [`Slot`]s on entry to the code.
-    /// - `lookup_input` - called once for each input to the code. It
-    ///   returns the [`Variable`] that holds it.
+    /// - `lookup_input` - Returns a [`Variable`] that is live on entry.
     /// - `lookup_guard` - returns the `GuardFailure` for an [`Op::Guard`]
     ///
     /// [`Slot`]: code::Slot
