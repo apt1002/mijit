@@ -19,6 +19,10 @@ impl Value {
     pub fn is_value(self) -> bool {
         matches!(self, Value::Normal | Value::Address)
     }
+
+    pub fn is_address(self) -> bool {
+        matches!(self, Value::Address)
+    }
 }
 
 /// How a [`Node`] depends on side-effects of a previous `Node`.
@@ -43,6 +47,10 @@ pub enum Effect {
 impl Effect {
     pub fn is_cold(self) -> bool {
         matches!(self, Effect::Cold)
+    }
+
+    pub fn is_send(self) -> bool {
+        matches!(self, Effect::Send)
     }
 }
 
@@ -77,7 +85,11 @@ impl Dep {
 
     pub fn is_value(self) -> bool { self.0.is_value() }
 
+    pub fn is_address(self) -> bool { self.0.is_address() }
+
     pub fn is_cold(self) -> bool { self.1.is_cold() }
+
+    pub fn is_send(self) -> bool { self.1.is_send() }
 }
 
 impl PartialOrd for Dep {

@@ -114,7 +114,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             df,
             &nodes,
             |node| if is_guard(node) { Some(&lookup_guard(node).fontier) } else { None },
-            &exit.outputs,
+            &exit,
         );
 
         // Build the EBB.

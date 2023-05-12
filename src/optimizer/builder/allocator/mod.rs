@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Frontier};
+use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Exit, Frontier};
 use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
 use super::code::{Register, Variable};
 use crate::util::{ArrayMap, map_filter_max, Usage};
@@ -237,12 +237,58 @@ impl<'a> Allocator<'a> {
         }
     }
 
-    /// Read the [`Node`]s that are live on exit.
+    /// Read the [`Node`]s that are live on exit, and the sequence `Node`.
     fn finish(mut self, num_outputs: usize) -> (Vec<Instruction>, HashMap<Node, Register>) {
         for _ in 0..num_outputs { let _ = self.pop_use(); }
+        let _ = self.pop_use();
         assert_eq!(self.usage.len(), 0);
         assert!(all_registers().all(|reg| self.pool.is_clean(reg)));
         (self.placer.iter().cloned().collect(), self.allocation)
+    }
+}
+
+/// Accumulates memory accesses and `Send`s that wait for them.
+#[derive(Debug, Default)]
+struct Address {
+    mems: Vec<Node>,
+    sends: Vec<Node>,
+}
+
+/// Used to sort `Node`s into a reverse execution order.
+#[derive(Debug, Default)]
+struct Queue {
+    counts: HashMap<Node, usize>,
+    queue: Vec<Node>,
+}
+
+impl Queue {
+    pub fn new(nodes: &[Node]) -> Self {
+        Self {
+            counts: nodes.iter().map(|&node| (node, 0)).collect(),
+            queue: Vec::new(),
+        }
+    }
+
+    /// Increments `counts[node]`.
+    pub fn increment(&mut self, node: Node) {
+        if let Some(count) = self.counts.get_mut(&node) { *count += 1; }
+    }
+
+    /// Decrements `counts[node]` and if zero adds `node` to `queue`.
+    pub fn decrement(&mut self, node: Node) {
+        if let Some(count) = self.counts.get_mut(&node) {
+            *count -= 1;
+            println!("counts[{:?}] is now {:?}", node, count);
+            if *count == 0 {
+                println!("Enqueueing!");
+                self.queue.push(node);
+            }
+        }
+    }
+
+    /// Removes and returns something from `queue`.
+    pub fn pop(&mut self) -> Option<Node> {
+        self.queue.pop()
     }
 }
 
@@ -251,11 +297,10 @@ impl<'a> Allocator<'a> {
 /// - effects - [`Node`]s representing side-effects that have already occurred.
 /// - variables - the [`Variable`]s passed on entry to the hot path.
 /// - dataflow - the dataflow graph.
-/// - nodes - the [`Node`]s that need to be executed on the hot path,
-///   topologically sorted.
+/// - nodes - the [`Node`]s that need to be executed on the hot path.
 /// - get_frontier - for [`Guard`] `Node`s, returns the dependencies of the
 ///   cold paths.
-/// - outputs - the [`Node`]s that are live on exit.
+/// - exit - the [`Node`]s that are live on exit, and the sequence `Node`.
 ///
 /// Returns:
 /// - instructions - the execution order.
@@ -269,33 +314,110 @@ pub fn allocate<'a>(
     dataflow: &Dataflow,
     nodes: &[Node],
     get_frontier: impl Fn(Node) -> Option<&'a Frontier>,
-    outputs: &[Node],
+    exit: &Exit,
 ) -> (
     Vec<Instruction>,
     HashMap<Node, Register>
 ) {
-    // Reverse `nodes` and compute their inputs.
-    let mut usage = Usage::default();
-    for &node in outputs {
-        usage.push(node, Input {is_value: true, is_cold: false});
+    println!("allocate()");
+    println!("effects = {:?}", effects);
+    println!("variables = {:#?}", variables);
+    println!("dataflow = {:#?}", dataflow);
+    println!("nodes = {:#?}", nodes);
+    println!("exit = {:#?}", exit);
+    // Count how many things depend on each `Node`.
+    // Simultaneously index all `Send`s and memory access `Node`s.
+    let mut queue = Queue::new(nodes);
+    let mut addresses = HashMap::<Node, Address>::new();
+    for &node in nodes {
+        dataflow.each_input(node, |in_, dep| {
+            if !dep.is_cold() {
+                // Ordering dependency.
+                println!("Ordering dependency {:?}", in_);
+                queue.increment(in_);
+            }
+            if dep.is_address() {
+                println!("Memory instruction {:?}", node);
+                addresses.entry(in_).or_default().mems.push(node);
+            }
+            if dep.is_send() {
+                println!("Send instruction {:?}", node);
+                addresses.entry(in_).or_default().sends.push(node);
+            }
+        });
     }
-    let mut nodes_rev: Vec<(Node, usize)> = nodes.iter().rev().map(|&node| {
+    println!("addresses = {:#?}", addresses);
+    // Count extra dependencies due to `Send`s.
+    for address in addresses.values() {
+        for &mem in &address.mems {
+            for &send in &address.sends {
+                if mem != send {
+                    // `Send` dependency.
+                    println!("Send dependency {:?}", mem);
+                    queue.increment(mem);
+                }
+            }
+        }
+    }
+    // Count extra dependencies due to `exit`.
+    println!("Sequence dependency {:?}", exit.sequence);
+    queue.increment(exit.sequence);
+    for &in_ in &*exit.outputs {
+        println!("Output dependency {:?}", in_);
+        queue.increment(in_);
+    }
+    println!("Before: queue = {:#?}", queue);
+
+    // Prioritize `nodes` into a possible reverse execution order.
+    // Simultaneously compute their inputs.
+    let mut usage = Usage::default();
+    let mut nodes_rev = Vec::new();
+    println!("Sequence dependency {:?}", exit.sequence);
+    queue.decrement(exit.sequence);
+    usage.push(exit.sequence, Input {is_value: false, is_cold: false});
+    for &in_ in &*exit.outputs {
+        println!("Output dependency {:?}", in_);
+        queue.decrement(in_);
+        usage.push(in_, Input {is_value: true, is_cold: false});
+    }
+    while let Some(node) = queue.pop() {
+        println!("Popping {:?} from queue", node);
         let start = usage.len();
         dataflow.each_input(node, |in_, dep| {
-            usage.push(in_, Input {is_value: dep.is_value(), is_cold: false});
+            if !dep.is_cold() {
+                // Ordering dependency.
+                println!("Ordering dependency {:?}", in_);
+                queue.decrement(in_);
+                usage.push(in_, Input {is_value: dep.is_value(), is_cold: false});
+            }
+            if dep.is_send() {
+                for &mem in &addresses[&in_].mems {
+                    if mem != node {
+                        // `Send` dependency.
+                        println!("Send dependency {:?}", mem);
+                        queue.decrement(mem);
+                        usage.push(mem, Input {is_value: false, is_cold: false});
+                    }
+                }
+            }
         });
         if let Some(f) = get_frontier(node) {
             for (&in_, &v) in &f.0 {
+                // Cold path dependency.
+                println!("Cold path dependency{:?}", in_);
                 usage.push(in_, Input {is_value: v.is_value(), is_cold: true});
             }
         }
         let end = usage.len();
-        (node, end - start)
-    }).collect();
+        nodes_rev.push((node, end - start));
+    }
+    println!("After: queue = {:#?}", queue);
+    assert_eq!(nodes_rev.len(), nodes.len());
+
     // Schedule and allocate registers for every `Node`.
     let mut a = Allocator::new(effects, variables, dataflow, usage);
     while let Some((node, num_inputs)) = nodes_rev.pop() {
         a.add_node(node, num_inputs);
     }
-    a.finish(outputs.len())
+    a.finish(exit.outputs.len())
 }
