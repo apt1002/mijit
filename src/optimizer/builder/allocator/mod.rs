@@ -181,6 +181,7 @@ impl<'a> Allocator<'a> {
     ///   These are often just the inputs of `node`, but can also include e.g.
     ///   values needed by `node`'s cold paths.
     pub fn add_node(&mut self, node: Node, num_inputs: usize) {
+        println!("add_node({:?}, {:?})", node, num_inputs);
         let df: &'a Dataflow = self.dataflow;
         let mut time = EARLY; // Earliest time (in cycles) when we can place `node`.
         // Read inputs.
@@ -192,9 +193,12 @@ impl<'a> Allocator<'a> {
         for _ in 0..num_inputs {
             let (in_, input) = self.pop_use();
             inputs.push((in_, input));
+            println!("in_ = {:?}, input = {:?}", in_, input);
             if !input.is_cold {
                 has_spilled_input |= input.is_value & self.current_reg(in_).is_none();
-                time.max_with(self.node_time(in_, input.is_value));
+                let in_time = self.node_time(in_, input.is_value);
+                println!("Available at time {:?}", in_time);
+                time.max_with(in_time);
             } else {
                 println!("Input is not needed on the hot path");
             }
@@ -208,23 +212,31 @@ impl<'a> Allocator<'a> {
                 // `reg` was previously used to hold `prev`.
                 if let Some(&read_time) = self.access_times.get(&prev) {
                     // `prev` was last accessed at `read_time`.
+                    println!("{:?} is available at time {:?}", reg, read_time);
                     time.max_with(read_time);
+                } else {
+                    println!("{:?} has not been accessed", reg);
                 }
+            } else {
+                println!("{:?} does not hold anything", reg);
             }
             if self.usage.topmost(&node).is_none() {
                 // `node` will never be used again. Free `reg` immediately.
                 self.pool.free(reg);
+                println!("{:?} can be freed afterwards", reg);
             }
         }
         // Bump `time` until the execution resources are available.
         let mut resources = df.cost(node).resources;
         if has_spilled_input {
             // We can't be sure it's not still in a `Register`; this is a guess.
+            println!("Adding the cost of accessing a spilled value");
             resources += SLOT_COST;
         }
         // FIXME: A long series of zero-cost nodes will crash the placer.
         self.placer.add_item(Node(node), resources, &mut time);
         // Record the node's placement.
+        println!("Placed the node at time {:?}", time);
         self.node_times.insert(node, time);
         // Record when the input registers are accessed.
         for &(node, input) in &inputs {
@@ -329,6 +341,7 @@ pub fn allocate<'a>(
     let mut queue = Queue::new(nodes);
     let mut addresses = HashMap::<Node, Address>::new();
     for &node in nodes {
+        println!("Counting {:?}", node);
         dataflow.each_input(node, |in_, dep| {
             if !dep.is_cold() {
                 // Ordering dependency.
@@ -348,8 +361,9 @@ pub fn allocate<'a>(
     println!("addresses = {:#?}", addresses);
     // Count extra dependencies due to `Send`s.
     for address in addresses.values() {
-        for &mem in &address.mems {
-            for &send in &address.sends {
+        for &send in &address.sends {
+            println!("Doing Send {:?}", send);
+            for &mem in &address.mems {
                 if mem != send {
                     // `Send` dependency.
                     println!("Send dependency {:?}", mem);
@@ -417,6 +431,9 @@ pub fn allocate<'a>(
     let mut a = Allocator::new(variables, dataflow, usage);
     while let Some((node, num_inputs)) = nodes_rev.pop() {
         a.add_node(node, num_inputs);
+        println!("access_times = {:#?}", a.access_times);
+        println!("node_times = {:#?}", a.node_times);
+        println!("regs = {:#?}", a.regs);
     }
     a.finish(exit.outputs.len())
 }

@@ -183,7 +183,7 @@ pub fn build<L: LookupLeaf>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Global, Precision, BinaryOp, builder};
+    use code::{Register, REGISTERS, Global, Precision, BinaryOp, Width, Action, builder};
     use BinaryOp::*;
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
@@ -292,5 +292,42 @@ mod tests {
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
         let _observed = build(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
+    }
+
+    /// Test `Send`.
+    #[test]
+    fn load_to_store() {
+        let convention = Convention {
+            slots_used: 0,
+            live_values: Box::new([
+                Variable::Global(Global(0)),
+                Variable::Global(Global(1)),
+            ]),
+        };
+        // Make an `EBB`.
+        let input = builder::build(|mut b| {
+            b.binary64(Mul, REGISTERS[0], Global(0), Global(0));
+            b.binary64(Add, REGISTERS[0], Global(1), REGISTERS[0]);
+            b.actions.push(Action::Load(REGISTERS[0], (REGISTERS[0].into(), Width::Eight)));
+            b.actions.push(Action::Load(REGISTERS[1], (REGISTERS[0].into(), Width::Eight)));
+            // 
+            for _ in 0..4 {
+                b.actions.push(Action::Load(REGISTERS[2], (REGISTERS[0].into(), Width::Eight)));
+                b.binary64(Mul, REGISTERS[1], REGISTERS[1], REGISTERS[2]);
+            }
+            b.move_(Global(0), REGISTERS[1]);
+            b.send(Global(1), REGISTERS[0]);
+            b.const_(REGISTERS[1], 42);
+            b.actions.push(Action::Store(REGISTERS[0], REGISTERS[1].into(), (Global(1).into(), Width::Eight)));
+            b.move_(Global(1), REGISTERS[0]);
+            b.jump(0)
+        });
+        // Optimize it.
+        println!("input = {:#?}", input);
+        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
+        let (dataflow, cft) = super::super::simulate(&convention, &input, &convention);
+        let output = build(&convention, &dataflow, &cft, &convention);
+        // TODO: Expected output.
+        println!("output = {:#?}", output);
     }
 }
