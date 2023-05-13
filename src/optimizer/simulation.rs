@@ -104,7 +104,6 @@ impl Simulation {
             },
             Action::Store(dest, src, (addr, width)) => {
                 let _ = self.op(dataflow, Op::Store(width), &[src, addr], dest);
-                self.move_(dest.into(), src);
             },
             Action::Send(dest, src1, src2) => {
                 let _ = self.op(dataflow, Op::Send, &[src1, src2], dest);
