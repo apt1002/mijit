@@ -57,12 +57,14 @@ fn native_address(b: &mut Builder<EntryId>, addr: Register) {
 fn load(b: &mut Builder<EntryId>, dest: Register, addr: Register) {
     native_address(b, addr);
     b.load(dest, (BI, 0), Four);
+    b.send(M0, BI);
 }
 
 /// Stores `dest` at `addr`. `BI` is corrupted.
 fn store(b: &mut Builder<EntryId>, src: Register, addr: Register) {
     native_address(b, addr);
     b.store(src, (BI, 0), Four);
+    b.send(M0, BI);
 }
 
 /// Pops `dest` from the stack at `sp`. `BI` is corrupted.

@@ -43,22 +43,6 @@ struct Guard<T> {
 
 //-----------------------------------------------------------------------------
 
-/// Specifies an auto-increment mode for memory accesses.
-pub enum Increment {
-    /// Increment After.
-    IA,
-    /// Increment Before.
-    IB,
-    /// Decrement After.
-    DA,
-    /// Decrement Before.
-    DB,
-}
-
-use Increment::*;
-
-//-----------------------------------------------------------------------------
-
 /// A utility for building [`EBB`]s. `T` is usually [`EntryId`].
 ///
 /// [`EntryId`]: crate::jit::EntryId
@@ -172,21 +156,33 @@ impl<T> Builder<T> {
         self.binary32(op, dest, src, temp);
     }
 
+    /// Assembles `Action`s to send memory accesses from `src` to `dest`.
+    /// [`TEMP`] is corrupted.
+    pub fn send(
+        &mut self,
+        dest: impl Into<Variable>,
+        src: impl Into<Variable>,
+    ) {
+        let dest = dest.into();
+        self.actions.push(Action::Send(TEMP, dest, src.into()));
+        self.move_(dest, TEMP);
+    }
+
     /// Assembles `Action`s to load `dest` from address `addr.0 + addr.1`.
-    /// [`TEMP`] is corrupted if `dest == addr.0`.
+    /// [`TEMP`] is corrupted.
     pub fn load(
         &mut self,
         dest: impl Into<Register>,
         addr: (impl Into<Variable>, i64),
         width: Width,
     ) {
-        let dest = dest.into();
-        self.const_binary64(Add, dest, addr.0, addr.1);
-        self.actions.push(Action::Load(dest, (dest.into(), width)));
+        let addr0 = addr.0.into();
+        self.const_binary64(Add, TEMP, addr0, addr.1);
+        self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
+        self.send(addr0, TEMP);
     }
 
-    /// Assembles `Action`s to compute `addr.0 + addr.1` into `dest` and to
-    /// store `src` at that address.
+    /// Assembles `Action`s to store `src` at `addr.0 + addr.1`.
     /// [`TEMP`] is corrupted.
     pub fn store(
         &mut self,
@@ -194,8 +190,10 @@ impl<T> Builder<T> {
         addr: (impl Into<Variable>, i64),
         width: Width,
     ) {
-        self.const_binary64(Add, TEMP, addr.0, addr.1);
+        let addr0 = addr.0.into();
+        self.const_binary64(Add, TEMP, addr0, addr.1);
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
+        self.send(addr0, TEMP);
     }
 
     /// Assembles `Action`s to load `dest` from `addr.0 + width * addr.1`.
@@ -206,9 +204,11 @@ impl<T> Builder<T> {
         addr: (impl Into<Variable>, impl Into<Variable>),
         width: Width,
     ) {
+        let addr0 = addr.0.into();
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
-        self.binary64(Add, TEMP, addr.0, TEMP);
+        self.binary64(Add, TEMP, addr0, TEMP);
         self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
+        self.send(addr0, TEMP);
     }
 
     /// Assembles `Action`s to compute `addr.0 + width * addr.1` into `dest` and
@@ -220,63 +220,11 @@ impl<T> Builder<T> {
         addr: (impl Into<Variable>, impl Into<Variable>),
         width: Width,
     ) {
+        let addr0 = addr.0.into();
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
-        self.binary64(Add, TEMP, addr.0, TEMP);
+        self.binary64(Add, TEMP, addr0, TEMP);
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
-    }
-
-    fn increment (
-        &mut self,
-        increment: Increment,
-        addr: Register,
-        step: i64,
-        callback: impl FnOnce(&mut Self),
-    ) {
-        match increment {
-            IB => { self.const_binary64(Add, addr, addr, step); },
-            DB => { self.const_binary64(Sub, addr, addr, step); },
-            _ => {},
-        }
-        callback(self);
-        match increment {
-            IA => { self.const_binary64(Add, addr, addr, step); },
-            DA => { self.const_binary64(Sub, addr, addr, step); },
-            _ => {},
-        }
-    }
-
-    /// Assembles `Action`s to load `dest` from `sp` and to increment `sp` by
-    /// one word (4 or 8 bytes).
-    /// [`TEMP`] is corrupted.
-    pub fn increment_load(
-        &mut self,
-        increment: Increment,
-        dest: impl Into<Register>,
-        addr: impl Into<Register>,
-        width: Width,
-    ) {
-        let dest = dest.into();
-        let addr = addr.into();
-        self.increment(increment, addr, 1 << (width as usize), |b| {
-            b.load(dest, (addr, 0), width);
-        });
-    }
-
-    /// Assembles `Action`s to decrement `sp` by one word (4 or 8 bytes) and to
-    /// store `src` at `sp`.
-    /// [`TEMP`] is corrupted.
-    pub fn increment_store(
-        &mut self,
-        increment: Increment,
-        src: impl Into<Variable>,
-        addr: impl Into<Register>,
-        width: Width,
-    ) {
-        let src = src.into();
-        let addr = addr.into();
-        self.increment(increment, addr, 1 << (width as usize), |b| {
-            b.store(src, (addr, 0), width);
-        });
+        self.send(addr0, TEMP);
     }
 
     /// Assembles an action that prints out the value of `src`.
