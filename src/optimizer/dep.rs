@@ -66,7 +66,7 @@ impl Effect {
 /// ------+---------------------------------
 /// Cold  | NONE    COLD_VALUE  COLD_LOAD
 /// Hot   | GUARD   VALUE       LOAD
-/// Send  | SEND                STORE
+/// Send  |         SEND        STORE
 /// ```
 ///
 /// [`Node`]: super::Node
@@ -80,7 +80,7 @@ impl Dep {
     pub const GUARD: Dep = Dep(Value::Unused, Effect::Hot);
     pub const VALUE: Dep = Dep(Value::Normal, Effect::Hot);
     pub const LOAD: Dep = Dep(Value::Address, Effect::Hot);
-    pub const SEND: Dep = Dep(Value::Unused, Effect::Send);
+    pub const SEND: Dep = Dep(Value::Normal, Effect::Send);
     pub const STORE: Dep = Dep(Value::Address, Effect::Send);
 
     pub fn is_value(self) -> bool { self.0.is_value() }
