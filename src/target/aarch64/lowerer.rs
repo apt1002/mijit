@@ -459,6 +459,10 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                 self.a.mem(STR, src, (base, offset));
                 self.move_(dest, base);
             },
+            Action::Send(dest, src1, _) => {
+                let src1 = self.src_to_register(src1, dest);
+                self.move_(dest, src1);
+            },
             Action::Push(src1, src2) => {
                 let src1 = src1.map_or(RZR, |src1| self.src_to_register(src1, TEMP0));
                 let src2 = src2.map_or(RZR, |src2| self.src_to_register(src2, TEMP1));

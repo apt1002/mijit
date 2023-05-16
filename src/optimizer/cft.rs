@@ -96,13 +96,12 @@ impl<C: Debug> Debug for Cold<C> {
 /// Code will be considered dead unless it contributes to one of these goals.
 #[derive(Debug, Clone)]
 pub struct Exit {
-    /// The last [`Guard`], [`Store`] or [`Debug`], if any.
-    /// This must be executed before exiting.
+    /// The last [`Guard`], or [`Debug`], if any, otherwise the undefined
+    /// `Node`. This must be executed before exiting.
     ///
     /// [`Guard`]: super::Op::Guard
-    /// [`Store`]: super::Op::Store
     /// [`Debug`]: super::Op::Debug
-    pub sequence: Option<Node>,
+    pub sequence: Node,
     /// The `Node` which computes each of the live variables.
     /// These must be computed before exiting, and must remain alive.
     pub outputs: Box<[Node]>,

@@ -1,3 +1,4 @@
+use super::{Dep};
 use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Action};
 
 /// Annotates a [`Node`] of a [`Dataflow`] graph.
@@ -16,10 +17,29 @@ pub enum Op {
     Binary(Precision, BinaryOp),
     Load(Width),
     Store(Width),
+    Send,
     Debug,
 }
 
 impl Op {
+    /// Returns the [`Dep`]s of the operands of a [`Node`] annotated with this
+    /// `Op`.
+    ///
+    /// [`Node`]: super::Node
+    pub fn deps(self) -> &'static [Dep] {
+        match self {
+            Op::Guard => &[Dep::GUARD, Dep::VALUE],
+            Op::Input => &[],
+            Op::Constant(_) => &[],
+            Op::Unary(_, _) => &[Dep::VALUE],
+            Op::Binary(_, _) => &[Dep::VALUE, Dep::VALUE],
+            Op::Load(_) => &[Dep::GUARD, Dep::LOAD],
+            Op::Store(_) => &[Dep::GUARD, Dep::VALUE, Dep::STORE],
+            Op::Send => &[Dep::VALUE, Dep::SEND],
+            Op::Debug => &[Dep::GUARD, Dep::VALUE],
+        }
+    }
+
     /// Aggregates this [`Op`] with the specified outputs and inputs to make an
     /// [`Action`].
     /// Panics if the `Op` is a `Guard`.
@@ -46,6 +66,10 @@ impl Op {
             Op::Store(width) => {
                 assert_eq!(ins.len(), 2);
                 Action::Store(out.unwrap(), ins[0], (ins[1], width))
+            },
+            Op::Send => {
+                assert_eq!(ins.len(), 2);
+                Action::Send(out.unwrap(), ins[0], ins[1])
             },
             Op::Debug => {
                 assert!(out.is_none());

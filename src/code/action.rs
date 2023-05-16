@@ -7,33 +7,53 @@ pub extern fn debug_word(x: u64) {
 }
 
 /// An imperative instruction.
+///
 /// The destination register (where applicable) is on the left.
 #[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub enum Action {
     /// dest <- src
     Move(Variable, Variable),
+
     /// dest <- constant
     Constant(Precision, Register, i64),
+
     /// dest <- op(src)
     Unary(UnaryOp, Precision, Register, Variable),
+
     /// dest <- op(src1, src2)
     Binary(BinaryOp, Precision, Register, Variable, Variable),
+
     /// dest <- \[addr]
     Load(Register, (Variable, Width)),
+
     /// dest <- addr; \[addr] <- \[src]
-    /// `dest` exists to make the optimizer allocate a temporary register.
+    ///
+    /// If you later `Load` or `Store` via `addr`, the behaviour is undefined.
     Store(Register, Variable, (Variable, Width)),
+
+    /// dest <- src1
+    /// Memory accesses via `dest` will happen later than memory accesses via
+    /// `src2`, if they might be to the same location.
+    ///
+    /// If you later `Load` or `Store` via `src2`, the behaviour is undefined.
+    /// Note that `Send` says nothing about accesses via `src1`.
+    Send(Register, Variable, Variable),
+
     /// sp <- sp - 16; \[sp] <- src1; \[sp + 8] <- src2
+    ///
     /// If either `src` is `None`, push a dead value.
     /// Note that this creates two [`Slot`]s.
     ///
     /// [`Slot`]: super::Slot
     Push(Option<Variable>, Option<Variable>),
+
     /// sp <- sp + 16*n
+    ///
     /// Note that this drops `2*n` [`Slot`]s.
     ///
     /// [`Slot`]: super::Slot
     Drop(usize),
+
     /// Pass `src` to [`debug_word()`].
     Debug(Variable),
 }
@@ -53,6 +73,8 @@ impl std::fmt::Debug for Action {
                 write!(f, "Load_{:?} {:?}, [{:?}]", width, dest, addr),
             Action::Store(dest, src, (addr, width)) =>
                 write!(f, "Store_{:?} {:?}, {:?}, [{:?}]", width, dest, src, addr),
+            Action::Send(dest, src1, src2) =>
+                write!(f, "Send {:?}, {:?}, {:?}", dest, src1, src2),
             Action::Push(src1, src2) =>
                 write!(f, "Push ({:?}, {:?})", src1, src2),
             Action::Drop(n) =>

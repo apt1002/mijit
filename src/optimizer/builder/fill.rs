@@ -1,16 +1,14 @@
-use std::collections::{HashSet};
+use std::collections::{HashMap};
 
-use super::{Dataflow, Node, Exit};
+use super::{dep, Dataflow, Node, Exit};
 use crate::util::{ArrayMap};
 
 /// Ways in which the marked [`Node`]s of a [`Fill`] depend on its boundary.
+///
+/// A mapping from `node` to `dep` indicates that one or more `Node`s in the
+/// `Fill` depend on a boundary `Node` `node` in the manner described by `dep`.
 #[derive(Debug, Clone, Default)]
-pub struct Frontier {
-    /// The side-effects depended on by the nodes but not performed by them.
-    pub effects: HashSet<Node>,
-    /// The values depended on by the nodes but not computed by them.
-    pub inputs: HashSet<Node>,
-}
+pub struct Frontier(pub HashMap<Node, dep::Value>);
 
 /// The state of a LIFO flood fill through a [`Dataflow`] graph.
 pub struct Fill<'a> {
@@ -53,8 +51,7 @@ impl<'a> Fill<'a> {
     /// Assert that all non-boundary depdendencies of `node` are marked, and
     /// that `node` is non-boundary and unmarked. Then, mark it.
     pub fn mark(&mut self, node: Node) {
-        for &dep in self.dataflow.deps(node) { assert_ne!(self[dep], 0); }
-        for &in_ in self.dataflow.ins(node) { assert_ne!(self[in_], 0); }
+        self.dataflow.each_input(node, |in_, _| assert_ne!(self[in_], 0));
         assert_eq!(self[node], 0);
         self.marks[node] = self.marker;
         self.nodes.push(node);
@@ -65,42 +62,35 @@ impl<'a> Fill<'a> {
     pub fn visit(&mut self, node: Node) -> bool {
         if self[node] == 0 {
             // TODO: Sort `Node`s by latency or breadth or something.
-            for &dep in self.dataflow.deps(node) { self.effect(dep); }
-            for &in_ in self.dataflow.ins(node) { self.input(in_); }
+            self.dataflow.each_input(node, |in_, dep| self.input(in_, dep.0));
             self.mark(node);
         }
         self[node] < self.marker
     }
 
-    /// Mark `effect` and all its dependencies.
-    pub fn effect(&mut self, effect: Node) {
-        if self.visit(effect) {
-            self.frontier.effects.insert(effect);
-        }
-    }
-
-    /// Mark `input` and all its dependencies.
-    pub fn input(&mut self, in_: Node) {
+    /// Mark `in_` and all its dependencies.
+    pub fn input(&mut self, in_: Node, dep: dep::Value) {
         if self.visit(in_) {
-            self.frontier.inputs.insert(in_);
+            let v = self.frontier.0.entry(in_).or_insert(dep::Value::Unused);
+            *v = std::cmp::max(*v, dep);
         }
     }
 
     /// Mark all dependencies of `Exit`.
     pub fn exit(&mut self, exit: &Exit) {
-        if let Some(node) = exit.sequence { self.effect(node); }
-        for &node in &*exit.outputs { self.input(node); }
+        self.input(exit.sequence, dep::Value::Unused);
+        for &node in &*exit.outputs { self.input(node, dep::Value::Normal); }
     }
 
-    /// Call [`effect`] on each of `frontier.effects` and [`input`] on each of
-    /// `frontier.inputs`. This method can be used to resume a flood fill with
-    /// a smaller boundary set.
+    /// Call [`effect`] on each of `frontier.effects`, [`address`] on each of
+    /// `frontier.addresses` and [`input`] on each of `frontier.inputs`. This
+    /// method can be used to resume a flood fill with a smaller boundary set.
     ///
     /// [`effect`]: Self::effect
+    /// [`address`]: Self::load_address
     /// [`input`]: Self::input
     pub fn resume(&mut self, frontier: &Frontier) {
-        for &input in &frontier.inputs { self.input(input); }
-        for &effect in &frontier.effects { self.effect(effect); }
+        for (&input, &dep) in &frontier.0 { self.input(input, dep); }
     }
 
     /// See the marked [`Node`]s.
@@ -142,7 +132,8 @@ pub fn with_fill<T>(
 ) -> T {
     let mut marks = dataflow.node_map();
     let mut fill = Fill::new(dataflow, &mut marks);
-    for &node in dataflow.inputs() { fill.input(node); }
+    fill.mark(dataflow.undefined());
+    for &node in dataflow.inputs() { fill.mark(node); }
     callback(fill.nested())
 }
 
@@ -154,52 +145,49 @@ mod tests {
     use super::super::{code, Op};
     use code::{Precision, BinaryOp, Width};
     use Precision::*;
-    use crate::util::{AsUsize};
 
     #[test]
     fn test() {
         // Construct a `Dataflow` with two exits and a dead `Node`.
+        // TODO: Use `Send`.
         let mut df = Dataflow::new(1);
+        let u = df.undefined();
         let a = df.inputs()[0];
-        let guard = df.add_node(Op::Guard, &[], &[a]);
-        let constant = df.add_node(Op::Constant(1), &[], &[]);
+        let guard = df.add_node(Op::Guard, &[u, a]);
+        let constant = df.add_node(Op::Constant(1), &[]);
         let b = constant;
-        let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[], &[a, b]);
+        let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[a, b]);
         let c = add;
-        let exit1 = Exit {sequence: Some(guard), outputs: Box::new([c])};
-        let store = df.add_node(Op::Store(Width::Eight), &[guard], &[b, a]);
+        let exit1 = Exit {sequence: guard, outputs: Box::new([c])};
+        let store = df.add_node(Op::Store(Width::Eight), &[guard, b, a]);
         let d = store;
-        let exit2 = Exit {sequence: Some(store), outputs: Box::new([d])};
-        let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[], &[b, b]);
+        let exit2 = Exit {sequence: store, outputs: Box::new([d])};
+        let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[b, b]);
         // Mark `entry` with `1`.
         let mut marks = df.node_map();
         let mut fill = Fill::new(&df, &mut marks);
-        fill.input(a);
-        // Flood from `exit1` with colour `2`.
+        fill.input(u, dep::Value::Unused);
+        fill.input(a, dep::Value::Normal);
+        // Flood from `exit1`.
         let mut fill1 = fill.nested();
         fill1.exit(&exit1);
         let (nodes1, frontier1) = fill1.drain();
         assert_eq!(&nodes1, &[guard, constant, add]);
-        let mut inputs1 = Vec::from_iter(frontier1.inputs);
-        inputs1.sort_by_key(|node| node.as_usize());
-        assert_eq!(&inputs1, &[a]);
-        let mut effects1 = Vec::from_iter(frontier1.effects);
-        effects1.sort_by_key(|node| node.as_usize());
-        assert_eq!(&effects1, &[]);
+        assert_eq!(frontier1.0.len(), 2);
+        assert_eq!(frontier1.0[&u], dep::Value::Unused);
+        assert_eq!(frontier1.0[&a], dep::Value::Normal);
         for node in nodes1 { fill1.mark(node); }
-        // Flood from `exit2` with colour `12`.
+        // Nested flood from `exit2`.
         let mut fill2 = fill1.nested();
         fill2.exit(&exit2);
         let (nodes2, frontier2) = fill2.drain();
         assert_eq!(&nodes2, &[store]);
-        let mut inputs2 = Vec::from_iter(frontier2.inputs);
-        inputs2.sort_by_key(|node| node.as_usize());
-        assert_eq!(&inputs2, &[a, b]);
-        let mut effects2 = Vec::from_iter(frontier2.effects);
-        effects2.sort_by_key(|node| node.as_usize());
-        assert_eq!(&effects2, &[guard]);
+        assert_eq!(frontier2.0.len(), 3);
+        assert_eq!(frontier2.0[&a], dep::Value::Address);
+        assert_eq!(frontier2.0[&b], dep::Value::Normal);
+        assert_eq!(frontier2.0[&guard], dep::Value::Unused);
         for node in nodes2 { fill2.mark(node); }
         // Check the marks.
-        assert_eq!(marks.as_ref(), &[1, 2, 2, 2, 3, 0]);
+        assert_eq!(marks.as_ref(), &[1, 1, 2, 2, 2, 3, 0]);
     }
 }

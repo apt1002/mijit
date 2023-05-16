@@ -1,7 +1,7 @@
 use std::fmt::{self, Debug, Formatter};
 
 use crate::util::{AsUsize, ArrayMap, CommaSeparated};
-use super::{Op, Cost, op_cost};
+use super::{Dep, Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
 
@@ -29,43 +29,37 @@ impl<'a> Debug for NodeAdapter<'a> {
             self.dataflow.op(self.node),
             CommaSeparated(|| self.dataflow.ins(self.node)),
         )?;
-        let deps = self.dataflow.deps(self.node);
-        if !deps.is_empty() {
-            write!(f, " after ({:?})", CommaSeparated(|| deps))?;
-        }
         Ok(())
     }
 }
 
 //-----------------------------------------------------------------------------
 
-/// The internal representation of a [`Node`].
+/// The information remembered about a [`Node`].
 #[derive(Clone)]
 struct Info {
     /// What kind of operation the `Node` represents.
     op: Op,
+    /// A cache of `op::deps()`.
+    deps: &'static [Dep],
     /// A cache of [`Dataflow::cost`]`(op)`.
     cost: &'static Cost,
-    /// The index in [`Dataflow::deps`] after the last dep of the `Node`.
-    end_dep: usize,
-    /// The index in [`Dataflow::ins`] after the last input of the `Node`.
-    end_in: usize,
+    /// The index in [`Dataflow::ins`] of the first input of the `Node`.
+    start_in: usize,
 }
 
 /// Represents a dataflow graph of some code. The nodes are [`Node`]s.
 ///
-/// There is a dummy [`Op::Input`] `Node` for each [`Variable`] that is live
-/// on entry to the [`Dataflow`].
+/// There is a dummy [`Op::Input`] for the undefined value and for each
+/// [`Variable`] that is live on entry to the [`Dataflow`].
 ///
 /// [`Variable`]: super::code::Variable
 #[derive(Clone)]
 pub struct Dataflow {
-    /// The live values on entry.
+    /// The undefined value, and the live values on entry.
     inputs: Box<[Node]>,
     /// One per [`Node`].
     nodes: Vec<Info>,
-    /// One per non-dataflow dependency: a predecessor [`Node`].
-    deps: Vec<Node>,
     /// One per input. Connects the input to the [`Node`] that computes it.
     ins: Vec<Node>,
 }
@@ -74,21 +68,26 @@ impl Dataflow {
     /// Construct a `Dataflow` with `num_inputs` values live on entry.
     pub fn new(num_inputs: usize) -> Self {
         let mut ret = Dataflow {
-            inputs: (0..num_inputs).map(|i| Node::new(i).unwrap()).collect(),
+            inputs: (0..(num_inputs+1)).map(|i| Node::new(i).unwrap()).collect(),
             nodes: Vec::new(),
-            deps: Vec::new(),
             ins: Vec::new(),
         };
-        for i in 0..num_inputs {
-            let node = ret.add_node(Op::Input, &[], &[]);
+        for i in 0..(num_inputs+1) {
+            let node = ret.add_node(Op::Input, &[]);
             assert_eq!(node, ret.inputs[i]);
         }
         ret
     }
 
+    /// Returns the [`Node`] that represents the undefined value. This is
+    /// considered to cost nothing and to be executed first.
+    pub fn undefined(&self) -> Node {
+        self.inputs[0]
+    }
+
     /// Returns the [`Node`]s representing the values live on entry.
     pub fn inputs(&self) -> &[Node] {
-        &self.inputs
+        &self.inputs[1..]
     }
 
     /// Returns the [`Info`] about `node`.
@@ -106,39 +105,45 @@ impl Dataflow {
         self.info(node).cost
     }
 
-    /// Returns the [`Info`] about the previous `node`, if any.
-    fn prev(&self, node: Node) -> Option<&Info> {
-        node.as_usize().checked_sub(1).map(|i| &self.nodes[i])
-    }
-
-    /// Returns the [`Node`]s which must be executed before `node`.
-    pub fn deps(&self, node: Node) -> &[Node] {
-        let start_dep = self.prev(node).map_or(0, |prev| prev.end_dep);
-        &self.deps[start_dep .. self.info(node).end_dep]
-    }
-
     /// Returns the [`Node`]s which compute the inputs of `node`.
     pub fn ins(&self, node: Node) -> &[Node] {
-        let start_in = self.prev(node).map_or(0, |prev| prev.end_in);
-        &self.ins[start_in .. self.info(node).end_in]
+        let info = self.info(node);
+        &self.ins[info.start_in..][..info.deps.len()]
+    }
+
+    /// Applies `callback` to each non-`None` input of `node`.
+    pub fn each_input(&self, node: Node, mut callback: impl FnMut(Node, Dep)) {
+        let info = self.info(node);
+        for (&dep, &in_) in info.deps.iter().zip(&self.ins[info.start_in..]) {
+            callback(in_, dep);
+        }
+    }
+
+    /// Returns the [`Node`] that computes the discriminant of `guard`.
+    /// Panics if `guard` is not an [`Op::Guard`].
+    pub fn discriminant(&self, guard: Node) -> Node {
+        let info = self.info(guard);
+        assert_eq!(info.op, Op::Guard);
+        self.ins[info.start_in + 1]
     }
 
     /// Returns whether `node` computes a result.
     pub fn has_out(&self, node: Node) -> bool {
-        self.cost(node).output_latency.is_some()
+        self.cost(node).latency != 0xFF
     }
 
     /// Construct a [`Node`] and append it to the graph.
-    pub fn add_node(&mut self, op: Op, deps: &[Node], ins: &[Node]) -> Node {
+    pub fn add_node(&mut self, op: Op, ins: &[Node]) -> Node {
+        let deps = op.deps();
+        assert_eq!(ins.len(), deps.len());
+        for (&in_, &dep) in ins.iter().zip(deps) {
+            if dep.is_value() { assert!(self.has_out(in_)); }
+        }
+        let cost = op_cost(op);
+        let start_in = self.ins.len();
         let node = Node::new(self.nodes.len()).unwrap();
-        self.deps.extend(deps);
         self.ins.extend(ins);
-        self.nodes.push(Info {
-            op: op,
-            cost: op_cost(op),
-            end_dep: self.deps.len(),
-            end_in: self.ins.len(),
-        });
+        self.nodes.push(Info {op, deps, cost, start_in});
         node
     }
 

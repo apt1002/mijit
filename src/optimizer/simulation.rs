@@ -13,11 +13,9 @@ pub struct Simulation {
     slots_used: usize,
     /// Maps each [`Variable`] to the corresponding [`Node`].
     bindings: HashMap<Variable, Node>,
-    /// The most recent [`Op::Guard`], [Op::Store] or [`Op::Debug`], if any.
-    /// instruction.
-    sequence: Option<Node>,
-    /// All [`Op::Load`] instructions since `store`.
-    loads: Vec<Node>,
+    /// The most recent [`Op::Guard`] or [`Op::Debug`], if any, otherwise the
+    /// undefined `Node`.
+    sequence: Node,
 }
 
 impl Simulation {
@@ -32,8 +30,7 @@ impl Simulation {
         Simulation {
             slots_used: before.slots_used,
             bindings: bindings,
-            sequence: None,
-            loads: vec![],
+            sequence: dataflow.undefined(),
         }
     }
 
@@ -69,17 +66,16 @@ impl Simulation {
         ins: &[Variable],
         out: impl Into<Option<Register>>,
     ) -> Node {
-        let ins: Vec<_> = ins.iter().map(|&in_| self.lookup(in_)).collect();
-        let mut deps = Vec::new();
-        if matches!(op, Op::Store(_)) {
-            std::mem::swap(&mut deps, &mut self.loads);
-        }
+        let mut in_nodes = Vec::new();
         if matches!(op, Op::Guard | Op::Load(_) | Op::Store(_) | Op::Debug) {
-            if let Some(node) = self.sequence { deps.push(node); }
+            in_nodes.push(self.sequence);
+        }
+        for &in_ in ins {
+            in_nodes.push(self.lookup(in_));
         }
         // TODO: Common subexpression elimination.
         // TODO: Peephole optimizations.
-        let node = dataflow.add_node(op, &deps, &ins);
+        let node = dataflow.add_node(op, &in_nodes);
         if let Some(r) = out.into() { self.bindings.insert(r.into(), node); }
         node
     }
@@ -104,13 +100,13 @@ impl Simulation {
                 let _ = self.op(dataflow, Op::Binary(prec, bin_op), &[src1, src2], dest);
             },
             Action::Load(dest, (addr, width)) => {
-                let node = self.op(dataflow, Op::Load(width), &[addr], dest);
-                self.loads.push(node);
+                let _ = self.op(dataflow, Op::Load(width), &[addr], dest);
             },
             Action::Store(dest, src, (addr, width)) => {
-                let node = self.op(dataflow, Op::Store(width), &[src, addr], dest);
-                self.move_(dest.into(), src);
-                self.sequence = Some(node);
+                let _ = self.op(dataflow, Op::Store(width), &[src, addr], dest);
+            },
+            Action::Send(dest, src1, src2) => {
+                let _ = self.op(dataflow, Op::Send, &[src1, src2], dest);
             },
             Action::Push(src1, src2) => {
                 for src in [src2, src1] {
@@ -128,7 +124,7 @@ impl Simulation {
             },
             Action::Debug(src) => {
                 let node = self.op(dataflow, Op::Debug, &[src], None);
-                self.sequence = Some(node);
+                self.sequence = node;
             },
         };
     }
@@ -138,7 +134,7 @@ impl Simulation {
     ///  - discriminant - the [`Variable`] tested by the guard.
     pub fn guard(&mut self, dataflow: &mut Dataflow, discriminant: Variable) -> Node {
         let guard = self.op(dataflow, Op::Guard, &[discriminant], None);
-        self.sequence = Some(guard);
+        self.sequence = guard;
         guard
     }
 

@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, target, cost, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
+use super::{code, target, dep, cost, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
 use code::{Register, Variable, Convention, EBB};
 
 mod fill;
@@ -39,8 +39,7 @@ impl<'a, L: Debug + Clone> Debug for GuardFailure<'a, L> {
         f.debug_struct("GuardFailure")
             .field("cases", &switch.cases)
             .field("default_", &switch.default_)
-            .field("effects", &self.fontier.effects)
-            .field("inputs", &self.fontier.inputs)
+            .field("frontier", &self.fontier.0)
             .finish()
     }
 }
@@ -65,8 +64,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
     ///   entry and exit all [`Node`]s must be unmarked.
     /// - `cft` - the code to optimise.
     /// - `slots_used` - the number of [`Slot`]s on entry to the code.
-    /// - `lookup_input` - called once for each input to the code. It
-    ///   returns the [`Variable`] that holds it.
+    /// - `lookup_input` - Returns a [`Variable`] that is live on entry.
     /// - `lookup_guard` - returns the `GuardFailure` for an [`Op::Guard`]
     ///
     /// [`Slot`]: code::Slot
@@ -99,19 +97,19 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         for node in guards { fill.resume(&lookup_guard(node).fontier); }
 
         // Build an instruction schedule and allocate registers.
-        let (nodes, Frontier {effects, inputs}) = fill.drain();
-        let variables = inputs.into_iter().map(
-            |node| (node, lookup_input(node))
-        ).collect::<HashMap<Node, Variable>>();
+        let (nodes, frontier) = fill.drain();
+        let variables = frontier.0.iter()
+            .filter(|(_, dep)| dep.is_value())
+            .map(|(&node, _)| (node, lookup_input(node)))
+            .collect::<HashMap<Node, Variable>>();
         let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
         assert_eq!(variables.len(), distinct_variables.len());
         let (instructions, allocation) = allocate(
-            &effects,
             &variables,
             df,
             &nodes,
-            |node| if is_guard(node) { Some(&lookup_guard(node).fontier.inputs) } else { None },
-            &exit.outputs,
+            |node| if is_guard(node) { Some(&lookup_guard(node).fontier) } else { None },
+            &exit,
         );
 
         // Build the EBB.
@@ -185,7 +183,7 @@ pub fn build<L: LookupLeaf>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Global, Precision, BinaryOp, builder};
+    use code::{Register, REGISTERS, Global, Precision, BinaryOp, Width, Action, builder};
     use BinaryOp::*;
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
@@ -222,17 +220,17 @@ mod tests {
         // but tested in reverse order.
         let mut df = Dataflow::new(4);
         let x_0 = df.inputs()[0];
-        let m_1 = df.add_node(Op::Binary(P64, Mul), &[], &[x_0, x_0]);
-        let m_2 = df.add_node(Op::Binary(P64,  Mul), &[], &[m_1, m_1]);
-        let m_3 = df.add_node(Op::Binary(P64, Mul), &[], &[m_2, m_2]);
-        let m_4 = df.add_node(Op::Binary(P64, Mul), &[], &[m_3, m_3]);
-        let g_1 = df.add_node(Op::Guard, &[], &[m_4]);
-        let e_1 = Exit {sequence: Some(g_1), outputs: Box::new([df.inputs()[1]])};
-        let g_2 = df.add_node(Op::Guard, &[g_1], &[m_3]);
-        let e_2 = Exit {sequence: Some(g_2), outputs: Box::new([df.inputs()[2]])};
-        let g_3 = df.add_node(Op::Guard, &[g_2], &[m_2]);
-        let e_3 = Exit {sequence: Some(g_3), outputs: Box::new([df.inputs()[3]])};
-        let e_x = Exit {sequence: Some(g_3), outputs: Box::new([m_1])};
+        let m_1 = df.add_node(Op::Binary(P64, Mul), &[x_0, x_0]);
+        let m_2 = df.add_node(Op::Binary(P64, Mul), &[m_1, m_1]);
+        let m_3 = df.add_node(Op::Binary(P64, Mul), &[m_2, m_2]);
+        let m_4 = df.add_node(Op::Binary(P64, Mul), &[m_3, m_3]);
+        let g_1 = df.add_node(Op::Guard, &[df.undefined(), m_4]);
+        let e_1 = Exit {sequence: g_1, outputs: Box::new([df.inputs()[1]])};
+        let g_2 = df.add_node(Op::Guard, &[g_1, m_3]);
+        let e_2 = Exit {sequence: g_2, outputs: Box::new([df.inputs()[2]])};
+        let g_3 = df.add_node(Op::Guard, &[g_2, m_2]);
+        let e_3 = Exit {sequence: g_3, outputs: Box::new([df.inputs()[3]])};
+        let e_x = Exit {sequence: g_3, outputs: Box::new([m_1])};
         // Make a CFT.
         let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
         cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: REGISTERS[3]}, 0);
@@ -294,5 +292,42 @@ mod tests {
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
         let _observed = build(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
+    }
+
+    /// Test `Send`.
+    #[test]
+    fn load_to_store() {
+        let convention = Convention {
+            slots_used: 0,
+            live_values: Box::new([
+                Variable::Global(Global(0)),
+                Variable::Global(Global(1)),
+            ]),
+        };
+        // Make an `EBB`.
+        let input = builder::build(|mut b| {
+            b.binary64(Mul, REGISTERS[0], Global(0), Global(0));
+            b.binary64(Add, REGISTERS[0], Global(1), REGISTERS[0]);
+            b.actions.push(Action::Load(REGISTERS[0], (REGISTERS[0].into(), Width::Eight)));
+            b.actions.push(Action::Load(REGISTERS[1], (REGISTERS[0].into(), Width::Eight)));
+            // 
+            for _ in 0..4 {
+                b.actions.push(Action::Load(REGISTERS[2], (REGISTERS[0].into(), Width::Eight)));
+                b.binary64(Mul, REGISTERS[1], REGISTERS[1], REGISTERS[2]);
+            }
+            b.move_(Global(0), REGISTERS[1]);
+            b.send(Global(1), REGISTERS[0]);
+            b.const_(REGISTERS[1], 42);
+            b.actions.push(Action::Store(REGISTERS[0], REGISTERS[1].into(), (Global(1).into(), Width::Eight)));
+            b.move_(Global(1), REGISTERS[0]);
+            b.jump(0)
+        });
+        // Optimize it.
+        println!("input = {:#?}", input);
+        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
+        let (dataflow, cft) = super::super::simulate(&convention, &input, &convention);
+        let output = build(&convention, &dataflow, &cft, &convention);
+        // TODO: Expected output.
+        println!("output = {:#?}", output);
     }
 }
