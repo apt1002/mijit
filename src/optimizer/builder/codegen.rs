@@ -2,7 +2,7 @@ use std::collections::{HashMap};
 
 use super::{
     code, NUM_REGISTERS,
-    Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit,
+    Dataflow, Node, Op, LookupLeaf, Cold, Exit,
     moves, all_registers,
 };
 use code::{Register, Slot, Variable, Action, EBB, Ending};
@@ -121,7 +121,6 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     /// Generate an [`Action`] to execute `n`.
     pub fn add_node(&mut self, n: Node) {
         let df = self.dataflow;
-        if df.cost(n).resources == Resources::new(0) { return; }
         let mut ins = Vec::with_capacity(3);
         df.each_input(n, |in_, dep| {
             if dep.is_value() { ins.push(self.read(in_)); }
