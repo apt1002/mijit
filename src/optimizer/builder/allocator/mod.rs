@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap};
 use std::fmt::{self, Debug, Formatter};
 
 use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Exit, Frontier};
@@ -64,9 +64,7 @@ struct Allocator<'a> {
     /// The `Register` allocated for each `Node`'s result, if any.
     allocation: HashMap<Node, Register>,
     /// The `Time` at which each `Node`'s result was last accessed.
-    read_times: HashMap<Node, Time>,
-    /// The `Time` at which each `Node`'s result became available.
-    write_times: HashMap<Node, Time>,
+    access_times: HashMap<Node, Time>,
     /// The `Time` at which each `Node` was executed.
     node_times: HashMap<Node, Time>,
     /// The contents of each [`Register`] at the current time.
@@ -85,7 +83,6 @@ impl<'a> Allocator<'a> {
     /// - usage - The concatenation of the `input` lists of all [`Node`]s that
     ///   will be processed.
     pub fn new(
-        effects: &HashSet<Node>,
         variables: &HashMap<Node, Variable>,
         dataflow: &'a Dataflow,
         usage: Usage<Node, Input>,
@@ -93,11 +90,6 @@ impl<'a> Allocator<'a> {
         // Initialize the data structures with the live registers of `variables`.
         let mut dirty = ArrayMap::new(NUM_REGISTERS);
         let mut allocation: HashMap<Node, Register> = HashMap::new();
-        let mut write_times: HashMap<Node, Time> = HashMap::new();
-        let mut node_times: HashMap<Node, Time> = HashMap::new();
-        for &node in effects {
-            node_times.insert(node, EARLY);
-        }
         let mut regs: ArrayMap<Register, Option<Node>> = ArrayMap::new(NUM_REGISTERS);
         for (&node, &value) in variables.iter() {
             if usage.topmost(&node).is_some() {
@@ -107,14 +99,14 @@ impl<'a> Allocator<'a> {
                     regs[reg] = Some(node);
                     allocation.insert(node, reg);
                 }
-                write_times.insert(node, EARLY);
             }
         }
         // Construct and return.
         let placer = Placer::new();
-        let read_times: HashMap<Node, Time> = HashMap::new();
+        let access_times: HashMap<Node, Time> = HashMap::new();
+        let node_times: HashMap<Node, Time> = HashMap::new();
         let pool = RegisterPool::new(dirty);
-        Allocator {dataflow, usage, placer, allocation, read_times, write_times, node_times, regs, pool}
+        Allocator {dataflow, usage, placer, allocation, access_times, node_times, regs, pool}
     }
 
     /// Returns the [`Register`] containing `node`, if any.
@@ -138,7 +130,7 @@ impl<'a> Allocator<'a> {
 
     /// Record that we accessed `node` at `time` (either reading or writing).
     fn access(&mut self, node: Node, time: Time) {
-        self.read_times.entry(node).or_insert(EARLY).max_with(time);
+        self.access_times.entry(node).or_insert(EARLY).max_with(time);
     }
 
     /// Select a `Register` to spill and free it.
@@ -155,19 +147,32 @@ impl<'a> Allocator<'a> {
         reg
     }
 
+    /// Computes the [`Time`] at which `node`'s result appears.
+    fn node_time(&self, node: Node, add_latency: bool) -> Time {
+        if let Some(&time) = self.node_times.get(&node) {
+            if add_latency { 
+                time + (self.dataflow.cost(node).latency as usize)
+            } else {
+                time
+            }
+        } else {
+            EARLY
+        }
+    }
+
     /// Spills values until at least `num_required` registers are free.
     fn spill_until(&mut self, num_required: usize) {
         while self.pool.num_clean() < num_required {
             let reg_x = self.free_a_register();
             let reg_y = self.free_a_register();
             // Spill the `Register`.
-            let out_x = self.regs[reg_x].unwrap();
-            let out_y = self.regs[reg_y].unwrap();
-            let mut time = self.write_times[&out_x];
-            time.max_with(self.write_times[&out_y]);
-            self.placer.add_item(Spill(out_x, out_y), SPILL_COST, &mut time);
-            self.access(out_x, time);
-            self.access(out_y, time);
+            let node_x = self.regs[reg_x].unwrap();
+            let node_y = self.regs[reg_y].unwrap();
+            let mut time = self.node_time(node_x, true);
+            time.max_with(self.node_time(node_y, true));
+            self.placer.add_item(Spill(node_x, node_y), SPILL_COST, &mut time);
+            self.access(node_x, time);
+            self.access(node_y, time);
         }
     }
 
@@ -185,16 +190,13 @@ impl<'a> Allocator<'a> {
         let mut inputs = Vec::<(Node, Input)>::new();
         let mut has_spilled_input = false;
         for _ in 0..num_inputs {
-            let (node, input) = self.pop_use();
-            inputs.push((node, input));
+            let (in_, input) = self.pop_use();
+            inputs.push((in_, input));
             if !input.is_cold {
-                if input.is_value {
-                    let latency = 1; // TODO.
-                    time.max_with(self.write_times[&node] + latency as usize);
-                    has_spilled_input |= self.current_reg(node).is_none();
-                } else {
-                    time.max_with(self.node_times[&node]);
-                }
+                has_spilled_input |= input.is_value & self.current_reg(in_).is_none();
+                time.max_with(self.node_time(in_, input.is_value));
+            } else {
+                println!("Input is not needed on the hot path");
             }
         }
         // Bump `time` until a destination register is available.
@@ -204,7 +206,7 @@ impl<'a> Allocator<'a> {
             self.allocation.insert(node, reg);
             if let Some(prev) = self.regs[reg].replace(node) {
                 // `reg` was previously used to hold `prev`.
-                if let Some(&read_time) = self.read_times.get(&prev) {
+                if let Some(&read_time) = self.access_times.get(&prev) {
                     // `prev` was last accessed at `read_time`.
                     time.max_with(read_time);
                 }
@@ -224,16 +226,15 @@ impl<'a> Allocator<'a> {
         self.placer.add_item(Node(node), resources, &mut time);
         // Record the node's placement.
         self.node_times.insert(node, time);
-        // Record when the inputs were used.
+        // Record when the input registers are accessed.
         for &(node, input) in &inputs {
             if input.is_value {
                 self.access(node, time);
             }
         }
-        // Record when the output becomes available.
-        if let Some(ol) = df.cost(node).output_latency {
+        // Record when the output register is accessed.
+        if df.has_out(node) {
             self.access(node, time);
-            self.write_times.insert(node, time + ol as usize);
         }
     }
 
@@ -309,7 +310,6 @@ impl Queue {
 /// [`Guard`]: super::Op::Guard
 // FIXME: Place `Send(x, y)` and `Store(y)` after all `Load(y)`s.
 pub fn allocate<'a>(
-    effects: &HashSet<Node>,
     variables: &HashMap<Node, Variable>,
     dataflow: &Dataflow,
     nodes: &[Node],
@@ -320,7 +320,6 @@ pub fn allocate<'a>(
     HashMap<Node, Register>
 ) {
     println!("allocate()");
-    println!("effects = {:?}", effects);
     println!("variables = {:#?}", variables);
     println!("dataflow = {:#?}", dataflow);
     println!("nodes = {:#?}", nodes);
@@ -415,7 +414,7 @@ pub fn allocate<'a>(
     assert_eq!(nodes_rev.len(), nodes.len());
 
     // Schedule and allocate registers for every `Node`.
-    let mut a = Allocator::new(effects, variables, dataflow, usage);
+    let mut a = Allocator::new(variables, dataflow, usage);
     while let Some((node, num_inputs)) = nodes_rev.pop() {
         a.add_node(node, num_inputs);
     }

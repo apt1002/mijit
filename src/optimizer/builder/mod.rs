@@ -98,10 +98,6 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
 
         // Build an instruction schedule and allocate registers.
         let (nodes, frontier) = fill.drain();
-        let effects = frontier.0.iter()
-            .filter(|(_, dep)| !dep.is_value())
-            .map(|(&node, _)| node)
-            .collect::<HashSet<Node>>();
         let variables = frontier.0.iter()
             .filter(|(_, dep)| dep.is_value())
             .map(|(&node, _)| (node, lookup_input(node)))
@@ -109,7 +105,6 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         let distinct_variables: HashSet<Variable> = variables.values().copied().collect();
         assert_eq!(variables.len(), distinct_variables.len());
         let (instructions, allocation) = allocate(
-            &effects,
             &variables,
             df,
             &nodes,

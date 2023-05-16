@@ -129,7 +129,7 @@ impl Dataflow {
 
     /// Returns whether `node` computes a result.
     pub fn has_out(&self, node: Node) -> bool {
-        self.cost(node).output_latency.is_some()
+        self.cost(node).latency != 0xFF
     }
 
     /// Construct a [`Node`] and append it to the graph.
@@ -140,7 +140,6 @@ impl Dataflow {
             if dep.is_value() { assert!(self.has_out(in_)); }
         }
         let cost = op_cost(op);
-        assert_eq!(cost.input_latencies.len(), deps.len());
         let start_in = self.ins.len();
         let node = Node::new(self.nodes.len()).unwrap();
         self.ins.extend(ins);
