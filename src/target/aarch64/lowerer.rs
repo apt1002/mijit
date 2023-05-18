@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{
     buffer, code,
-    Word, Patch, Label, RESULT,
+    Patch, Label, RESULT,
     Offset, Shift, Unsigned,
     Register, RSP, Condition, MemOp, ShiftOp, AddOp, LogicOp,
     Assembler, CALLEE_SAVES, CALLER_SAVES, ARGUMENTS, RESULTS,
@@ -12,11 +12,8 @@ use AddOp::*;
 use LogicOp::*;
 use ShiftOp::*;
 use buffer::{Buffer, Mmap};
-use code::{Precision, Variable, Action, UnaryOp, BinaryOp, Width, Global, Slot, debug_word};
+use code::{Precision, Variable, Action, UnaryOp, BinaryOp, Width, GLOBAL, Slot, debug_word};
 use Precision::*;
-
-/// The [`Register`] used for the globals pointer.
-const GLOBALS: Register = RLR;
 
 /// A [`Register`] used as a temporary variable.
 const TEMP0: Register = R16;
@@ -25,17 +22,15 @@ const TEMP0: Register = R16;
 const TEMP1: Register = R17;
 
 /// The registers available for allocation. This omits:
-///  - `GLOBALS`, which holds the address of the array of [`Global`] values.
 ///  - `TEMP0`, which is used as temporary workspace.
 ///  - `TEMP1`, which is used as temporary workspace.
 ///  - `RFP`, which is used as a frame pointer.
 ///  - `RZR`, obviously.
-// TODO: Write a test that compares this to `ALL_REGISTERS`.
-pub const ALLOCATABLE_REGISTERS: [Register; 27] = [
+pub const ALLOCATABLE_REGISTERS: [Register; 28] = [
     R0, R1, R2, R3, R4, R5, R6, R7,
     R8, R9, R10, R11, R12, R13, R14, R15,
     R18, R19, R20, R21, R22, R23,
-    R24, R25, R26, R27, R28,
+    R24, R25, R26, R27, R28, RLR,
 ];
 
 impl From<code::Register> for Register {
@@ -51,19 +46,12 @@ impl From<code::Register> for Register {
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
 enum Value {
     Register(Register),
-    Global(Global),
     Slot(Slot),
 }
 
 impl From<Register> for Value {
     fn from(r: Register) -> Self {
         Value::Register(r)
-    }
-}
-
-impl From<Global> for Value {
-    fn from(g: Global) -> Self {
-        Value::Global(g)
     }
 }
 
@@ -83,7 +71,6 @@ impl From<code::Variable> for Value {
     fn from(v: code::Variable) -> Self {
         match v {
             code::Variable::Register(reg) => reg.into(),
-            code::Variable::Global(global) => global.into(),
             code::Variable::Slot(slot) => slot.into(),
         }
     }
@@ -94,15 +81,13 @@ impl From<code::Variable> for Value {
 pub struct Lowerer<B: Buffer> {
     /// The underlying [`Assembler`].
     a: Assembler<B>,
-    /// The array of [`Global`] values.
-    globals: Box<[Word]>,
     /// The number of stack-allocated spill [`Slot`]s.
     slots_used: usize,
 }
 
 impl<B: Buffer> Lowerer<B> {
-    pub fn new(globals: Box<[Word]>) -> Self {
-        Self {a: Assembler::new(), globals, slots_used: 0}
+    pub fn new() -> Self {
+        Self {a: Assembler::new(), slots_used: 0}
     }
 
     /// Apply `callback` to the contained [`Assembler`].
@@ -208,11 +193,6 @@ impl<B: Buffer> Lowerer<B> {
         self.a.mem(op, data, address);
     }
 
-    /// Returns the base and offset of `global`.
-    fn global_address(&self, global: Global) -> (Register, u64) {
-        (GLOBALS, (global.0 * 8) as u64)
-    }
-
     /// Returns the base and offset of `slot` in the stack-allocated data.
     fn slot_address(&self, slot: Slot) -> (Register, u64) {
         assert!(slot.0 < self.slots_used);
@@ -226,10 +206,6 @@ impl<B: Buffer> Lowerer<B> {
         let reg = reg.into();
         match src {
             Value::Register(src) => src,
-            Value::Global(global) => {
-                self.mem(LDR, reg, self.global_address(global), reg);
-                reg
-            },
             Value::Slot(slot) => {
                 self.mem(LDR, reg, self.slot_address(slot), reg);
                 reg
@@ -340,10 +316,6 @@ impl<B: Buffer> Lowerer<B> {
 //-----------------------------------------------------------------------------
 
 impl<B: Buffer> super::Lower for Lowerer<B> {
-    fn globals(&self) -> &[Word] { &self.globals }
-
-    fn globals_mut(&mut self) -> &mut [Word] { &mut self.globals }
-
     fn slots_used_mut(&mut self) -> &mut usize { &mut self.slots_used }
 
     fn here(&self) -> Label { Label::new(Some(self.a.get_pos())) }
@@ -362,7 +334,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
         for rs in CALLEE_SAVES.chunks(2).rev() {
             self.a.push(rs[0], rs[1]);
         }
-        self.move_(GLOBALS, ARGUMENTS[0]);
+        self.move_(GLOBAL, ARGUMENTS[0]);
     }
 
     fn epilogue(&mut self) {
@@ -417,10 +389,6 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
                     code::Variable::Register(dest) => {
                         let src = self.src_to_register(src, dest);
                         self.move_(dest, src);
-                    },
-                    code::Variable::Global(global) => {
-                        let src = self.src_to_register(src, TEMP0);
-                        self.mem(STR, src, self.global_address(global), TEMP1);
                     },
                     code::Variable::Slot(slot) => {
                         let src = self.src_to_register(src, TEMP0);
@@ -496,14 +464,13 @@ impl super::Execute for Lowerer<Mmap> {
     fn execute<T>(
         &mut self,
         label: &Label,
-        callback: impl FnOnce(super::ExecuteFn, &mut [Word]) -> T,
+        callback: impl FnOnce(super::ExecuteFn) -> T,
     ) -> T {
         let target = label.target().expect("Label is not defined");
-        let globals = &mut self.globals;
         self.a.use_buffer(|b| {
             b.execute(|bytes| {
                 let f = unsafe { std::mem::transmute(&bytes[target]) };
-                callback(f, globals)
+                callback(f)
             })
         })
     }
@@ -523,7 +490,6 @@ pub mod tests {
     #[test]
     fn allocatable_regs() {
         for &r in &ALLOCATABLE_REGISTERS {
-            assert_ne!(r, GLOBALS);
             assert_ne!(r, TEMP0);
             assert_ne!(r, TEMP1);
         }
@@ -532,8 +498,7 @@ pub mod tests {
     /// Test that we can patch jumps and calls.
     #[test]
     fn steal() {
-        let globals = Box::new([]);
-        let mut lo = Lowerer::<Vec<u8>>::new(globals);
+        let mut lo = Lowerer::<Vec<u8>>::new();
         let start = lo.here().target().unwrap();
         let mut label = Label::new(None);
         lo.jump_if(EQ, &mut label);

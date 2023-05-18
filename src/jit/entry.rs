@@ -1,7 +1,7 @@
 use crate::util::{AsUsize};
 use super::{code, Engine, CaseId};
 use super::target::{Label, Word, Target};
-use code::{Global, Marshal, EBB};
+use code::{Marshal, EBB};
 
 // EntryId.
 array_index! {
@@ -36,16 +36,11 @@ macro_rules! get {
 }
 
 impl<T: Target> Jit<T> {
-    pub fn new(target: T, num_globals: usize) -> Self {
+    pub fn new(target: T) -> Self {
         Self {
-            engine: Engine::new(target, num_globals),
+            engine: Engine::new(target),
             entries: Vec::new(),
         }
-    }
-
-    /// Borrows the value of variable `global`.
-    pub fn global_mut(&mut self, global: Global) -> &mut Word {
-        self.engine.global_mut(global)
     }
 
     /// Constructs a new entry/exit point. Initially, the code at the entry
@@ -73,14 +68,15 @@ impl<T: Target> Jit<T> {
     }
 
     /// Call the compiled code starting at `entry`.
+    /// - global - the value to pass in [`GLOBAL`].
     ///
     /// # Safety
     ///
     /// This will crash if the code is compiled for the wrong [`Target`] or if
     /// the code is invalid.
-    pub unsafe fn run(&mut self, entry: EntryId) -> Word {
+    pub unsafe fn run<G>(&mut self, entry: EntryId, global: &mut G) -> Word {
         let label = &get!(self, entry).label;
-        self.engine.run(label)
+        self.engine.run(label, global as *mut G as *mut ())
     }
 }
 

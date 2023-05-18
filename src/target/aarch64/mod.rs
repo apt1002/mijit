@@ -1,4 +1,4 @@
-use super::{buffer, code, Word, Patch, Label, RESULT, Lower, ExecuteFn, Execute};
+use super::{buffer, code, Patch, Label, RESULT, Lower, ExecuteFn, Execute};
 use buffer::{Mmap};
 
 mod immediate;
@@ -39,7 +39,7 @@ impl super::Target for Target {
 
     const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
-    fn lowerer(&self, globals: Box<[Word]>) -> Self::Lowerer {
-        Lowerer::new(globals)
+    fn lowerer(&self) -> Self::Lowerer {
+        Lowerer::new()
     }
 }

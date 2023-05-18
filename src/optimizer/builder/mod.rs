@@ -183,10 +183,15 @@ pub fn build<L: LookupLeaf>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Global, Precision, BinaryOp, Width, Action, builder};
+    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width, Action, builder};
     use BinaryOp::*;
     use Precision::*;
     use crate::util::{ArrayMap, AsUsize};
+
+    const R0: Register = REGISTERS[0];
+    const R1: Register = REGISTERS[1];
+    const R2: Register = REGISTERS[2];
+    const R3: Register = REGISTERS[3];
 
     /// The optimizer doesn't reorder guards at the moment. Maybe it will?
     #[test]
@@ -207,12 +212,7 @@ mod tests {
         }
         // Make a `before` Convention.
         let before = Convention {
-            lives: Box::new([
-                REGISTERS[0].into(),
-                REGISTERS[1].into(),
-                REGISTERS[2].into(),
-                REGISTERS[3].into(),
-            ]),
+            lives: Box::new([R0.into(), R1.into(), R2.into(), R3.into()]),
             slots_used: 0,
         };
         // Make a dataflow graph.
@@ -233,9 +233,9 @@ mod tests {
         let e_x = Exit {sequence: g_3, outputs: Box::new([m_1])};
         // Make a CFT.
         let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
-        cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: REGISTERS[3]}, 0);
-        cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: REGISTERS[2]}, 0);
-        cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: REGISTERS[1]}, 0);
+        cft = CFT::switch(g_3, [cft], CFT::Merge {exit: e_3, leaf: R3}, 0);
+        cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: R2}, 0);
+        cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: R1}, 0);
         // Call `build()`.
         let _observed = build(&before, &df, &cft, &afters);
         // TODO: Expected output.
@@ -244,18 +244,18 @@ mod tests {
     /// Regression test from Bee.
     #[test]
     fn bee_1() {
-        let convention = Convention {slots_used: 0, lives: Box::new([Variable::Global(Global(0))])};
+        let convention = Convention {slots_used: 0, lives: Box::new([R0.into()])};
         // Make an `EBB`.
         let ebb = builder::build(|b| {
             b.index(
-                Global(0),
+                R0,
                 Box::new([
                     builder::build(|mut b| {
-                        b.guard(Global(0), false, builder::build(|b| b.jump(5)));
+                        b.guard(R0, false, builder::build(|b| b.jump(5)));
                         b.jump(4)
                     }),
                     builder::build(|mut b| {
-                        b.guard(Global(0), true, builder::build(|b| b.jump(3)));
+                        b.guard(R0, true, builder::build(|b| b.jump(3)));
                         b.jump(2)
                     }),
                 ]),
@@ -274,17 +274,14 @@ mod tests {
     fn bee_2() {
         let convention = Convention {
             slots_used: 0,
-            lives: Box::new([
-                Variable::Global(Global(0)),
-                Variable::Register(REGISTERS[3]),
-            ]),
+            lives: Box::new([R0.into(), R3.into()]),
         };
         // Make an `EBB`.
         let ebb = builder::build(|mut b| {
-            b.binary64(Or, REGISTERS[3], Global(0), Global(0));
-            b.guard(Global(0), false, builder::build(|b| b.jump(2)));
-            b.guard(Global(0), false, builder::build(|b| b.jump(3)));
-            b.binary64(And, REGISTERS[3], Global(0), Global(0));
+            b.binary64(Or, R3, R0, R0);
+            b.guard(R0, false, builder::build(|b| b.jump(2)));
+            b.guard(R0, false, builder::build(|b| b.jump(3)));
+            b.binary64(And, R3, R0, R0);
             b.jump(1)
         });
         // Optimize it.
@@ -298,28 +295,25 @@ mod tests {
     #[test]
     fn load_to_store() {
         let convention = Convention {
-            slots_used: 0,
-            lives: Box::new([
-                Variable::Global(Global(0)),
-                Variable::Global(Global(1)),
-            ]),
+            slots_used: 2,
+            lives: Box::new([Slot(0).into(), Slot(1).into()]),
         };
         // Make an `EBB`.
         let input = builder::build(|mut b| {
-            b.binary64(Mul, REGISTERS[0], Global(0), Global(0));
-            b.binary64(Add, REGISTERS[0], Global(1), REGISTERS[0]);
-            b.actions.push(Action::Load(REGISTERS[0], (REGISTERS[0].into(), Width::Eight)));
-            b.actions.push(Action::Load(REGISTERS[1], (REGISTERS[0].into(), Width::Eight)));
+            b.binary64(Mul, R0, Slot(0), Slot(0));
+            b.binary64(Add, R0, Slot(1), R0);
+            b.actions.push(Action::Load(R0, (R0.into(), Width::Eight)));
+            b.actions.push(Action::Load(R1, (R0.into(), Width::Eight)));
             // 
             for _ in 0..4 {
-                b.actions.push(Action::Load(REGISTERS[2], (REGISTERS[0].into(), Width::Eight)));
-                b.binary64(Mul, REGISTERS[1], REGISTERS[1], REGISTERS[2]);
+                b.actions.push(Action::Load(R2, (R0.into(), Width::Eight)));
+                b.binary64(Mul, R1, R1, R2);
             }
-            b.move_(Global(0), REGISTERS[1]);
-            b.send(Global(1), REGISTERS[0]);
-            b.const_(REGISTERS[1], 42);
-            b.actions.push(Action::Store(REGISTERS[0], REGISTERS[1].into(), (Global(1).into(), Width::Eight)));
-            b.move_(Global(1), REGISTERS[0]);
+            b.move_(Slot(0), R1);
+            b.send(Slot(1), R0);
+            b.const_(R1, 42);
+            b.actions.push(Action::Store(R0, R1.into(), (Slot(1).into(), Width::Eight)));
+            b.move_(Slot(1), R0);
             b.jump(0)
         });
         // Optimize it.

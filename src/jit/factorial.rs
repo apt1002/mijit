@@ -2,16 +2,20 @@ use super::code::*;
 use Action::*;
 use BinaryOp::*;
 use Precision::*;
+use Width::*;
 use super::target::{Target, Word};
 use super::{EntryId, Jit};
 
-const R0: Register = REGISTERS[0];
+/// `GLOBAL` points to this.
+#[repr(C)]
+pub struct Registers {n: u64, result: u64}
 
-pub mod reg {
-    use super::{Global, Variable};
-    pub const N: Variable = Variable::Global(Global(0));
-    pub const RESULT: Variable = Variable::Global(Global(1));
-}
+/// A [`Register`] that holds `1`.
+pub const ONE: Register = REGISTERS[1];
+/// A [`Register`] that holds the loop counter.
+pub const N: Register = REGISTERS[2];
+/// A [`Register`] that holds the accumulator.
+pub const RESULT: Register = REGISTERS[3];
 
 /// An example that can be used as a test fixture.
 #[derive(Debug)]
@@ -28,28 +32,47 @@ const HALT: i64 = 2;
 
 impl<T: Target> Factorial<T> {
     pub fn new(target: T) -> Factorial<T> {
-        let mut jit = Jit::new(target, 2);
-        let marshal = Marshal {prologue: Box::new([]), epilogue: Box::new([])};
+        let mut jit = Jit::new(target);
+        let marshal = Marshal {
+            prologue: Box::new([
+                // Restore `N`.
+                Load(N, (GLOBAL.into(), Eight)),
+                // Restore `RESULT`.
+                Constant(P64, ONE, 8),
+                Binary(Add, P64, ONE, ONE.into(), GLOBAL.into()),
+                Load(RESULT, (ONE.into(), Eight)),
+                Send(GLOBAL, GLOBAL.into(), ONE.into()),
+                // Restore `ONE`.
+                Constant(P32, ONE, 1),
+            ]),
+            epilogue: Box::new([
+                // No need to save `ONE`, but we must use it. Dummy op.
+                Send(GLOBAL, GLOBAL.into(), ONE.into()),
+                // Save `N`.
+                Store(GLOBAL, N.into(), (GLOBAL.into(), Eight)),
+                // Save `RESULT`.
+                Constant(P64, ONE, 8),
+                Binary(Add, P64, ONE, ONE.into(), GLOBAL.into()),
+                Store(ONE, RESULT.into(), (ONE.into(), Eight)),
+                Send(GLOBAL, GLOBAL.into(), ONE.into()),
+            ]),
+        };
         let start = jit.new_entry(&marshal, START);
         let loop_ = jit.new_entry(&marshal, LOOP);
         let halt = jit.new_entry(&marshal, HALT);
         jit.define(start, &EBB {
             actions: Box::new([
-                Constant(P32, R0, 1),
-                Move(reg::RESULT, R0.into()),
+                Constant(P32, RESULT, 1),
             ]),
             ending: Ending::Leaf(loop_),
         });
         jit.define(loop_, &EBB {
             actions: Box::new([]),
-            ending: Ending::Switch(reg::N, Switch::if_(
+            ending: Ending::Switch(N.into(), Switch::if_(
                 EBB {
                     actions: Box::new([
-                        Binary(Mul, P32, R0, reg::RESULT, reg::N),
-                        Move(reg::RESULT, R0.into()),
-                        Constant(P32, R0, 1),
-                        Binary(Sub, P32, R0, reg::N, R0.into()),
-                        Move(reg::N, R0.into()),
+                        Binary(Mul, P32, RESULT, RESULT.into(), N.into()),
+                        Binary(Sub, P32, N, N.into(), ONE.into()),
                     ]),
                     ending: Ending::Leaf(loop_),
                 },
@@ -63,12 +86,9 @@ impl<T: Target> Factorial<T> {
     }
 
     pub fn run(&mut self, n: u64) -> u64 {
-        let n_global = Global::try_from(reg::N).unwrap();
-        let result_global = Global::try_from(reg::RESULT).unwrap();
-        *self.jit.global_mut(n_global) = Word {u: n};
-        let exit_value = unsafe {self.jit.run(self.start)};
+        let mut regs = Registers {n, result: 0};
+        let exit_value = unsafe {self.jit.run(self.start, &mut regs)};
         assert_eq!(exit_value, Word {s: HALT});
-        let result = *self.jit.global_mut(result_global);
-        unsafe {result.u}
+        regs.result
     }
 }

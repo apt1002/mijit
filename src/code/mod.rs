@@ -18,14 +18,14 @@
 //! ## Storage
 //!
 //! A virtual machine's storage consists of a number of 64-bit [`Variable`]s.
-//! There are three kinds of `Variable`:
-//! - `Global` - a value that is preserved when execution leaves Mijit.
+//! There are two kinds of `Variable`:
 //! - `Slot` - a value stored on the stack. `Slot`s are created by [`Push`] and
 //!   destroyed by [`Drop`].
 //! - `Register` - a value in a machine register.
 //!
 //! More complex data structures can be achieved by loading and storing
-//! values in memory.
+//! values in memory. On entry and exit a pointer can be passed between the
+//! virtual machine and its caller. Other storage can be reached from that.
 //!
 //! ## Memory model
 //!
@@ -77,7 +77,7 @@
 use std::fmt::{Debug};
 
 mod variable;
-pub use variable::{Register, REGISTERS, Global, Slot, Variable, IntoVariable};
+pub use variable::{Register, REGISTERS, GLOBAL, Slot, Variable, IntoVariable};
 
 mod enums;
 pub use enums::{Precision, UnaryOp, BinaryOp, Width};
@@ -95,12 +95,16 @@ pub mod builder;
 
 //-----------------------------------------------------------------------------
 
-/// Code to be run on entry and exit from a `Jit`.
+/// Code to be run on entry and exit from a [`Jit`].
+/// This effectively defines the live values at the entry/exit point, and how
+/// to save and restore them.
+///
+/// [`Jit`]: crate::jit::Jit
 #[derive(Debug, Clone)]
 pub struct Marshal {
-    /// Code to be run on entry, starting with only [`Global`]s live.
+    /// Code to be run on entry, starting with only [`Register`]`[0]` live.
     pub prologue: Box<[Action]>,
-    /// Code to be run on exit, ending with only [`Global`]s live.
+    /// Code to be run on exit, ending with only [`Register`]`[0]` live.
     pub epilogue: Box<[Action]>,
 }
 

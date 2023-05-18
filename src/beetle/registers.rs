@@ -20,3 +20,20 @@ impl std::fmt::Debug for Registers {
             .finish()
     }
 }
+
+// Beetle's memory pointer and registers.
+#[repr(C)]
+#[derive(Debug)]
+pub struct M0Registers {
+    pub m0: *mut u32,
+    pub registers: Registers,
+}
+
+impl std::ops::Deref for M0Registers {
+    type Target = Registers;
+    fn deref(&self) -> &Self::Target { &self.registers }
+}
+
+impl std::ops::DerefMut for M0Registers {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.registers }
+}

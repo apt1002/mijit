@@ -2,9 +2,7 @@ use super::{code, Word, Patch, Label};
 use code::{Variable, Action};
 
 /// Wraps a contiguous block of executable memory, and provides methods for
-/// assembling machine code into it. Also wraps an array of [`Word`]s that can
-/// be accessed by the machine code, and which represents the values of the
-/// [`code::Global`]s.
+/// assembling machine code into it.
 ///
 /// The low-level memory address of the executable memory will remain constant
 /// while the code is executing, but it could change at other times, e.g.
@@ -12,12 +10,6 @@ use code::{Variable, Action};
 /// absolute memory addresses. `Lower` itself always expresses addresses using
 /// [`Label`].
 pub trait Lower {
-    /// The array of [`code::Global`] values.
-    fn globals(&self) -> &[Word];
-
-    /// The array of [`code::Global`] values.
-    fn globals_mut(&mut self) -> &mut [Word];
-
     /// The number of stack-allocated spill [`Slot`]s. Spill `Slot`s are created
     /// by [`Push`] instructions and destroyed by [`Drop`] instructions.
     /// The number of spill slots at a `jump()` or `Switch` must match the
@@ -63,7 +55,9 @@ pub trait Lower {
     fn jump(&mut self, label: &mut Label);
 
     /// Assemble Mijit's function prologue. The function takes one argument:
-    /// - The pointer to the array of [`code::Global`] values.
+    /// - The value to pass in register [`GLOBAL`].
+    ///
+    /// - [`GLOBAL`]: code::GLOBAL
     fn prologue(&mut self);
 
     /// Assemble Mijit's function epilogue. The function returns one result:
@@ -101,16 +95,16 @@ pub trait Lower {
 
 /// The type of the generated code.
 pub type ExecuteFn = unsafe extern "C" fn(
-    /* globals */ *mut Word,
+    /* Value of `GLOBAL` */ *mut (),
 ) -> /* result */ Word;
 
 /// Add to [`Lower`] the ability to execute the compiled code.
 pub trait Execute: Sized + Lower {
     /// Make the memory backing `self` executable, and pass the code at `label`
-    /// and the array of [`code::Global`] values to `callback`.
+    /// to `callback`.
     ///
     /// `callback` is typically something like
-    /// `|f, globals| f(globals.as_mut_ptr())`.
+    /// `|f| f(global as *mut ())`.
     ///
     /// # Panics
     ///
@@ -118,7 +112,7 @@ pub trait Execute: Sized + Lower {
     fn execute<T>(
         &mut self,
         label: &Label,
-        callback: impl FnOnce(ExecuteFn, &mut [Word]) -> T,
+        callback: impl FnOnce(ExecuteFn) -> T,
     ) -> T;
 }
 
@@ -138,6 +132,5 @@ pub trait Target: Default {
     const NUM_REGISTERS: usize;
 
     /// Construct a [`Self::Lowerer`].
-    /// - `globals` - The per-VM array of [`code::Global`] values.
-    fn lowerer(&self, globals: Box<[Word]>) -> Self::Lowerer;
+    fn lowerer(&self) -> Self::Lowerer;
 }

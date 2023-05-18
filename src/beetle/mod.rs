@@ -5,7 +5,7 @@
 
 use memoffset::{offset_of};
 
-use super::code::{UnaryOp, BinaryOp, Width, Register, REGISTERS, Global, EBB, Marshal};
+use super::code::{UnaryOp, BinaryOp, Width, Register, REGISTERS, GLOBAL, EBB, Marshal};
 use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
@@ -14,7 +14,7 @@ use super::jit::{EntryId, Jit};
 use super::code::builder::{build, build_block, Builder};
 
 mod registers;
-pub use registers::{Registers};
+pub use registers::{Registers, M0Registers};
 
 /// The number of bytes in a cell.
 pub const CELL: i32 = 4;
@@ -33,11 +33,12 @@ const BA: Register = REGISTERS[6];
 const BSP: Register = REGISTERS[7];
 const BRP: Register = REGISTERS[8];
 const M0: Register = REGISTERS[9];
+const REGS: Register = REGISTERS[10];
 
 /// Returns the address of `Registers.$field`.
 macro_rules! register {
     ($field: ident) => {
-        (Global(0), offset_of!(Registers, $field) as i64)
+        (REGS, offset_of!(Registers, $field) as i64 + 8)
     }
 }
 
@@ -89,15 +90,16 @@ pub struct Beetle<T: Target> {
 impl<T: Target> Beetle<T> {
     #[allow(clippy::too_many_lines)]
     pub fn new(target: T) -> Self {
-        let mut jit = Jit::new(target, 2);
+        let mut jit = Jit::new(target);
         let marshal = Marshal {
             prologue: build_block(|b| {
+                b.move_(REGS, GLOBAL);
                 b.load(BEP, register!(ep), Four);
                 b.load(BI, register!(i), Four);
                 b.load(BA, register!(a), Four);
                 b.load(BSP, register!(sp), Four);
                 b.load(BRP, register!(rp), Four);
-                b.move_(M0, Global(1));
+                b.load(M0, (REGS, 0), Eight);
             }),
             epilogue: build_block(|b| {
                 b.store(BEP, register!(ep), Four);
@@ -105,7 +107,9 @@ impl<T: Target> Beetle<T> {
                 b.store(BA, register!(a), Four);
                 b.store(BSP, register!(sp), Four);
                 b.store(BRP, register!(rp), Four);
-                b.move_(Global(1), M0);
+                // No need to save `M0`, but we must use it. Dummy op.
+                b.send(REGS, M0);
+                b.move_(GLOBAL, REGS);
             }),
         };
         let root = jit.new_entry(&marshal, UNDEFINED);
@@ -488,17 +492,11 @@ impl<T: Target> Beetle<T> {
         Self {jit, root}
     }
 
-    pub fn global_mut(&mut self, global: Global) -> &mut Word {
-        self.jit.global_mut(global)
-    }
-
     /// # Safety
     ///
     /// There is no memory bounds checking in this implementation of Beetle.
-    pub unsafe fn run(&mut self, registers: &mut Registers, m0: &mut[u32]) {
-        *self.jit.global_mut(Global(0)) = Word {mp: (registers as *mut Registers).cast()};
-        *self.jit.global_mut(Global(1)) = Word {mp: (m0.as_mut_ptr()).cast()};
-        let result = self.jit.run(self.root);
+    pub unsafe fn run(&mut self, registers: &mut M0Registers) {
+        let result = self.jit.run(self.root, registers);
         assert_eq!(result, Word {s: NOT_IMPLEMENTED});
     }
 }

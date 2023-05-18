@@ -36,7 +36,7 @@ impl super::Target for Target {
 
     const NUM_REGISTERS: usize = ALLOCATABLE_REGISTERS.len();
 
-    fn lowerer(&self, globals: Box<[Word]>) -> Self::Lowerer {
-        Lowerer::new(globals)
+    fn lowerer(&self) -> Self::Lowerer {
+        Lowerer::new()
     }
 }

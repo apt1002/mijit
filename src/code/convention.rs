@@ -1,6 +1,6 @@
 use std::collections::{HashSet};
 
-use super::{Global, Variable, IntoVariable, Action, Switch};
+use super::{GLOBAL, Variable, IntoVariable, Action, Switch};
 
 /// Represents the convention by which code passes values to a label. The
 /// concept is similar to a calling convention, but it's for a jump, not a
@@ -16,24 +16,19 @@ pub struct Convention {
 }
 
 impl Convention {
-    /// Returns a [`Convention`] with no [`Slot`]s, no live [`Register`]s, and the
-    /// specified number of [`Global`]s.
-    ///
-    /// [`Slot`]: super::Slot
-    /// [`Register`]: super::Register
-    pub fn empty(num_globals: usize) -> Self {
-        Self {
-            lives: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
-            slots_used: 0,
-        }
-    }
-
     /// Checks whether code using `old` can jump to code using `self`.
     /// All [`Variable`]s live in `self` must also be live in `old`, and
     /// `self` and `old` must have the same `slots_used`.
     pub fn refines(&self, old: &Self) -> bool {
         let old_lives: HashSet<Variable> = old.lives.iter().copied().collect();
         self.lives.iter().all(|v| old_lives.contains(v)) && self.slots_used == old.slots_used
+    }
+}
+
+impl Default for Convention {
+    /// Returns a `Convention` with no [`Slot`]s and only [`GLOBAL`] alive.
+    fn default() -> Self {
+        Convention {lives: Box::new([GLOBAL.into()]), slots_used: 0}
     }
 }
 

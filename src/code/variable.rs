@@ -30,15 +30,8 @@ pub const REGISTERS: [Register; 12] = unsafe {[
     Register::new_unchecked(10), Register::new_unchecked(11),
 ]};
 
-/// Names a value that persists when Mijit is not running.
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub struct Global(pub usize);
-
-impl Debug for Global {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
-        write!(f, "Global({})", self.0)
-    }
-}
+/// An alias for [`REGISTERS`]`[0]`.
+pub const GLOBAL: Register = REGISTERS[0];
 
 /// A stack-allocated spill slot.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -50,12 +43,11 @@ impl Debug for Slot {
     }
 }
 
-/// A [`Register`], [`Global`] or [`Slot`].
+/// A [`Register`] or [`Slot`].
 /// Used for source operands of Mijit instructions.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Variable {
     Register(Register),
-    Global(Global),
     Slot(Slot),
 }
 
@@ -63,7 +55,6 @@ impl Debug for Variable {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str(&match self {
             Variable::Register(r) => format!("{:#?}", r),
-            Variable::Global(g) => format!("{:#?}", g),
             Variable::Slot(s) => format!("{:#?}", s),
         })
     }
@@ -75,29 +66,15 @@ impl From<Register> for Variable {
     }
 }
 
-impl From<Global> for Variable {
-    fn from(v: Global) -> Self {
-        Variable::Global(v)
-    }
-}
-
 impl From<Slot> for Variable {
     fn from(v: Slot) -> Self {
         Variable::Slot(v)
     }
 }
 
-impl TryFrom<Variable> for Register {
-    type Error = Variable;
+impl TryFrom<Variable> for Register {    type Error = Variable;
     fn try_from(v: Variable) -> Result<Self, Self::Error> {
         if let Variable::Register(r) = v { Ok(r) } else { Err(v) }
-    }
-}
-
-impl TryFrom<Variable> for Global {
-    type Error = Variable;
-    fn try_from(v: Variable) -> Result<Self, Self::Error> {
-        if let Variable::Global(g) = v { Ok(g) } else { Err(v) }
     }
 }
 
@@ -109,7 +86,7 @@ impl TryFrom<Variable> for Slot {
 }
 
 /// `impl IntoVariable` is useful as the type of function arguments. It accepts
-/// [`Register`]s, [`Slot`]s, [`Global`]s and [`Variable`]s.
+/// [`Register`]s, [`Slot`]s and [`Variable`]s.
 pub trait IntoVariable: Copy + Into<Variable> {}
 
 impl<T: Copy + Into<Variable>> IntoVariable for T {}

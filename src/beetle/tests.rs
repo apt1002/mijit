@@ -1,6 +1,6 @@
 use super::super::target::{Native, native};
 
-use super::{Registers, CELL, Beetle};
+use super::{Registers, M0Registers, CELL, Beetle};
 
 /// The suggested size of the Beetle memory, in cells.
 pub const MEMORY_CELLS: u32 = 1 << 20;
@@ -13,7 +13,7 @@ pub struct VM {
     /// The compiled code.
     beetle: super::Beetle<Native>,
     /// The Beetle state (other than the memory).
-    state: Registers,
+    state: M0Registers,
     /// The Beetle memory.
     memory: Vec<u32>,
     /// The amount of unallocated memory, in cells.
@@ -36,30 +36,25 @@ impl VM {
     ) -> Self {
         let mut vm = VM {
             beetle: Beetle::new(native()),
-            state: Registers::default(),
+            state: M0Registers {
+                m0: std::ptr::null_mut(),
+                registers: Registers::default(),
+            },
             memory: vec![0; memory_cells as usize],
             free_cells: memory_cells,
             halt_addr: 0,
         };
         // Allocate the return stack.
-        let rp = vm.allocate(return_cells).1;
-        vm.registers_mut().rp = rp;
+        vm.rp = vm.allocate(return_cells).1;
         // Allocate the data stack.
-        let sp = vm.allocate(data_cells).1;
-        vm.registers_mut().sp = sp;
+        vm.sp = vm.allocate(data_cells).1;
         // Allocate a word to hold a HALT instruction.
         vm.halt_addr = vm.allocate(1).0;
         vm.store(vm.halt_addr, 0x5519);
         vm
     }
 
-    /// Read the public registers.
-    pub fn registers(&self) -> &Registers { &self.state }
-
-    /// Read or write the public registers.
-    pub fn registers_mut(&mut self) -> &mut Registers { &mut self.state }
-
-    /// Read the `M0` register.
+    /// Read the memory.
     pub fn memory(&self) -> &[u32] { &self.memory }
 
     /// Allocate `cells` cells and return a (start, end) Beetle pointer pair.
@@ -97,31 +92,32 @@ impl VM {
 
     /// Push `item` onto the data stack.
     pub fn push(&mut self, item: u32) {
-        self.registers_mut().sp -= CELL as u32;
-        self.store(self.registers().sp, item);
+        self.sp -= CELL as u32;
+        self.store(self.sp, item);
     }
 
     /// Pop an item from the data stack.
     pub fn pop(&mut self) -> u32 {
-        let item = self.load(self.registers().sp);
-        self.registers_mut().sp += CELL as u32;
+        let item = self.load(self.sp);
+        self.sp += CELL as u32;
         item
     }
 
     /// Push `item` onto the return stack.
     pub fn rpush(&mut self, item: u32) {
-        self.registers_mut().rp -= CELL as u32;
-        self.store(self.registers().rp, item);
+        self.rp -= CELL as u32;
+        self.store(self.rp, item);
     }
 
     /// Run the code at address `ep`. If it `HALT`s, return the code.
     pub unsafe fn run(&mut self, ep: u32) -> Option<u32> {
         assert!(Self::is_aligned(ep));
-        self.registers_mut().ep = ep;
-        self.beetle.run(&mut self.state, self.memory.as_mut());
-        if self.registers_mut().a & 0xFF == 0x55 {
+        self.ep = ep;
+        self.state.m0 = self.memory.as_mut_ptr();
+        self.beetle.run(&mut self.state);
+        if self.a & 0xFF == 0x55 {
             // Halt.
-            self.registers_mut().a >>= 8;
+            self.a >>= 8;
             Some(self.pop())
         } else {
             // Some other not implemented case.
@@ -142,6 +138,15 @@ impl std::fmt::Debug for VM {
             .field("m0", &format!("{:#x}", self.memory().as_ptr() as u64))
             .finish()
     }
+}
+
+impl std::ops::Deref for VM {
+    type Target = M0Registers;
+    fn deref(&self) -> &Self::Target { &self.state }
+}
+
+impl std::ops::DerefMut for VM {
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.state }
 }
 
 //-----------------------------------------------------------------------------
@@ -196,28 +201,28 @@ pub fn ackermann_object() -> Vec<u32> {
 #[test]
 pub fn halt() {
     let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
-    let initial_sp = vm.registers().sp;
-    let initial_rp = vm.registers().rp;
+    let initial_sp = vm.sp;
+    let initial_rp = vm.rp;
     let entry_address = vm.halt_addr;
     let exit = unsafe { vm.run(entry_address) };
     assert_eq!(exit, Some(0));
-    assert_eq!(vm.registers().sp, initial_sp);
-    assert_eq!(vm.registers().rp, initial_rp);
+    assert_eq!(vm.sp, initial_sp);
+    assert_eq!(vm.rp, initial_rp);
 }
 
 #[test]
 pub fn ackermann() {
     let mut vm = VM::new(MEMORY_CELLS, DATA_CELLS, RETURN_CELLS);
     vm.load_object(ackermann_object().as_ref());
-    let initial_sp = vm.registers().sp;
-    let initial_rp = vm.registers().rp;
+    let initial_sp = vm.sp;
+    let initial_rp = vm.rp;
     vm.push(3);
     vm.push(5);
     vm.rpush(vm.halt_addr);
     let exit = unsafe { vm.run(0) };
     assert_eq!(exit, Some(0));
     let result = vm.pop();
-    assert_eq!(vm.registers().sp, initial_sp);
-    assert_eq!(vm.registers().rp, initial_rp);
+    assert_eq!(vm.sp, initial_sp);
+    assert_eq!(vm.rp, initial_rp);
     assert_eq!(result, 253);
 }
