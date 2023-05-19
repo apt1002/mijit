@@ -5,7 +5,7 @@
 
 use super::{
     UnaryOp, BinaryOp, Precision, Width,
-    Register, REGISTERS, Variable,
+    Register, REGISTERS, Variable, IntoVariable,
     Action, Switch, EBB, Ending,
 };
 use Precision::*;
@@ -61,12 +61,12 @@ impl<T> Builder<T> {
     }
 
     /// Assembles an `Action` to move `src` into `dest`.
-    pub fn move_(&mut self, dest: impl Into<Variable>, src: impl Into<Variable>) {
+    pub fn move_(&mut self, dest: impl IntoVariable, src: impl IntoVariable) {
         self.actions.push(Action::Move(dest.into(), src.into()));
     }
 
     /// Assembles an `Action` to move `value` into `dest`.
-    pub fn const_(&mut self, dest: impl Into<Register>, value: i64) {
+    pub fn const_(&mut self, dest: Register, value: i64) {
         self.actions.push(Action::Constant(P64, dest.into(), value));
     }
 
@@ -74,8 +74,8 @@ impl<T> Builder<T> {
     pub fn unary64(
         &mut self,
         op: UnaryOp,
-        dest: impl Into<Register>,
-        src: impl Into<Variable>,
+        dest: Register,
+        src: impl IntoVariable,
     ) {
         self.actions.push(Action::Unary(op, P64, dest.into(), src.into()));
     }
@@ -84,8 +84,8 @@ impl<T> Builder<T> {
     pub fn unary32(
         &mut self,
         op: UnaryOp,
-        dest: impl Into<Register>,
-        src: impl Into<Variable>,
+        dest: Register,
+        src: impl IntoVariable,
     ) {
         self.actions.push(Action::Unary(op, P32, dest.into(), src.into()));
     }
@@ -94,9 +94,9 @@ impl<T> Builder<T> {
     pub fn binary64(
         &mut self,
         op: BinaryOp,
-        dest: impl Into<Register>,
-        src1: impl Into<Variable>,
-        src2: impl Into<Variable>,
+        dest: Register,
+        src1: impl IntoVariable,
+        src2: impl IntoVariable,
     ) {
         self.actions.push(Action::Binary(op, P64, dest.into(), src1.into(), src2.into()));
     }
@@ -105,66 +105,51 @@ impl<T> Builder<T> {
     pub fn binary32(
         &mut self,
         op: BinaryOp,
-        dest: impl Into<Register>,
-        src1: impl Into<Variable>,
-        src2: impl Into<Variable>,
+        dest: Register,
+        src1: impl IntoVariable,
+        src2: impl IntoVariable,
     ) {
         self.actions.push(Action::Binary(op, P32, dest.into(), src1.into(), src2.into()));
     }
 
     /// Assembles `Action`s to compute `op(src, value)` into `dest`.
-    /// [`TEMP`] is corrupted if `dest == src`.
+    /// [`TEMP`] is corrupted.
     pub fn const_binary64(
         &mut self,
         op: BinaryOp,
-        dest: impl Into<Register>,
-        src: impl Into<Variable>,
+        dest: Register,
+        src: impl IntoVariable,
         value: i64,
     ) {
-        let dest = dest.into();
         let src = src.into();
-        let temp = if src != dest.into() {
-            dest
-        } else if src != TEMP.into() {
-            TEMP
-        } else {
-            panic!("dest and src cannot both be TEMP");
-        };
-        self.const_(temp, value);
-        self.binary64(op, dest, src, temp);
+        assert_ne!(src, TEMP.into(), "src cannot be TEMP");
+        self.const_(TEMP, value);
+        self.binary64(op, dest, src, TEMP);
     }
 
     /// Assembles `Action`s to compute `op(src, value)` into `dest`.
-    /// [`TEMP`] is corrupted if `dest == src`.
+    /// [`TEMP`] is corrupted.
     pub fn const_binary32(
         &mut self,
         op: BinaryOp,
-        dest: impl Into<Register>,
-        src: impl Into<Variable>,
+        dest: Register,
+        src: impl IntoVariable,
         value: i32,
     ) {
-        let dest = dest.into();
         let src = src.into();
-        let temp = if src != dest.into() {
-            dest
-        } else if src != TEMP.into() {
-            TEMP
-        } else {
-            panic!("dest and src cannot both be TEMP");
-        };
-        self.const_(temp, value as i64);
-        self.binary32(op, dest, src, temp);
+        assert_ne!(src, TEMP.into(), "src cannot be TEMP");
+        self.const_(TEMP, value as i64);
+        self.binary32(op, dest, src, TEMP);
     }
 
     /// Assembles `Action`s to send memory accesses from `src` to `dest`.
     /// [`TEMP`] is corrupted.
     pub fn send(
         &mut self,
-        dest: impl Into<Variable>,
-        src: impl Into<Variable>,
+        dest: impl IntoVariable,
+        src: impl IntoVariable,
     ) {
-        let dest = dest.into();
-        self.actions.push(Action::Send(TEMP, dest, src.into()));
+        self.actions.push(Action::Send(TEMP, dest.into(), src.into()));
         self.move_(dest, TEMP);
     }
 
@@ -172,43 +157,40 @@ impl<T> Builder<T> {
     /// [`TEMP`] is corrupted.
     pub fn load(
         &mut self,
-        dest: impl Into<Register>,
-        addr: (impl Into<Variable>, i64),
+        dest: Register,
+        addr: (impl IntoVariable, i64),
         width: Width,
     ) {
-        let addr0 = addr.0.into();
-        self.const_binary64(Add, TEMP, addr0, addr.1);
+        self.const_binary64(Add, TEMP, addr.0, addr.1);
         self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
-        self.send(addr0, TEMP);
+        self.send(addr.0, TEMP);
     }
 
     /// Assembles `Action`s to store `src` at `addr.0 + addr.1`.
     /// [`TEMP`] is corrupted.
     pub fn store(
         &mut self,
-        src: impl Into<Variable>,
-        addr: (impl Into<Variable>, i64),
+        src: impl IntoVariable,
+        addr: (impl IntoVariable, i64),
         width: Width,
     ) {
-        let addr0 = addr.0.into();
-        self.const_binary64(Add, TEMP, addr0, addr.1);
+        self.const_binary64(Add, TEMP, addr.0, addr.1);
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
-        self.send(addr0, TEMP);
+        self.send(addr.0, TEMP);
     }
 
     /// Assembles `Action`s to load `dest` from `addr.0 + width * addr.1`.
     /// [`TEMP`] is corrupted.
     pub fn array_load(
         &mut self,
-        dest: impl Into<Register>,
-        addr: (impl Into<Variable>, impl Into<Variable>),
+        dest: Register,
+        addr: (impl IntoVariable, impl IntoVariable),
         width: Width,
     ) {
-        let addr0 = addr.0.into();
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
-        self.binary64(Add, TEMP, addr0, TEMP);
+        self.binary64(Add, TEMP, addr.0, TEMP);
         self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
-        self.send(addr0, TEMP);
+        self.send(addr.0, TEMP);
     }
 
     /// Assembles `Action`s to compute `addr.0 + width * addr.1` into `dest` and
@@ -216,26 +198,25 @@ impl<T> Builder<T> {
     /// [`TEMP`] is corrupted.
     pub fn array_store(
         &mut self,
-        src: impl Into<Variable>,
-        addr: (impl Into<Variable>, impl Into<Variable>),
+        src: impl IntoVariable,
+        addr: (impl IntoVariable, impl IntoVariable),
         width: Width,
     ) {
-        let addr0 = addr.0.into();
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
-        self.binary64(Add, TEMP, addr0, TEMP);
+        self.binary64(Add, TEMP, addr.0, TEMP);
         self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
-        self.send(addr0, TEMP);
+        self.send(addr.0, TEMP);
     }
 
     /// Assembles an action that prints out the value of `src`.
-    pub fn debug(&mut self, src: impl Into<Variable>) {
+    pub fn debug(&mut self, src: impl IntoVariable) {
         self.actions.push(Action::Debug(src.into()));
     }
 
     /// Assemble code to check that `condition` is `expected`, and if not, to
     /// abort by running `if_fail`.
     /// See also [`Self::if_()`] which is more symmetrical.
-    pub fn guard(&mut self, condition: impl Into<Variable>, expected: bool, if_fail: EBB<T>) {
+    pub fn guard(&mut self, condition: impl IntoVariable, expected: bool, if_fail: EBB<T>) {
         let mut actions = Vec::new();
         std::mem::swap(&mut actions, &mut self.actions);
         self.guards.push(Guard {
@@ -272,7 +253,7 @@ impl<T> Builder<T> {
     /// Equivalent to `ending(Ending::Switch(switch))`.
     /// Usually, you will prefer to call one of [`Self::index()`] or
     /// [`Self::if_()`] which call this.
-    pub fn switch(self, discriminant: impl Into<Variable>, switch: Switch<EBB<T>>) -> EBB<T> {
+    pub fn switch(self, discriminant: impl IntoVariable, switch: Switch<EBB<T>>) -> EBB<T> {
         self.ending(Ending::Switch(discriminant.into(), switch))
     }
 
@@ -281,7 +262,7 @@ impl<T> Builder<T> {
     /// Equivalent to `switch(Switch::new(discriminant, cases, default_))`.
     pub fn index(
         self,
-        discriminant: impl Into<Variable>,
+        discriminant: impl IntoVariable,
         cases: Box<[EBB<T>]>,
         default_: EBB<T>,
     ) -> EBB<T> {
@@ -294,7 +275,7 @@ impl<T> Builder<T> {
     /// See also `guard()` which favours one outcome.
     pub fn if_(
         self,
-        condition: impl Into<Variable>,
+        condition: impl IntoVariable,
         if_true: EBB<T>,
         if_false: EBB<T>,
     ) -> EBB<T> {
