@@ -50,22 +50,28 @@ impl Debug for Slot {
     }
 }
 
-/// A spill slot or register.
-// TODO: Reorder cases for consistency: Register, Global, Slot.
+/// A [`Register`], [`Global`] or [`Slot`].
+/// Used for source operands of Mijit instructions.
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum Variable {
+    Register(Register),
     Global(Global),
     Slot(Slot),
-    Register(Register),
 }
 
 impl Debug for Variable {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         f.write_str(&match self {
+            Variable::Register(r) => format!("{:#?}", r),
             Variable::Global(g) => format!("{:#?}", g),
             Variable::Slot(s) => format!("{:#?}", s),
-            Variable::Register(r) => format!("{:#?}", r),
         })
+    }
+}
+
+impl From<Register> for Variable {
+    fn from(v: Register) -> Self {
+        Variable::Register(v)
     }
 }
 
@@ -81,9 +87,10 @@ impl From<Slot> for Variable {
     }
 }
 
-impl From<Register> for Variable {
-    fn from(v: Register) -> Self {
-        Variable::Register(v)
+impl TryFrom<Variable> for Register {
+    type Error = Variable;
+    fn try_from(v: Variable) -> Result<Self, Self::Error> {
+        if let Variable::Register(r) = v { Ok(r) } else { Err(v) }
     }
 }
 
@@ -101,15 +108,8 @@ impl TryFrom<Variable> for Slot {
     }
 }
 
-impl TryFrom<Variable> for Register {
-    type Error = Variable;
-    fn try_from(v: Variable) -> Result<Self, Self::Error> {
-        if let Variable::Register(r) = v { Ok(r) } else { Err(v) }
-    }
-}
-
 /// `impl IntoVariable` is useful as the type of function arguments. It accepts
-/// both [`Register`]s and [`Variable`]s.
+/// [`Register`]s, [`Slot`]s, [`Global`]s and [`Variable`]s.
 pub trait IntoVariable: Copy + Into<Variable> {}
 
 impl<T: Copy + Into<Variable>> IntoVariable for T {}
