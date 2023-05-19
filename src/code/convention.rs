@@ -3,19 +3,12 @@ use std::collections::{HashSet};
 use super::{Global, Variable, IntoVariable, Action, Switch};
 
 /// Represents the convention by which code passes values to a label. The
-/// concept is similar to a calling convention, but it's for a jump, not a call.
-///
-/// This is a place-holder. Possible future uses:
-///  - Knowledge about values, e.g. minimum and maximum possible value, and
-///    which bits are known to be set or clear.
-///  - Knowledge about possible common sub-expressions, e.g. knowing that some
-///    value is the difference of two other values.
-///  - Knowledge about the cache state, e.g. that some value is the value of
-///    some memory location, and whether it needs to be stored.
+/// concept is similar to a calling convention, but it's for a jump, not a
+/// call.
 #[derive(Debug, Clone)]
 pub struct Convention {
     /// The values that are live on entry.
-    pub live_values: Box<[Variable]>,
+    pub lives: Box<[Variable]>,
     /// The number of spill [`Slot`]s used by the `Convention`.
     ///
     /// [`Slot`]: super::Slot
@@ -30,17 +23,17 @@ impl Convention {
     /// [`Register`]: super::Register
     pub fn empty(num_globals: usize) -> Self {
         Self {
-            live_values: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
+            lives: (0..num_globals).map(|g| Variable::Global(Global(g))).collect(),
             slots_used: 0,
         }
     }
 
     /// Checks whether code using `old` can jump to code using `self`.
-    /// All `Variable`s live in `self` must also be live in `old`, and
+    /// All [`Variable`]s live in `self` must also be live in `old`, and
     /// `self` and `old` must have the same `slots_used`.
     pub fn refines(&self, old: &Self) -> bool {
-        let old_lives: HashSet<Variable> = old.live_values.iter().copied().collect();
-        self.live_values.iter().all(|v| old_lives.contains(v)) && self.slots_used == old.slots_used
+        let old_lives: HashSet<Variable> = old.lives.iter().copied().collect();
+        self.lives.iter().all(|v| old_lives.contains(v)) && self.slots_used == old.slots_used
     }
 }
 
@@ -51,7 +44,7 @@ impl Convention {
 /// beginning.
 pub struct Propagator {
     /// The [`Variable`]s that are live.
-    live_variables: HashSet<Variable>,
+    lives: HashSet<Variable>,
     /// The number of spill [`Slot`]s that are allocated.
     ///
     /// [`Slot`]: super::Slot
@@ -62,25 +55,25 @@ impl Propagator {
     /// Constructs a Propagator given the [`Convention`] after the code.
     pub fn new(after: &Convention) -> Self {
         Self {
-            live_variables: after.live_values.iter().copied().collect(),
+            lives: after.lives.iter().copied().collect(),
             slots_used: after.slots_used,
         }
     }
 
-    /// Adds `src` to `live_variables`.
+    /// Adds `src` to `lives`.
     pub fn insert(&mut self, src: impl IntoVariable) {
-        self.live_variables.insert(src.into());
+        self.lives.insert(src.into());
     }
 
-    /// Removes `dest` from `live_variables`.
+    /// Removes `dest` from `lives`.
     pub fn remove(&mut self, dest: impl IntoVariable) {
-        self.live_variables.remove(&dest.into());
+        self.lives.remove(&dest.into());
     }
 
     /// Propagate information backwards through a conditional branch.
-    /// [`Variable`]s live in `other` are added to `live_variables`.
+    /// [`Variable`]s live in `other` are added to `lives`.
     pub fn branch(&mut self, other: &Convention) {
-        for &v in other.live_values.iter() {
+        for &v in other.lives.iter() {
             self.insert(v);
         }
         assert_eq!(self.slots_used, other.slots_used);
@@ -88,7 +81,7 @@ impl Propagator {
 
     /// Propagate information backwards through a `Switch`.
     /// [`Variable`]s live in every case of `switch` are included in
-    /// `live_variables`, along with `discriminant`.
+    /// `lives`, along with `discriminant`.
     pub fn switch<'a, C>(
         discriminant: Variable,
         switch: &'a Switch<C>,
@@ -109,7 +102,7 @@ impl Propagator {
     }
 
     /// Propagate information backwards through `action`.
-    /// [`Variable`]s written by `action` are removed from `live_variables`
+    /// [`Variable`]s written by `action` are removed from `lives`
     /// and those read by it are added.
     pub fn action(&mut self, action: Action) {
         use Action::*;
@@ -165,7 +158,7 @@ impl Propagator {
     /// Returns the [`Convention`] before the code.
     pub fn before(&self) -> Convention {
         Convention {
-            live_values: self.live_variables.iter().copied().collect(),
+            lives: self.lives.iter().copied().collect(),
             slots_used: self.slots_used,
         }
     }

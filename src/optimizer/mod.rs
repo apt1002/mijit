@@ -73,10 +73,10 @@ mod tests {
     /// panic with diagnostics if they behave differently.
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
         let mut expected = EmulatorResult::new(&input_ebb, &convention);
-        expected.keep_only(&convention.live_values);
+        expected.keep_only(&convention.lives);
         let output_ebb = optimize(&convention, &input_ebb, &convention);
         let mut observed = EmulatorResult::new(&output_ebb, &convention);
-        observed.keep_only(&convention.live_values);
+        observed.keep_only(&convention.lives);
         if expected != observed {
             println!("input_ebb: {:#x?}", input_ebb);
             println!("expected: {:#x?}", expected);

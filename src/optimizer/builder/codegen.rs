@@ -146,7 +146,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
         // Work out which live values need to be moved where.
         let after = self.lookup_leaf.after(&leaf);
         let mut dest_to_src: HashMap<Variable, Variable> =
-            exit.outputs.iter().zip(&*after.live_values)
+            exit.outputs.iter().zip(&*after.lives)
                 .map(|(&node, &dest)| (dest, self.read(node)))
                 .collect();
 

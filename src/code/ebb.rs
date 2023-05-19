@@ -90,7 +90,7 @@ pub mod tests {
 
     pub fn random_ebb_convention() -> Convention {
         Convention {
-            live_values: REGS.iter().map(|&r| Variable::from(r)).collect(),
+            lives: REGS.iter().map(|&r| Variable::from(r)).collect(),
             slots_used: 0,
         }
     }
@@ -189,7 +189,7 @@ pub mod tests {
         /// Run `ebb`, passing random values for all `Variable`s live
         /// according to `convention`, and return the result.
         pub fn new(ebb: &EBB<L>, convention: &Convention) -> Self {
-            let variables: HashMap<Variable, i64> = convention.live_values.iter().enumerate()
+            let variables: HashMap<Variable, i64> = convention.lives.iter().enumerate()
                 .map(|(i, &v)| {
                     (v, (i as i64).wrapping_mul(0x4afe41af6db32983).wrapping_add(0x519e8556c7b69a8d))
                 }).collect();

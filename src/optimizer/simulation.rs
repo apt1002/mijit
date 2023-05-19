@@ -22,8 +22,8 @@ impl Simulation {
     /// Constructs an initial [`Simulation`] representing the entry point of
     /// `dataflow`, which obeys `before`.
     fn new(dataflow: &Dataflow, before: &Convention) -> Self {
-        assert_eq!(dataflow.inputs().len(), before.live_values.len());
-        let bindings = before.live_values.iter()
+        assert_eq!(dataflow.inputs().len(), before.lives.len());
+        let bindings = before.lives.iter()
             .zip(dataflow.inputs())
             .map(|(&v, &node)| (v, node))
             .collect();
@@ -151,7 +151,7 @@ impl Simulation {
                 assert_eq!(self.slots_used, after.slots_used);
                 let exit = Exit {
                     sequence: self.sequence,
-                    outputs: after.live_values.iter().map(|&in_| self.lookup(in_)).collect(),
+                    outputs: after.lives.iter().map(|&in_| self.lookup(in_)).collect(),
                 };
                 (CFT::Merge {exit, leaf: leaf.clone()}, lookup_leaf.weight(leaf))
             },
@@ -180,7 +180,7 @@ impl Simulation {
 /// `input`.
 pub fn simulate<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
 -> (Dataflow, CFT<L::Leaf>) {
-    let mut dataflow = Dataflow::new(before.live_values.len());
+    let mut dataflow = Dataflow::new(before.lives.len());
     let simulation = Simulation::new(&dataflow, before);
     let (cft, _) = simulation.walk(&mut dataflow, input, lookup_leaf);
     (dataflow, cft)

@@ -164,7 +164,7 @@ pub fn build<L: LookupLeaf>(
     // Work out what is where.
     let input_map: HashMap<Node, Variable> =
         dataflow.inputs().iter()
-        .zip(&*before.live_values)
+        .zip(&*before.lives)
         .map(|(&node, &variable)| (node, variable))
         .collect();
     // Build the new `EBB`.
@@ -194,7 +194,7 @@ mod tests {
         // Each leaf will return a single `Register`.
         // Weight = register number.
         let afters: ArrayMap<Register, _> = REGISTERS.iter().map(
-            |&r| Convention {live_values: Box::new([r.into()]), slots_used: 0}
+            |&r| Convention {lives: Box::new([r.into()]), slots_used: 0}
         ).collect();
         impl LookupLeaf for ArrayMap<Register, Convention> {
             type Leaf = Register;
@@ -207,7 +207,7 @@ mod tests {
         }
         // Make a `before` Convention.
         let before = Convention {
-            live_values: Box::new([
+            lives: Box::new([
                 REGISTERS[0].into(),
                 REGISTERS[1].into(),
                 REGISTERS[2].into(),
@@ -244,7 +244,7 @@ mod tests {
     /// Regression test from Bee.
     #[test]
     fn bee_1() {
-        let convention = Convention {slots_used: 0, live_values: Box::new([Variable::Global(Global(0))])};
+        let convention = Convention {slots_used: 0, lives: Box::new([Variable::Global(Global(0))])};
         // Make an `EBB`.
         let ebb = builder::build(|b| {
             b.index(
@@ -274,7 +274,7 @@ mod tests {
     fn bee_2() {
         let convention = Convention {
             slots_used: 0,
-            live_values: Box::new([
+            lives: Box::new([
                 Variable::Global(Global(0)),
                 Variable::Register(REGISTERS[3]),
             ]),
@@ -299,7 +299,7 @@ mod tests {
     fn load_to_store() {
         let convention = Convention {
             slots_used: 0,
-            live_values: Box::new([
+            lives: Box::new([
                 Variable::Global(Global(0)),
                 Variable::Global(Global(1)),
             ]),
