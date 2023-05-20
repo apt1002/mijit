@@ -6,6 +6,30 @@ pub extern fn debug_word(x: u64) {
     println!("Debug: {:#018x}", x);
 }
 
+/// A memory operand. This is used by [`Load`] and [`Store`] actions.
+///
+/// [`Load`]: `Action::Load`
+/// [`Store`]: `Action::Store`
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Address {
+    /// The base address.
+    pub base: Variable,
+    /// A constant offset to add to `base`.
+    pub offset: i32,
+    /// The number of bytes to transfer.
+    pub width: Width,
+}
+
+impl std::fmt::Debug for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        if self.offset >= 0 {
+            write!(f, "[{:?} + {:#x}] {:?}", self.base, self.offset, self.width)
+        } else {
+            write!(f, "[{:?} - {:#x}] {:?}", self.base, self.offset.wrapping_neg() as u32, self.width)
+        }
+    }
+}
+
 /// An imperative instruction.
 ///
 /// The destination register (where applicable) is on the left.
@@ -24,12 +48,12 @@ pub enum Action {
     Binary(BinaryOp, Precision, Register, Variable, Variable),
 
     /// dest <- \[addr]
-    Load(Register, (Variable, Width)),
+    Load(Register, Address),
 
-    /// dest <- addr; \[addr] <- \[src]
+    /// dest <- addr.base; \[addr] <- \[src]
     ///
     /// If you later `Load` or `Store` via `addr`, the behaviour is undefined.
-    Store(Register, Variable, (Variable, Width)),
+    Store(Register, Variable, Address),
 
     /// dest <- src1
     /// Memory accesses via `dest` will happen later than memory accesses via
@@ -69,10 +93,10 @@ impl std::fmt::Debug for Action {
                 write!(f, "{:?}_{:?} {:?}, {:?}", op, prec, dest, src),
             Action::Binary(op, prec, dest, src1, src2) =>
                 write!(f, "{:?}_{:?} {:?}, {:?}, {:?}", op, prec, dest, src1, src2),
-            Action::Load(dest, (addr, width)) =>
-                write!(f, "Load_{:?} {:?}, [{:?}]", width, dest, addr),
-            Action::Store(dest, src, (addr, width)) =>
-                write!(f, "Store_{:?} {:?}, {:?}, [{:?}]", width, dest, src, addr),
+            Action::Load(dest, addr) =>
+                write!(f, "Load {:?}, {:?}", dest, addr),
+            Action::Store(dest, src, addr) =>
+                write!(f, "Store{:?} {:?}, {:?}", dest, src, addr),
             Action::Send(dest, src1, src2) =>
                 write!(f, "Send {:?}, {:?}, {:?}", dest, src1, src2),
             Action::Push(src1, src2) =>

@@ -38,7 +38,7 @@ const REGS: Register = REGISTERS[10];
 /// Returns the address of `Registers.$field`.
 macro_rules! register {
     ($field: ident) => {
-        (REGS, offset_of!(Registers, $field) as i64 + 8)
+        (REGS, offset_of!(Registers, $field) as i32 + 8, Four)
     }
 }
 
@@ -57,14 +57,14 @@ fn native_address(b: &mut Builder<EntryId>, addr: Register) {
 /// Loads `dest` from `addr`. `BI` is corrupted.
 fn load(b: &mut Builder<EntryId>, dest: Register, addr: Register) {
     native_address(b, addr);
-    b.load(dest, (BI, 0), Four);
+    b.load(dest, (BI, 0, Four));
     b.send(M0, BI);
 }
 
 /// Stores `dest` at `addr`. `BI` is corrupted.
 fn store(b: &mut Builder<EntryId>, src: Register, addr: Register) {
     native_address(b, addr);
-    b.store(src, (BI, 0), Four);
+    b.store(src, (BI, 0, Four));
     b.send(M0, BI);
 }
 
@@ -94,19 +94,19 @@ impl<T: Target> Beetle<T> {
         let marshal = Marshal {
             prologue: build_block(|b| {
                 b.move_(REGS, GLOBAL);
-                b.load(BEP, register!(ep), Four);
-                b.load(BI, register!(i), Four);
-                b.load(BA, register!(a), Four);
-                b.load(BSP, register!(sp), Four);
-                b.load(BRP, register!(rp), Four);
-                b.load(M0, (REGS, 0), Eight);
+                b.load(BEP, register!(ep));
+                b.load(BI, register!(i));
+                b.load(BA, register!(a));
+                b.load(BSP, register!(sp));
+                b.load(BRP, register!(rp));
+                b.load(M0, (REGS, 0, Eight));
             }),
             epilogue: build_block(|b| {
-                b.store(BEP, register!(ep), Four);
-                b.store(BI, register!(i), Four);
-                b.store(BA, register!(a), Four);
-                b.store(BSP, register!(sp), Four);
-                b.store(BRP, register!(rp), Four);
+                b.store(BEP, register!(ep));
+                b.store(BI, register!(i));
+                b.store(BA, register!(a));
+                b.store(BSP, register!(sp));
+                b.store(BRP, register!(rp));
                 // No need to save `M0`, but we must use it. Dummy op.
                 b.send(REGS, M0);
                 b.move_(GLOBAL, REGS);

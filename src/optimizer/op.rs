@@ -1,5 +1,5 @@
 use super::{Dep};
-use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Action};
+use super::code::{Register, Variable, Precision, UnaryOp, BinaryOp, Width, Address, Action};
 
 /// Annotates a [`Node`] of a [`Dataflow`] graph.
 ///
@@ -15,8 +15,8 @@ pub enum Op {
     Constant(i64),
     Unary(Precision, UnaryOp),
     Binary(Precision, BinaryOp),
-    Load(Width),
-    Store(Width),
+    Load(i32, Width),
+    Store(i32, Width),
     Send,
     Debug,
 }
@@ -33,8 +33,8 @@ impl Op {
             Op::Constant(_) => &[],
             Op::Unary(_, _) => &[Dep::VALUE],
             Op::Binary(_, _) => &[Dep::VALUE, Dep::VALUE],
-            Op::Load(_) => &[Dep::GUARD, Dep::LOAD],
-            Op::Store(_) => &[Dep::GUARD, Dep::VALUE, Dep::STORE],
+            Op::Load(_, _) => &[Dep::GUARD, Dep::LOAD],
+            Op::Store(_, _) => &[Dep::GUARD, Dep::VALUE, Dep::STORE],
             Op::Send => &[Dep::VALUE, Dep::SEND],
             Op::Debug => &[Dep::GUARD, Dep::VALUE],
         }
@@ -59,13 +59,13 @@ impl Op {
                 assert_eq!(ins.len(), 2);
                 Action::Binary(op, prec, out.unwrap(), ins[0], ins[1])
             },
-            Op::Load(width) => {
+            Op::Load(offset, width) => {
                 assert_eq!(ins.len(), 1);
-                Action::Load(out.unwrap(), (ins[0], width))
+                Action::Load(out.unwrap(), Address {base: ins[0], offset, width})
             },
-            Op::Store(width) => {
+            Op::Store(offset, width) => {
                 assert_eq!(ins.len(), 2);
-                Action::Store(out.unwrap(), ins[0], (ins[1], width))
+                Action::Store(out.unwrap(), ins[0], Address {base: ins[1], offset, width})
             },
             Op::Send => {
                 assert_eq!(ins.len(), 2);

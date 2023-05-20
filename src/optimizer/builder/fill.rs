@@ -159,7 +159,7 @@ mod tests {
         let add = df.add_node(Op::Binary(P64, BinaryOp::Add), &[a, b]);
         let c = add;
         let exit1 = Exit {sequence: guard, outputs: Box::new([c])};
-        let store = df.add_node(Op::Store(Width::Eight), &[guard, b, a]);
+        let store = df.add_node(Op::Store(0, Width::Eight), &[guard, b, a]);
         let d = store;
         let exit2 = Exit {sequence: store, outputs: Box::new([d])};
         let _ = df.add_node(Op::Binary(P64, BinaryOp::Mul), &[b, b]);

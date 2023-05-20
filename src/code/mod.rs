@@ -83,7 +83,7 @@ mod enums;
 pub use enums::{Precision, UnaryOp, BinaryOp, Width};
 
 mod action;
-pub use action::{Action, debug_word};
+pub use action::{Address, Action, debug_word};
 
 mod ebb;
 pub use ebb::{Switch, EBB, Ending};

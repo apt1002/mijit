@@ -6,7 +6,7 @@
 use super::{
     UnaryOp, BinaryOp, Precision, Width,
     Register, REGISTERS, Variable, IntoVariable,
-    Action, Switch, EBB, Ending,
+    Address, Action, Switch, EBB, Ending,
 };
 use Precision::*;
 use BinaryOp::*;
@@ -154,16 +154,14 @@ impl<T> Builder<T> {
     }
 
     /// Assembles `Action`s to load `dest` from address `addr.0 + addr.1`.
-    /// [`TEMP`] is corrupted.
     pub fn load(
         &mut self,
         dest: Register,
-        addr: (impl IntoVariable, i64),
-        width: Width,
+        addr: (impl IntoVariable, i32, Width),
     ) {
-        self.const_binary64(Add, TEMP, addr.0, addr.1);
-        self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
-        self.send(addr.0, TEMP);
+        let (base, offset, width) = addr;
+        let base = base.into();
+        self.actions.push(Action::Load(dest.into(), Address {base, offset, width}));
     }
 
     /// Assembles `Action`s to store `src` at `addr.0 + addr.1`.
@@ -171,12 +169,12 @@ impl<T> Builder<T> {
     pub fn store(
         &mut self,
         src: impl IntoVariable,
-        addr: (impl IntoVariable, i64),
-        width: Width,
+        addr: (impl IntoVariable, i32, Width),
     ) {
-        self.const_binary64(Add, TEMP, addr.0, addr.1);
-        self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
-        self.send(addr.0, TEMP);
+        let (base, offset, width) = addr;
+        let base = base.into();
+        self.actions.push(Action::Store(TEMP, src.into(), Address {base, offset, width}));
+        self.move_(base, TEMP);
     }
 
     /// Assembles `Action`s to load `dest` from `addr.0 + width * addr.1`.
@@ -189,7 +187,7 @@ impl<T> Builder<T> {
     ) {
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
         self.binary64(Add, TEMP, addr.0, TEMP);
-        self.actions.push(Action::Load(dest.into(), (TEMP.into(), width)));
+        self.actions.push(Action::Load(dest.into(), Address {base: TEMP.into(), offset: 0, width}));
         self.send(addr.0, TEMP);
     }
 
@@ -204,7 +202,7 @@ impl<T> Builder<T> {
     ) {
         self.const_binary64(Lsl, TEMP, addr.1, width as i64);
         self.binary64(Add, TEMP, addr.0, TEMP);
-        self.actions.push(Action::Store(TEMP, src.into(), (TEMP.into(), width)));
+        self.actions.push(Action::Store(TEMP, src.into(), Address {base: TEMP.into(), offset: 0, width}));
         self.send(addr.0, TEMP);
     }
 

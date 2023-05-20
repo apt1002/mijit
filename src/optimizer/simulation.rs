@@ -67,7 +67,7 @@ impl Simulation {
         out: impl Into<Option<Register>>,
     ) -> Node {
         let mut in_nodes = Vec::new();
-        if matches!(op, Op::Guard | Op::Load(_) | Op::Store(_) | Op::Debug) {
+        if matches!(op, Op::Guard | Op::Load(_, _) | Op::Store(_, _) | Op::Debug) {
             in_nodes.push(self.sequence);
         }
         for &in_ in ins {
@@ -99,11 +99,11 @@ impl Simulation {
             Action::Binary(bin_op, prec, dest, src1, src2) => {
                 let _ = self.op(dataflow, Op::Binary(prec, bin_op), &[src1, src2], dest);
             },
-            Action::Load(dest, (addr, width)) => {
-                let _ = self.op(dataflow, Op::Load(width), &[addr], dest);
+            Action::Load(dest, addr) => {
+                let _ = self.op(dataflow, Op::Load(addr.offset, addr.width), &[addr.base], dest);
             },
-            Action::Store(dest, src, (addr, width)) => {
-                let _ = self.op(dataflow, Op::Store(width), &[src, addr], dest);
+            Action::Store(dest, src, addr) => {
+                let _ = self.op(dataflow, Op::Store(addr.offset, addr.width), &[src, addr.base], dest);
             },
             Action::Send(dest, src1, src2) => {
                 let _ = self.op(dataflow, Op::Send, &[src1, src2], dest);

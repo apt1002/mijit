@@ -36,12 +36,9 @@ impl<T: Target> Factorial<T> {
         let marshal = Marshal {
             prologue: Box::new([
                 // Restore `N`.
-                Load(N, (GLOBAL.into(), Eight)),
+                Load(N, Address {base: GLOBAL.into(), offset: 0, width: Eight}),
                 // Restore `RESULT`.
-                Constant(P64, ONE, 8),
-                Binary(Add, P64, ONE, ONE.into(), GLOBAL.into()),
-                Load(RESULT, (ONE.into(), Eight)),
-                Send(GLOBAL, GLOBAL.into(), ONE.into()),
+                Load(RESULT, Address {base: GLOBAL.into(), offset: 8, width: Eight}),
                 // Restore `ONE`.
                 Constant(P32, ONE, 1),
             ]),
@@ -49,12 +46,9 @@ impl<T: Target> Factorial<T> {
                 // No need to save `ONE`, but we must use it. Dummy op.
                 Send(GLOBAL, GLOBAL.into(), ONE.into()),
                 // Save `N`.
-                Store(GLOBAL, N.into(), (GLOBAL.into(), Eight)),
+                Store(GLOBAL, N.into(), Address {base: GLOBAL.into(), offset: 0, width: Eight}),
                 // Save `RESULT`.
-                Constant(P64, ONE, 8),
-                Binary(Add, P64, ONE, ONE.into(), GLOBAL.into()),
-                Store(ONE, RESULT.into(), (ONE.into(), Eight)),
-                Send(GLOBAL, GLOBAL.into(), ONE.into()),
+                Store(GLOBAL, RESULT.into(), Address {base: GLOBAL.into(), offset: 8, width: Eight}),
             ]),
         };
         let start = jit.new_entry(&marshal, START);

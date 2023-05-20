@@ -32,7 +32,7 @@ pub fn native() -> Native {
 mod tests {
     use super::*;
 
-    use code::{Register, REGISTERS, GLOBAL, Slot, Precision, UnaryOp, BinaryOp, Width, Action};
+    use code::{Register, REGISTERS, GLOBAL, Slot, Precision, UnaryOp, BinaryOp, Width, Address, Action};
     use Precision::*;
     use UnaryOp::*;
     use BinaryOp::*;
@@ -56,9 +56,7 @@ mod tests {
             for (i, &r) in inputs.iter().enumerate() {
                 // Load `GLOBAL[i]` into `r`.
                 assert_ne!(r, GLOBAL);
-                lowerer.action(Constant(P64, r, i as i64 * 8));
-                lowerer.action(Binary(Add, P64, r, r.into(), GLOBAL.into()));
-                lowerer.action(Load(r, (r.into(), Eight)));
+                lowerer.action(Load(r, Address {base: GLOBAL.into(), offset: i as i32 * 8, width: Eight}));
             }
             compile(&mut lowerer);
             lowerer.epilogue();
@@ -68,10 +66,10 @@ mod tests {
         /// Calls the compiled code after setting the `inputs` to the specified
         /// values, and checks that the return value is `expected_result`.
         pub unsafe fn run(mut self, inputs: &mut [Word], expected_result: Word) -> Self {
-            let observed_result = self.lowerer.execute(
-                &self.entry,
-                |f| f(inputs.as_mut_ptr() as *mut ())
-            );
+            let global = inputs.as_mut_ptr() as *mut ();
+            let observed_result = self.lowerer.execute(&self.entry, |f| {
+                f(global)
+            });
             if observed_result != expected_result {
                 println!("inputs = {:?}", inputs);
                 println!("observed = {:?}", observed_result);
@@ -136,10 +134,10 @@ mod tests {
     }
 
     /// Constructs a [`VM`], then calls it passing a pointer.
-    pub unsafe fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 1]) -> u64) {
+    pub unsafe fn test_mem(compile: impl FnOnce(&mut dyn Lower), expected: impl Fn(u64, &mut [u64; 2]) -> u64) {
         let mut vm = VM::new(&[R1], |lo| compile(lo));
         for x in TEST_VALUES {
-            let mut memory = [x];
+            let mut memory = [x, !x];
             vm = vm.run(
                 &mut [Word {mp: memory.as_mut_ptr() as *mut ()}],
                 Word {u: expected(x, &mut memory)},
@@ -615,98 +613,109 @@ mod tests {
 
     #[test]
     fn load() {
-        unsafe {test_mem(
-            |lo| { lo.action(Load(RESULT, (R1.into(), One))); },
-            |x, _| x as u8 as u64,
-        )};
-        unsafe {test_mem(
-            |lo| { lo.action(Load(RESULT, (R1.into(), Two))); },
-            |x, _| x as u16 as u64,
-        )};
-        unsafe {test_mem(
-            |lo| { lo.action(Load(RESULT, (R1.into(), Four))); },
-            |x, _| x as u32 as u64,
-        )};
-        unsafe {test_mem(
-            |lo| { lo.action(Load(RESULT, (R1.into(), Eight))); },
-            |x, _| x,
-        )};
+        for (offset, mask) in [(0, 0), (8, !0)] {
+            unsafe {test_mem(
+                |lo| { lo.action(Load(RESULT, Address {base: R1.into(), offset, width: One})); },
+                |x, _| (x ^ mask) as u8 as u64,
+            )};
+            unsafe {test_mem(
+                |lo| { lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Two})); },
+                |x, _| (x ^ mask) as u16 as u64,
+            )};
+            unsafe {test_mem(
+                |lo| { lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Four})); },
+                |x, _| (x ^ mask) as u32 as u64,
+            )};
+            unsafe {test_mem(
+                |lo| { lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight})); },
+                |x, _| (x ^ mask),
+            )};
+        }
     }
 
     #[test]
     fn store() {
         const DATA: u64 = 0x5555555555555555;
-        // Check returned address.
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, R2, DATA as i64));
-                lo.action(Store(RESULT, R2.into(), (R1.into(), Eight)));
-            },
-            |_, p| p.as_mut_ptr() as u64,
-        )};
-        // Check value stored at the returned address.
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, R2, DATA as i64));
-                lo.action(Store(RESULT, R2.into(), (R1.into(), Eight)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |_, _p| DATA,
-        )};
-        // Check value stored at the returned address when `dest == src`.
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, RESULT, DATA as i64));
-                lo.action(Store(RESULT, RESULT.into(), (R1.into(), Eight)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |_, _p| DATA,
-        )};
-        // Check value stored at the returned address when `dest == addr`.
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, R2, DATA as i64));
-                lo.action(Move(RESULT.into(), R1.into()));
-                lo.action(Store(RESULT, R2.into(), (RESULT.into(), Eight)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |_, _p| DATA,
-        )};
-        // Check all `Width`s.
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, RESULT, DATA as i64));
-                lo.action(Store(R1, RESULT.into(), (R1.into(), One)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |x, _| {
-                (x ^ DATA) as u8 as u64 ^ x
-            },
-        )};
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, RESULT, DATA as i64));
-                lo.action(Store(R1, RESULT.into(), (R1.into(), Two)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |x, _| (x ^ DATA) as u16 as u64 ^ x,
-        )};
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, RESULT, DATA as i64));
-                lo.action(Store(R1, RESULT.into(), (R1.into(), Four)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |x, _| (x ^ DATA) as u32 as u64 ^ x,
-        )};
-        unsafe {test_mem(
-            |lo| {
-                lo.action(Constant(P64, RESULT, DATA as i64));
-                lo.action(Store(R1, RESULT.into(), (R1.into(), Eight)));
-                lo.action(Load(RESULT, (R1.into(), Eight)));
-            },
-            |_, _| DATA,
-        )};
+        for (offset, mask) in [(0, 0), (8, !0)] {
+            // Check returned address.
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, R2, DATA as i64));
+                    lo.action(Store(RESULT, R2.into(), Address {base: R1.into(), offset, width: Eight}));
+                },
+                |_, p| p.as_mut_ptr() as u64,
+            )};
+            // Check value stored at the returned address.
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, R2, DATA as i64));
+                    lo.action(Store(RESULT, R2.into(), Address {base: R1.into(), offset, width: Eight}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |_, _p| DATA,
+            )};
+            // Check value stored at the returned address when `dest == src`.
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, RESULT, DATA as i64));
+                    lo.action(Store(RESULT, RESULT.into(), Address {base: R1.into(), offset, width: Eight}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |_, _p| DATA,
+            )};
+            // Check value stored at the returned address when `dest == addr`.
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, R2, DATA as i64));
+                    lo.action(Move(RESULT.into(), R1.into()));
+                    lo.action(Store(RESULT, R2.into(), Address {base: RESULT.into(), offset, width: Eight}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |_, _p| DATA,
+            )};
+            // Check all `Width`s.
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, RESULT, DATA as i64));
+                    lo.action(Store(R1, RESULT.into(), Address {base: R1.into(), offset, width: One}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |x, _| {
+                    let y = x ^ mask;
+                    (y ^ DATA) as u8 as u64 ^ y
+                },
+            )};
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, RESULT, DATA as i64));
+                    lo.action(Store(R1, RESULT.into(), Address {base: R1.into(), offset, width: Two}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |x, _| {
+                    let y = x ^ mask;
+                    (y ^ DATA) as u16 as u64 ^ y
+                },
+            )};
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, RESULT, DATA as i64));
+                    lo.action(Store(R1, RESULT.into(), Address {base: R1.into(), offset, width: Four}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |x, _| {
+                    let y = x ^ mask;
+                    (y ^ DATA) as u32 as u64 ^ y
+                },
+            )};
+            unsafe {test_mem(
+                |lo| {
+                    lo.action(Constant(P64, RESULT, DATA as i64));
+                    lo.action(Store(R1, RESULT.into(), Address {base: R1.into(), offset, width: Eight}));
+                    lo.action(Load(RESULT, Address {base: R1.into(), offset, width: Eight}));
+                },
+                |_, _| DATA,
+            )};
+        }
     }
 
     // TestOps.

@@ -139,8 +139,8 @@ pub fn op_cost(op: Op) -> &'static Cost {
             Lsl | Lsr | Asr => &SHIFT_COST,
             Lt | Ult | Eq | Max | Min => &CONDITIONAL_COST,
         },
-        Load(_) => &LOAD_COST,
-        Store(_) => &STORE_COST,
+        Load(_, _) => &LOAD_COST,
+        Store(_, _) => &STORE_COST,
         Send => &SEND_COST,
         Debug => &DEBUG_COST,
     }

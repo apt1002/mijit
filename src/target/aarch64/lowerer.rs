@@ -131,14 +131,17 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /// Apply `op` to `src` and `constant`.
-    fn const_add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: u64, temp: Register) {
-        if let Ok(x) = Unsigned::new(constant) {
+    fn const_add(&mut self, op: AddOp, prec: Precision, dest: impl Into<Register>, src: impl Into<Register>, constant: i64, temp: Register) {
+        let constant = if prec == P32 { constant as i32 as i64 } else  { constant };
+        if let Ok(x) = Unsigned::new(constant as u64) {
             self.a.const_add(op, prec, dest.into(), src.into(), x);
-        } else if let Ok(x) = Unsigned::new(constant.wrapping_neg()) {
+        } else if let Ok(x) = Unsigned::new(constant.wrapping_neg() as u64) {
             self.a.const_add(op.negate(), prec, dest.into(), src.into(), x);
         } else {
-            self.const_(temp, constant);
-            self.add(op, prec, dest, src, temp);
+            let shift = constant.trailing_zeros().into();
+            assert!(shift < 64); // Because a previous case copes with `0`.
+            self.const_(temp, (constant >> shift) as u64);
+            self.a.shift_add(op, dest.into(), src.into(), temp, Shift::new(prec, shift).unwrap());
         }
     }
 
@@ -149,7 +152,7 @@ impl<B: Buffer> Lowerer<B> {
 
     /// Compare `src` to `constant` and set condition flags.
     /// `temp` is corrupted.
-    fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: u64, temp: Register) {
+    fn const_cmp(&mut self, prec: Precision, src: impl Into<Register>, constant: i64, temp: Register) {
         self.const_add(SUBS, prec, RZR, src, constant, temp);
     }
 
@@ -168,35 +171,36 @@ impl<B: Buffer> Lowerer<B> {
     }
 
     /// Constructs a (Register, Offset) pair representing `base + offset`.
-    /// `offset` must be 8-byte aligned.
     /// Corrupts `temp`.
-    fn address(&mut self, base: Register, offset: u64, temp: Register) -> (Register, Offset) {
-        if let Ok(imm) = Offset::new(Width::Eight, offset) {
+    fn address(&mut self, address: (impl Into<Register>, i64, Width), temp: Register) -> (Register, Offset) {
+        let (base, offset, width) = address;
+        let base = base.into();
+        if let Ok(imm) = Offset::new(width, offset as u64) {
             // `offset` fits in an immediate constant.
             (base, imm)
         } else {
             // `offset` needs to be constructed.
-            let imm_bits = 12 + (Width::Eight as u64);
-            let offset_high = offset >> imm_bits;
-            let offset_low = offset - (offset_high << imm_bits);
-            let imm = Offset::new(Width::Eight, offset_low).expect("Cannot encode offset");
-            self.const_(temp, offset_high);
-            self.a.shift_add(ADD, temp, base, temp, Shift::new(P64, imm_bits).unwrap());
+            let offset_low = offset & (0xfff << (width as usize));
+            let offset_high = offset - offset_low; // Could have some low bits if unaligned. Unlikely.
+            let imm = Offset::new(width, offset_low as u64).expect("We made sure");
+            self.const_add(ADD, P64, temp, base, offset_high, temp);
             (temp, imm)
         }
     }
 
     /// Access 8 bytes at `address`, which must be 8-byte aligned.
     /// Corrupts `temp`. If `op` is `LDR` or `LDRS`, `temp` can be `data`.
-    fn mem(&mut self, op: MemOp, data: Register, address: (Register, u64), temp: Register) {
-        let address = self.address(address.0, address.1, temp);
+    fn mem(&mut self, op: MemOp, data: impl Into<Register>, address: (impl Into<Register>, i64, Width), temp: Register) {
+        let data = data.into();
+        // TODO: Implement `LDR/STR Rx, [Ry, Rz, LSL#shift]`?
+        let address = self.address(address, temp);
         self.a.mem(op, data, address);
     }
 
     /// Returns the base and offset of `slot` in the stack-allocated data.
-    fn slot_address(&self, slot: Slot) -> (Register, u64) {
+    fn slot_address(&self, slot: Slot) -> (Register, i64, Width) {
         assert!(slot.0 < self.slots_used);
-        (RSP, (((self.slots_used - 1) - slot.0) * 8) as u64)
+        (RSP, (((self.slots_used - 1) - slot.0) * 8) as i64, Width::Eight)
     }
 
     /// If `src` is a Register, returns it, otherwise loads it into `reg` and
@@ -353,7 +357,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
     ) {
         let (discriminant, value) = guard;
         let discriminant = self.src_to_register(discriminant, TEMP0);
-        self.const_cmp(P64, discriminant, value, TEMP1);
+        self.const_cmp(P64, discriminant, value as i64, TEMP1);
         // We can't assume a conditional branch can jump more than 1MB.
         // Therefore, conditionally branch past an unconditional branch.
         let skip = &mut Label::new(None);
@@ -369,7 +373,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
     ) {
         let (discriminant, value) = guard;
         let discriminant = self.src_to_register(discriminant, TEMP0);
-        self.const_cmp(P64, discriminant, value, TEMP1);
+        self.const_cmp(P64, discriminant, value as i64, TEMP1);
         // We can't assume a conditional branch can jump more than 1MB.
         // Therefore, conditionally branch past an unconditional branch.
         let skip = &mut Label::new(None);
@@ -409,22 +413,17 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             Action::Binary(op, prec, dest, src1, src2) => {
                 self.binary_op(op, prec, dest, src1, src2);
             },
-            Action::Load(dest, (addr, width)) => {
-                let dest = dest.into();
-                let base = self.src_to_register(addr, dest);
-                let offset = Offset::new(width, 0).unwrap();
-                self.a.mem(LDR, dest, (base, offset));
+            Action::Load(dest, addr) => {
+                let dest = Register::from(dest);
+                let base = self.src_to_register(addr.base, dest);
+                self.mem(LDR, dest, (base, addr.offset as i64, addr.width), TEMP1);
             },
-            Action::Store(dest, src, (addr, width)) => {
+            Action::Store(dest, src, addr) => {
                 let dest = Register::from(dest);
                 let src = self.src_to_register(src, TEMP0);
-                let base = if dest == src {
-                    self.src_to_register(addr, TEMP0)
-                } else {
-                    self.src_to_register(addr, dest)
-                };
-                let offset = Offset::new(width, 0).unwrap();
-                self.a.mem(STR, src, (base, offset));
+                let temp = if dest == src { TEMP0 } else { dest };
+                let base = self.src_to_register(addr.base, temp);
+                self.mem(STR, src, (base, addr.offset as i64, addr.width), TEMP1);
                 self.move_(dest, base);
             },
             Action::Send(dest, src1, _) => {
@@ -439,7 +438,7 @@ impl<B: Buffer> super::Lower for Lowerer<B> {
             },
             Action::Drop(n) => {
                 assert!(*self.slots_used_mut() >= 2 * n);
-                self.const_add(ADD, P64, RSP, RSP, n as u64 * 16, TEMP0);
+                self.const_add(ADD, P64, RSP, RSP, n as i64 * 16, TEMP0);
                 *self.slots_used_mut() -= 2 * n;
             },
             Action::Debug(x) => {

@@ -118,14 +118,14 @@ impl Propagator {
                 self.insert(src1);
                 self.insert(src2);
             },
-            Load(dest, (addr, _)) => {
+            Load(dest, addr) => {
                 self.remove(dest);
-                self.insert(addr);
+                self.insert(addr.base);
             },
-            Store(dest, src, (addr, _)) => {
+            Store(dest, src, addr) => {
                 self.remove(dest);
                 self.insert(src);
-                self.insert(addr);
+                self.insert(addr.base);
             },
             Send(dest, src1, src2) => {
                 self.remove(dest);

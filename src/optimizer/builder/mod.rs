@@ -183,9 +183,10 @@ pub fn build<L: LookupLeaf>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width, Action, builder};
+    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width, builder};
     use BinaryOp::*;
     use Precision::*;
+    use Width::*;
     use crate::util::{ArrayMap, AsUsize};
 
     const R0: Register = REGISTERS[0];
@@ -302,18 +303,17 @@ mod tests {
         let input = builder::build(|mut b| {
             b.binary64(Mul, R0, Slot(0), Slot(0));
             b.binary64(Add, R0, Slot(1), R0);
-            b.actions.push(Action::Load(R0, (R0.into(), Width::Eight)));
-            b.actions.push(Action::Load(R1, (R0.into(), Width::Eight)));
+            b.load(R0, (R0, 0, Eight));
+            b.load(R1, (R0, 8, Eight));
             // 
             for _ in 0..4 {
-                b.actions.push(Action::Load(R2, (R0.into(), Width::Eight)));
+                b.load(R2, (R0, 16, Eight));
                 b.binary64(Mul, R1, R1, R2);
             }
             b.move_(Slot(0), R1);
             b.send(Slot(1), R0);
             b.const_(R1, 42);
-            b.actions.push(Action::Store(R0, R1.into(), (Slot(1).into(), Width::Eight)));
-            b.move_(Slot(1), R0);
+            b.store(R1, (Slot(1), 0, Eight));
             b.jump(0)
         });
         // Optimize it.
