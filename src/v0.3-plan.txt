@@ -1,0 +1,64 @@
+# Plan for v0.3.0 (issue #48)
+
+├── beetle                  Consequential
+├── buffer                  Preserve
+├── code
+│   ├── action.rs
+│   ├── builder.rs          Rewrite             Move to jit
+│   ├── ebb.rs
+│   ├── enums.rs
+│   ├── mod.rs
+│   └── variable.rs
+├── graph
+│   ├── cft.rs
+│   ├── convention.rs
+│   ├── cost.rs
+│   ├── dataflow.rs
+│   ├── dep.rs
+│   ├── mod.rs
+│   ├── op.rs
+│   └── resources.rs
+├── jit
+│   ├── engine.rs           Rewrite
+│   ├── entry.rs            Rewrite
+│   ├── factorial.rs        Consequential
+│   └── mod.rs              Consequential
+├── lib.rs                  Consequential
+├── optimizer
+│   ├── builder
+│   │   ├── allocator       Preserve
+│   │   ├── codegen.rs      Preserve
+│   │   ├── fill.rs         Preserve
+│   │   ├── mod.rs          Preserve
+│   │   └── moves.rs        Preserve
+│   ├── mod.rs              Rewrite
+│   └── simulation.rs       Delete
+├── target                  Preserve
+├── util                    Preserve
+
+
+## Future
+
+These things won't be done now:
+
+ - Things could become target-specific (issue #32 and beyond):
+   - `Action`
+   - `Register`
+   - `Convention`
+   - `op_cost`
+   - `optimizer`
+
+ - Divide `code` between `target`, `optimizer` and `jit`.
+
+ - Divide `graph` between `target`, `optimizer` and `jit`.
+
+ - Peephole optimize the `Dataflow` as it is constructed (issue #52).
+
+ - Add instrumentation to the code as it is compiled (issue #33).
+
+
+## Break and fix later
+
+These things will have to be deleted and will later need to be rewritten:
+
+ - random_ebb and related tests

@@ -1,6 +1,6 @@
 use std::collections::{HashSet};
 
-use super::{GLOBAL, Variable, IntoVariable, Action, Switch};
+use super::code::{GLOBAL, Variable, IntoVariable, Action, Switch};
 
 /// Represents the convention by which code passes values to a label. The
 /// concept is similar to a calling convention, but it's for a jump, not a

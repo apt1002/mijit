@@ -1,4 +1,4 @@
-use super::{code, target, optimizer};
+use super::{code, graph, target, optimizer};
 
 mod engine;
 use engine::{Engine, CaseId};

@@ -1,7 +1,8 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
-use super::code::{Precision, Register, Slot, Variable, Convention, Action, Switch, EBB, Ending};
-use super::{Exit, CFT, Op, Dataflow, Node, LookupLeaf};
+use super::code::{Precision, Register, Slot, Variable, Action, Switch, EBB, Ending};
+use super::graph::{Convention, Exit, CFT, Op, Dataflow, Node};
+use super::{LookupLeaf};
 
 /// Represents the state of an abstract execution of some code which builds a
 /// [`Dataflow`] graph.

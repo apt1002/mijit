@@ -88,9 +88,6 @@ pub use action::{Address, Action, debug_word};
 mod ebb;
 pub use ebb::{Switch, EBB, Ending};
 
-mod convention;
-pub use convention::{Convention, Propagator};
-
 pub mod builder;
 
 //-----------------------------------------------------------------------------
@@ -106,13 +103,4 @@ pub struct Marshal {
     pub prologue: Box<[Action]>,
     /// Code to be run on exit, ending with only [`Register`]`[0]` live.
     pub epilogue: Box<[Action]>,
-}
-
-//-----------------------------------------------------------------------------
-
-#[cfg(test)]
-pub mod tests {
-    use super::*;
-
-    pub use ebb::tests::{Emulator, EmulatorResult, emulate, random_ebb, random_ebb_convention};
 }

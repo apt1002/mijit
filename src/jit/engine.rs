@@ -3,8 +3,9 @@ use std::ops::{Index, IndexMut};
 use std::marker::{PhantomData};
 
 use crate::util::{AsUsize};
+use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
+use super::graph::{Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
-use super::code::{Precision, Variable, Switch, Action, Convention, Marshal, Propagator, EBB, Ending};
 use super::optimizer::{LookupLeaf, optimize};
 use Precision::*;
 

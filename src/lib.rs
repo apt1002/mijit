@@ -5,6 +5,8 @@ pub mod target;
 
 pub mod code;
 
+pub mod graph;
+
 pub mod optimizer;
 
 pub mod jit;

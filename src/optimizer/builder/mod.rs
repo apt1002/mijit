@@ -1,8 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, target, dep, cost, Dataflow, Node, Op, Resources, LookupLeaf, Cold, Exit, CFT};
-use code::{Register, Variable, Convention, EBB};
+use super::{code, graph, target, LookupLeaf};
+use code::{Register, Variable, EBB};
+use graph::{Convention, dep, cost, Dataflow, Node, Op, Resources, Cold, Exit, CFT};
 
 mod fill;
 use fill::{Frontier, Fill, with_fill};

@@ -1,28 +1,10 @@
 use std::fmt::{Debug};
 
-use super::{code, target};
-use code::{Switch, EBB, Convention};
+use super::{code, graph, target};
+use code::{EBB};
+use graph::{Convention};
 
 //-----------------------------------------------------------------------------
-
-#[allow(unused)]
-mod dep;
-use dep::{Dep};
-
-mod op;
-use op::{Op};
-
-mod resources;
-use resources::{Resources};
-
-mod cost;
-use cost::{Cost, op_cost};
-
-mod dataflow;
-use dataflow::{Dataflow, Node};
-
-mod cft;
-use cft::{Cold, Exit, CFT};
 
 mod simulation;
 use simulation::{simulate};
@@ -52,11 +34,158 @@ pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
+    use std::fmt::{Debug};
+    use std::collections::{HashMap};
+
+    use rand::prelude::*;
+    use rand_pcg::{Pcg64};
+
     use super::*;
-    use crate::code::{REGISTERS as R, BinaryOp, builder as cb};
+    use super::code::{
+        Register, REGISTERS as R, Variable, IntoVariable,
+        Precision, BinaryOp, UnaryOp, Action, Switch, EBB, Ending,
+        builder as cb,
+    };
     use BinaryOp::*;
-    use crate::code::tests::{emulate, random_ebb, random_ebb_convention};
+    /// A subset of `REGISTERS` that differ from `builder::TEMP`.
+    const REGS: [Register; 4] = [R[1], R[2], R[3], R[4]];
+
+    /// Return a random register from `REGS`.
+    fn rr<R: Rng>(rng: &mut R) -> Register {
+        REGS[rng.gen_range(1..REGS.len())]
+    }
+
+    /// Return a deterministically random EBB.
+    /// `random_ebb_convention()` is used on entry, and on every exit.
+    /// The exits are numbered sequentially from `0` to `size`.
+    pub fn random_ebb(seed: u64, size: usize) -> EBB<usize> {
+        let rng = &mut Pcg64::seed_from_u64(seed);
+        cb::build(|mut b| {
+            for leaf in 0..size {
+                let r = rr(rng);
+                b.const_binary64(Add, r, r, rng.gen());
+                b.binary64(Xor, rr(rng), r, rr(rng));
+                b.binary64(Lt, r, rr(rng), rr(rng));
+                b.guard(r, rng.gen(), cb::build(|b| b.jump(leaf)));
+            }
+            b.jump(size)
+        })
+    }
+
+    pub fn random_ebb_convention() -> Convention {
+        Convention {
+            lives: REGS.iter().map(|&r| Variable::from(r)).collect(),
+            slots_used: 0,
+        }
+    }
+
+    #[test]
+    fn generate_ebb() {
+        let _ = random_ebb(0, 10);
+    }
+
+    /// An emulator for a subset of Mijit code, useful for testing
+    /// automatically-generated code.
+    #[derive(Debug, PartialEq)]
+    pub struct Emulator {
+        pub variables: HashMap<Variable, i64>,
+        pub stack: Vec<i64>,
+    }
+
+    impl Emulator {
+        /// Construct an [`Emulator`] with initial stack and [`Variable`]s.
+        pub fn new(variables: HashMap<Variable, i64>, stack: Vec<i64>) -> Self {
+            Emulator {variables, stack}
+        }
+
+        /// Read a [`Variable`].
+        fn get(&self, v: impl IntoVariable) -> i64 {
+            *self.variables.get(&v.into()).expect("Missing from variables")
+        }
+
+        /// Write a [`Variable`].
+        fn set(&mut self, v: impl IntoVariable, x: i64) {
+            self.variables.insert(v.into(), x);
+        }
+
+        /// Emulate execution of `action`.
+        pub fn action(&mut self, action: &Action) {
+            match action {
+                &Action::Move(dest, src) => {
+                    let x = self.get(src);
+                    self.set(dest, x);
+                },
+                &Action::Constant(Precision::P64, dest, imm) => {
+                    self.set(dest, imm);
+                },
+                &Action::Unary(op, Precision::P64, dest, src) => {
+                    let x = self.get(src);
+                    let result = match op {
+                        UnaryOp::Not => !x,
+                        _ => panic!("Don't know how to execute {:#?}", op),
+                    };
+                    self.set(dest, result);
+                },
+                &Action::Binary(op, Precision::P64, dest, src1, src2) => {
+                    let x = self.get(src1);
+                    let y = self.get(src2);
+                    let result = match op {
+                        BinaryOp::Add => x.wrapping_add(y),
+                        BinaryOp::Xor => x ^ y,
+                        BinaryOp::Lt => if x < y { !0 } else { 0 },
+                        _ => panic!("Don't know how to execute {:#?}", op),
+                    };
+                    self.set(dest, result);
+                },
+                _ => panic!("Don't know how to execute {:#?}", action),
+            }
+        }
+
+        // Emulate execution of `ebb`.
+        pub fn ebb<L: Clone>(&mut self, mut ebb: &EBB<L>) -> L {
+            loop {
+                for action in &*ebb.actions {
+                    self.action(action);
+                }
+                match &ebb.ending {
+                    &Ending::Leaf(ref leaf) => return leaf.clone(),
+                    &Ending::Switch(v, ref s) => {
+                        let discriminant = self.get(v) as usize;
+                        let Switch {cases, default_} = s;
+                        ebb = if discriminant < cases.len() {
+                            &cases[discriminant]
+                        } else {
+                            &default_
+                        };
+                    },
+                }
+            }
+        }
+    }
+
+    #[derive(Debug, PartialEq)]
+    pub struct EmulatorResult<L: Debug + Clone> {
+        pub emulator: Emulator,
+        pub leaf: L,
+    }
+
+    /// Run `ebb`, passing pseudo-random values for all `Variable`s live
+    /// according to `convention`, keeping only the results live according to
+    /// `convention`, and return the result.
+    fn emulate<L: Debug + Clone>(ebb: &EBB<L>, convention: &Convention) -> EmulatorResult<L> {
+        let variables: HashMap<Variable, i64> = convention.lives.iter().enumerate()
+            .map(|(i, &v)| {
+                (v, (i as i64).wrapping_mul(0x4afe41af6db32983).wrapping_add(0x519e8556c7b69a8d))
+            }).collect();
+        let mut emulator = Emulator::new(variables, vec![]);
+        let leaf = emulator.ebb(ebb);
+        // Keep in `emulator.variables` only those in `convention`.
+        emulator.variables = convention.lives.iter().filter_map(
+            |&v| emulator.variables.get(&v).map(|&x| (v, x))
+        ).collect();
+        EmulatorResult {emulator, leaf}
+    }
 
     // Several tests represent leaves as integers.
     impl LookupLeaf for Convention {
