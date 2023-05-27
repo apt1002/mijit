@@ -1,6 +1,6 @@
 use std::fmt::{self, Debug, Formatter};
 
-use crate::util::{AsUsize, ArrayMap, CommaSeparated};
+use crate::util::{AsUsize, CommaSeparated};
 use super::{Dep, Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
@@ -145,12 +145,6 @@ impl Dataflow {
         self.ins.extend(ins);
         self.nodes.push(Info {op, deps, cost, start_in});
         node
-    }
-
-    /// Returns a fresh ArrayMap that initally associates `V::default()` with
-    /// each [`Node`] of this Dataflow.
-    pub fn node_map<V: Default>(&self) -> ArrayMap<Node, V> {
-        ArrayMap::new(self.nodes.len())
     }
 
     /// Returns all [`Node`]s in the order they were added.
