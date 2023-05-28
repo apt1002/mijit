@@ -1,9 +1,10 @@
 use std::collections::{HashMap};
 use std::fmt::{self, Debug, Formatter};
 
-use super::{NUM_REGISTERS, all_registers, Resources, Dataflow, Node, Exit, Frontier};
-use super::cost::{BUDGET, SPILL_COST, SLOT_COST};
-use super::code::{Register, Variable};
+use super::{code, graph, NUM_REGISTERS, all_registers, Frontier};
+use code::{Register, Variable};
+use graph::{cost, Resources, Dataflow, Node, Exit};
+use cost::{BUDGET, SPILL_COST, SLOT_COST};
 use crate::util::{ArrayMap, map_filter_max, Usage};
 
 mod pool;

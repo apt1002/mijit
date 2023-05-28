@@ -89,6 +89,7 @@ mod ebb;
 pub use ebb::{Switch, EBB, Ending};
 
 pub mod builder;
+pub use builder::{Builder, build, build_block};
 
 //-----------------------------------------------------------------------------
 

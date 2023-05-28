@@ -25,14 +25,13 @@
 │   └── mod.rs              Consequential
 ├── lib.rs                  Consequential
 ├── optimizer
-│   ├── builder
-│   │   ├── allocator       Preserve
-│   │   ├── codegen.rs      Preserve
-│   │   ├── fill.rs         Preserve
-│   │   ├── mod.rs          Preserve
-│   │   └── moves.rs        Preserve
+│   ├── allocator           Preserve
+│   ├── codegen.rs          Preserve
+│   ├── fill.rs             Preserve
 │   ├── mod.rs              Rewrite
-│   └── simulation.rs       Delete
+│   ├── moves.rs            Preserve
+│   ├── simulation.rs       Delete
+│   └── walker.rs           Preserve
 ├── target                  Preserve
 ├── util                    Preserve
 

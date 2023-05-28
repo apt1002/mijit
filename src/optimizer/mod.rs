@@ -1,7 +1,7 @@
 use std::fmt::{Debug};
 
 use super::{code, graph, target};
-use code::{EBB};
+use code::{Register, EBB};
 use graph::{Convention};
 
 //-----------------------------------------------------------------------------
@@ -9,8 +9,30 @@ use graph::{Convention};
 mod simulation;
 use simulation::{simulate};
 
-mod builder;
-use builder::{build};
+mod fill;
+use fill::{Frontier, Fill, with_fill};
+
+mod allocator;
+use allocator::{Instruction, allocate};
+
+mod moves;
+use moves::{moves};
+
+mod codegen;
+use codegen::{CodeGen};
+
+mod walker;
+use walker::{walk};
+
+//-----------------------------------------------------------------------------
+
+const NUM_REGISTERS: usize = target::x86_64::ALLOCATABLE_REGISTERS.len();
+
+fn all_registers() -> impl Iterator<Item=Register> {
+    (0..NUM_REGISTERS).map(|i| Register::new(i as u8).unwrap())
+}
+
+//-----------------------------------------------------------------------------
 
 /// Look up information about a control-flow merge point.
 pub trait LookupLeaf {
@@ -22,13 +44,15 @@ pub trait LookupLeaf {
     fn weight(&self, leaf: &Self::Leaf) -> usize;
 }
 
+//-----------------------------------------------------------------------------
+
 /// Optimizes an [`EBB`].
 pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
 -> EBB<L::Leaf> {
     // Generate the [`Dataflow`] graph.
     let (dataflow, cft) = simulate(before, input, lookup_leaf);
     // Turn it back into an EBB.
-    build(before, &dataflow, &cft, lookup_leaf)
+    walk(before, &dataflow, &cft, lookup_leaf)
 }
 
 //-----------------------------------------------------------------------------
@@ -45,10 +69,11 @@ pub mod tests {
     use super::code::{
         Register, REGISTERS as R, Variable, IntoVariable,
         Precision, BinaryOp, UnaryOp, Action, Switch, EBB, Ending,
-        builder as cb,
+        build,
     };
     use BinaryOp::*;
-    /// A subset of `REGISTERS` that differ from `builder::TEMP`.
+
+    /// A subset of `REGISTERS` that differ from `code::builder::TEMP`.
     const REGS: [Register; 4] = [R[1], R[2], R[3], R[4]];
 
     /// Return a random register from `REGS`.
@@ -61,13 +86,13 @@ pub mod tests {
     /// The exits are numbered sequentially from `0` to `size`.
     pub fn random_ebb(seed: u64, size: usize) -> EBB<usize> {
         let rng = &mut Pcg64::seed_from_u64(seed);
-        cb::build(|mut b| {
+        build(|mut b| {
             for leaf in 0..size {
                 let r = rr(rng);
                 b.const_binary64(Add, r, r, rng.gen());
                 b.binary64(Xor, rr(rng), r, rr(rng));
                 b.binary64(Lt, r, rr(rng), rr(rng));
-                b.guard(r, rng.gen(), cb::build(|b| b.jump(leaf)));
+                b.guard(r, rng.gen(), build(|b| b.jump(leaf)));
             }
             b.jump(size)
         })
@@ -216,10 +241,10 @@ pub mod tests {
     #[test]
     fn regression_0() {
         // This was once `random_ebb(0, 2)` but both have since changed.
-        let ebb = cb::build(|mut b| {
+        let ebb = build(|mut b| {
             b.binary64(Xor, R[2], R[3], R[4]);
             b.binary64(Lt, R[3], R[3], R[4]);
-            b.guard(R[3], false, cb::build(|b| b.jump(0)));
+            b.guard(R[3], false, build(|b| b.jump(0)));
             b.binary64(Lt, R[2], R[2], R[2]);
             b.jump(1)
         });
@@ -229,16 +254,16 @@ pub mod tests {
     #[test]
     fn regression_8() {
         // This was once `random_ebb(8, 3)` but both have since changed.
-        let ebb = cb::build(|mut b| {
+        let ebb = build(|mut b| {
             b.const_binary64(Add, R[2], R[2], 0x3b386b745518224d as i64);
             b.binary64(Xor, R[4], R[2], R[4]);
             b.binary64(Lt, R[2], R[3], R[2]);
-            b.guard(R[2], false, cb::build(|b| b.jump(0)));
+            b.guard(R[2], false, build(|b| b.jump(0)));
             b.binary64(Lt, R[3], R[2], R[2]);
-            b.guard(R[3], true, cb::build(|b| b.jump(1)));
+            b.guard(R[3], true, build(|b| b.jump(1)));
             b.const_binary64(Add, R[2], R[2], 0xc531fbc2c4c7042 as i64);
             b.binary64(Xor, R[4], R[2], R[4]);
-            b.guard(R[2], false, cb::build(|b| b.jump(2)));
+            b.guard(R[2], false, build(|b| b.jump(2)));
             b.jump(3)
         });
         optimize_and_compare(ebb, random_ebb_convention());
@@ -247,13 +272,13 @@ pub mod tests {
     #[test]
     fn regression_27() {
         // This was once `random_ebb(27, 2)` but both have since changed.
-        let ebb = cb::build(|mut b| {
+        let ebb = build(|mut b| {
             b.const_binary64(Add, R[4], R[4], 0x523e32f31c82fa38 as i64);
             b.binary64(Xor, R[2], R[4], R[2]);
             b.binary64(Lt, R[4], R[3], R[3]);
-            b.guard(R[4], true, cb::build(|b| b.jump(0)));
+            b.guard(R[4], true, build(|b| b.jump(0)));
             b.const_binary64(Add, R[3], R[3], 0x2854088f4544aaa6 as i64);
-            b.guard(R[3], false, cb::build(|b| b.jump(1)));
+            b.guard(R[3], false, build(|b| b.jump(1)));
             b.jump(2)
         });
         optimize_and_compare(ebb, random_ebb_convention());

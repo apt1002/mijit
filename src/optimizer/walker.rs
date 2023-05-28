@@ -1,29 +1,15 @@
 use std::collections::{HashMap, HashSet};
 use std::fmt::{Debug};
 
-use super::{code, graph, target, LookupLeaf};
-use code::{Register, Variable, EBB};
-use graph::{Convention, dep, cost, Dataflow, Node, Op, Resources, Cold, Exit, CFT};
-
-mod fill;
-use fill::{Frontier, Fill, with_fill};
-
-mod allocator;
-use allocator::{Instruction, allocate};
-
-mod moves;
-use moves::{moves};
-
-mod codegen;
-use codegen::{CodeGen};
-
-//-----------------------------------------------------------------------------
-
-const NUM_REGISTERS: usize = target::x86_64::ALLOCATABLE_REGISTERS.len();
-
-fn all_registers() -> impl Iterator<Item=Register> {
-    (0..NUM_REGISTERS).map(|i| Register::new(i as u8).unwrap())
-}
+use super::{
+    code, graph,
+    allocate, Instruction,
+    Fill, Frontier, with_fill,
+    CodeGen,
+    LookupLeaf,
+};
+use code::{Variable, EBB};
+use graph::{Convention, Dataflow, Node, Op, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
@@ -31,7 +17,7 @@ fn all_registers() -> impl Iterator<Item=Register> {
 /// for the cases where the guard fails.
 struct GuardFailure<'a, L: Clone> {
     cold: Cold<&'a CFT<L>>,
-    fontier: Frontier,
+    frontier: Frontier,
 }
 
 impl<'a, L: Debug + Clone> Debug for GuardFailure<'a, L> {
@@ -40,20 +26,20 @@ impl<'a, L: Debug + Clone> Debug for GuardFailure<'a, L> {
         f.debug_struct("GuardFailure")
             .field("cases", &switch.cases)
             .field("default_", &switch.default_)
-            .field("frontier", &self.fontier.0)
+            .field("frontier", &self.frontier.0)
             .finish()
     }
 }
 
 //-----------------------------------------------------------------------------
 
-struct Builder<'a, L: LookupLeaf> {
+struct Walker<'a, L: LookupLeaf> {
     lookup_leaf: &'a L,
 }
 
-impl<'a, L: LookupLeaf> Builder<'a, L> {
+impl<'a, L: LookupLeaf> Walker<'a, L> {
     fn new(lookup_leaf: &'a L) -> Self {
-        Builder {lookup_leaf}
+        Walker {lookup_leaf}
     }
 
     /// Converts a [`CFT`] into an [`EBB`]. Optimises the hot path in
@@ -88,14 +74,14 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
         let guard_failures = colds.into_iter().map(|(guard, cold)| {
             let mut fill2 = fill.nested();
             cold.map(|&child| child.exits().for_each(|e| fill2.exit(e)));
-            (guard, GuardFailure {cold, fontier: fill2.drain().1})
+            (guard, GuardFailure {cold, frontier: fill2.drain().1})
         }).collect::<HashMap<Node, GuardFailure<_>>>();
         let lookup_guard = |guard| guard_failures.get(&guard)
             .unwrap_or_else(|| lookup_guard(guard));
 
         // Find additional dependencies that the hot exit does not depend on.
         let guards = fill.nodes().filter(|&n| is_guard(n)).collect::<Vec<Node>>();
-        for node in guards { fill.resume(&lookup_guard(node).fontier); }
+        for node in guards { fill.resume(&lookup_guard(node).frontier); }
 
         // Build an instruction schedule and allocate registers.
         let (nodes, frontier) = fill.drain();
@@ -109,7 +95,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
             &variables,
             df,
             &nodes,
-            |node| if is_guard(node) { Some(&lookup_guard(node).fontier) } else { None },
+            |node| if is_guard(node) { Some(&lookup_guard(node).frontier) } else { None },
             &exit,
         );
 
@@ -156,7 +142,7 @@ impl<'a, L: LookupLeaf> Builder<'a, L> {
 /// - `dataflow` - the [`Dataflow`] dependencies of `cft`.
 /// - `cft` - the control-flow tree to convert.
 /// - `lookup_leaf` - looks up properties of the leaves of `cft`.
-pub fn build<L: LookupLeaf>(
+pub fn walk<L: LookupLeaf>(
     before: &Convention,
     dataflow: &Dataflow,
     cft: &CFT<L::Leaf>,
@@ -169,8 +155,8 @@ pub fn build<L: LookupLeaf>(
         .map(|(&node, &variable)| (node, variable))
         .collect();
     // Build the new `EBB`.
-    let mut builder = Builder::new(lookup_leaf);
-    with_fill(dataflow, |mut fill| builder.walk(
+    let mut walker = Walker::new(lookup_leaf);
+    with_fill(dataflow, |mut fill| walker.walk(
         &mut fill,
         cft,
         before.slots_used,
@@ -184,10 +170,11 @@ pub fn build<L: LookupLeaf>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width, builder};
+    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width, build};
     use BinaryOp::*;
     use Precision::*;
     use Width::*;
+    use graph::{Exit};
     use crate::util::{ArrayMap, AsUsize};
 
     const R0: Register = REGISTERS[0];
@@ -239,7 +226,7 @@ mod tests {
         cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: R2}, 0);
         cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: R1}, 0);
         // Call `build()`.
-        let _observed = build(&before, &df, &cft, &afters);
+        let _observed = walk(&before, &df, &cft, &afters);
         // TODO: Expected output.
     }
 
@@ -248,26 +235,26 @@ mod tests {
     fn bee_1() {
         let convention = Convention {slots_used: 0, lives: Box::new([R0.into()])};
         // Make an `EBB`.
-        let ebb = builder::build(|b| {
+        let ebb = build(|b| {
             b.index(
                 R0,
                 Box::new([
-                    builder::build(|mut b| {
-                        b.guard(R0, false, builder::build(|b| b.jump(5)));
+                    build(|mut b| {
+                        b.guard(R0, false, build(|b| b.jump(5)));
                         b.jump(4)
                     }),
-                    builder::build(|mut b| {
-                        b.guard(R0, true, builder::build(|b| b.jump(3)));
+                    build(|mut b| {
+                        b.guard(R0, true, build(|b| b.jump(3)));
                         b.jump(2)
                     }),
                 ]),
-                builder::build(|b| b.jump(1)),
+                build(|b| b.jump(1)),
             )
         });
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
-        let _observed = build(&convention, &dataflow, &cft, &convention);
+        let _observed = walk(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
     }
 
@@ -279,17 +266,17 @@ mod tests {
             lives: Box::new([R0.into(), R3.into()]),
         };
         // Make an `EBB`.
-        let ebb = builder::build(|mut b| {
+        let ebb = build(|mut b| {
             b.binary64(Or, R3, R0, R0);
-            b.guard(R0, false, builder::build(|b| b.jump(2)));
-            b.guard(R0, false, builder::build(|b| b.jump(3)));
+            b.guard(R0, false, build(|b| b.jump(2)));
+            b.guard(R0, false, build(|b| b.jump(3)));
             b.binary64(And, R3, R0, R0);
             b.jump(1)
         });
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
-        let _observed = build(&convention, &dataflow, &cft, &convention);
+        let _observed = walk(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
     }
 
@@ -301,7 +288,7 @@ mod tests {
             lives: Box::new([Slot(0).into(), Slot(1).into()]),
         };
         // Make an `EBB`.
-        let input = builder::build(|mut b| {
+        let input = build(|mut b| {
             b.binary64(Mul, R0, Slot(0), Slot(0));
             b.binary64(Add, R0, Slot(1), R0);
             b.load(R0, (R0, 0, Eight));
@@ -320,7 +307,7 @@ mod tests {
         println!("input = {:#?}", input);
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &input, &convention);
-        let output = build(&convention, &dataflow, &cft, &convention);
+        let output = walk(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
         println!("output = {:#?}", output);
     }

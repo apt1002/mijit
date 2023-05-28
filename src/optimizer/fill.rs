@@ -1,6 +1,6 @@
 use std::collections::hash_map::{HashMap, Entry};
 
-use super::{dep, Dataflow, Node, Exit};
+use super::graph::{dep, Dataflow, Node, Exit};
 
 /// Ways in which the marked [`Node`]s of a [`Fill`] depend on its boundary.
 ///
@@ -150,8 +150,9 @@ pub fn with_fill<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::{code, Op};
+    use super::super::{code, graph};
     use code::{Precision, BinaryOp, Width};
+    use graph::{Op};
     use Precision::*;
     use crate::util::{AsUsize};
 

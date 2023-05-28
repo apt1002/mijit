@@ -5,13 +5,15 @@
 
 use memoffset::{offset_of};
 
-use super::code::{UnaryOp, BinaryOp, Width, Register, REGISTERS, GLOBAL, EBB, Marshal};
+use super::code::{
+    UnaryOp, BinaryOp, Width, Register, REGISTERS, GLOBAL, EBB, Marshal,
+    build, build_block, Builder,
+};
 use UnaryOp::*;
 use BinaryOp::*;
 use Width::*;
 use super::target::{Word, Target};
 use super::jit::{EntryId, Jit};
-use super::code::builder::{build, build_block, Builder};
 
 mod registers;
 pub use registers::{Registers, M0Registers};

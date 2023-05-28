@@ -1,10 +1,7 @@
 use std::collections::{HashMap};
 
-use super::{
-    code, NUM_REGISTERS,
-    Dataflow, Node, Op, LookupLeaf, Cold, Exit,
-    moves, all_registers,
-};
+use super::{code, graph, moves, NUM_REGISTERS, all_registers, LookupLeaf};
+use graph::{Dataflow, Node, Op, Cold, Exit};
 use code::{Register, Slot, Variable, Action, EBB, Ending};
 use crate::util::{ArrayMap};
 
