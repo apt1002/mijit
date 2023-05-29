@@ -55,12 +55,13 @@ pub mod tests {
     use rand_pcg::{Pcg64};
 
     use super::*;
-    use super::code::{
+    use code::{
         Register, REGISTERS as R, Variable, IntoVariable,
         Precision, BinaryOp, UnaryOp, Action, Switch, EBB, Ending,
         build,
     };
     use BinaryOp::*;
+    use graph::{Node};
 
     /// A subset of `REGISTERS` that differ from `code::builder::TEMP`.
     const REGS: [Register; 4] = [R[1], R[2], R[3], R[4]];
@@ -216,8 +217,17 @@ pub mod tests {
     /// panic with diagnostics if they behave differently.
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
         let expected = emulate(&input_ebb, &convention);
+        // Temporary: generate the [`Dataflow`] graph.
         let (dataflow, cft) = simulate(&convention, &input_ebb, &convention);
-        let output_ebb = cft_to_ebb(&convention, &dataflow, &cft, &convention);
+        // Work out what is where.
+        let input_map: HashMap<Node, Variable> =
+            dataflow.inputs().iter()
+            .zip(convention.lives.iter())
+            .map(|(&node, &variable)| (node, variable))
+            .collect();
+        // Optimize.
+        let output_ebb = cft_to_ebb(&dataflow, convention.slots_used, &input_map, &cft, &convention);
+        // Execute.
         let observed = emulate(&output_ebb, &convention);
         if expected != observed {
             println!("input_ebb: {:#x?}", input_ebb);

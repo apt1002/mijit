@@ -1,10 +1,11 @@
+use std::collections::{HashMap};
 use std::fmt::{Debug};
 use std::ops::{Index, IndexMut};
 use std::marker::{PhantomData};
 
 use crate::util::{AsUsize};
 use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
-use super::graph::{Convention, Propagator};
+use super::graph::{Node, Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
 use super::optimizer::{LookupLeaf, simulate, cft_to_ebb};
 use Precision::*;
@@ -246,7 +247,14 @@ impl<T: Target> Engine<T> {
         let engine_wrapper = EngineWrapper {engine: &*self, to_case, _l: PhantomData};
         // Temporary: generate the [`Dataflow`] graph.
         let (dataflow, cft) = simulate(before, ebb, &engine_wrapper);
-        let ebb = cft_to_ebb(before, &dataflow, &cft, &engine_wrapper);
+        // Work out what is where.
+        let input_map: HashMap<Node, Variable> =
+            dataflow.inputs().iter()
+            .zip(before.lives.iter())
+            .map(|(&node, &variable)| (node, variable))
+            .collect();
+        // Optimize.
+        let ebb = cft_to_ebb(&dataflow, before.slots_used, &input_map, &cft, &engine_wrapper);
         self.build_inner(id, &ebb, to_case)
     }
 

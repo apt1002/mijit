@@ -9,7 +9,7 @@ use super::{
     LookupLeaf,
 };
 use code::{Variable, EBB};
-use graph::{Convention, Dataflow, Node, Op, Cold, CFT};
+use graph::{Dataflow, Node, Op, Cold, CFT};
 
 //-----------------------------------------------------------------------------
 
@@ -138,34 +138,31 @@ impl<'a, L: LookupLeaf> Walker<'a, L> {
 
 /// Convert `cft` into an [`EBB`].
 ///
-/// - `before` - the [`Convention`] on entry to `cft`.
 /// - `dataflow` - the [`Dataflow`] dependencies of `cft`.
+/// - `input_slots_used` - the number of [`Slot`]s that exist on entry.
+/// - `input_nodes` - the live [`Node`]s on entry, and the [`Variable`]s that
+///   hold them.
 /// - `cft` - the control-flow tree to convert.
 /// - `lookup_leaf` - looks up properties of the leaves of `cft`.
 pub fn cft_to_ebb<L: LookupLeaf>(
-    before: &Convention,
     dataflow: &Dataflow,
+    input_slots_used: usize,
+    input_nodes: &HashMap<Node, Variable>,
     cft: &CFT<L::Leaf>,
     lookup_leaf: &L,
 ) -> EBB<L::Leaf> {
-    // Work out what is where.
-    let input_map: HashMap<Node, Variable> =
-        dataflow.inputs().iter()
-        .zip(&*before.lives)
-        .map(|(&node, &variable)| (node, variable))
-        .collect();
     // Make a `Fill` and make all the `Op::Input`s boundary `Node`s.
     let mut marks = HashMap::new();
     let mut fill = Fill::new(dataflow, &mut marks);
     fill.mark(dataflow.undefined());
-    for &node in input_map.keys() { fill.mark(node); }
+    for &node in input_nodes.keys() { fill.mark(node); }
     // Build the new `EBB`.
     let mut walker = Walker::new(lookup_leaf);
     walker.walk(
         &mut fill.nested(),
         cft,
-        before.slots_used,
-        &|node| *input_map.get(&node).unwrap(),
+        input_slots_used,
+        &|node| input_nodes[&node],
         &|guard| panic!("Unknown guard {:?}", guard),
     )
 }
@@ -179,7 +176,7 @@ mod tests {
     use BinaryOp::*;
     use Precision::*;
     use Width::*;
-    use graph::{Exit};
+    use graph::{Convention, Exit};
     use crate::util::{ArrayMap, AsUsize};
 
     const R0: Register = REGISTERS[0];
@@ -204,15 +201,13 @@ mod tests {
                 leaf.as_usize()
             }
         }
-        // Make a `before` Convention.
-        let before = Convention {
-            lives: Box::new([R0.into(), R1.into(), R2.into(), R3.into()]),
-            slots_used: 0,
-        };
         // Make a dataflow graph.
         // x_1, x_2, x_3, x_4 are computed in that order,
         // but tested in reverse order.
         let mut df = Dataflow::new(4);
+        let input_map: HashMap<Node, Variable> = (0..4).map(|i| {
+            (df.inputs()[i], REGISTERS[i].into())
+        }).collect();
         let x_0 = df.inputs()[0];
         let m_1 = df.add_node(Op::Binary(P64, Mul), &[x_0, x_0]);
         let m_2 = df.add_node(Op::Binary(P64, Mul), &[m_1, m_1]);
@@ -231,7 +226,7 @@ mod tests {
         cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: R2}, 0);
         cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: R1}, 0);
         // Call `build()`.
-        let _observed = cft_to_ebb(&before, &df, &cft, &afters);
+        let _observed = cft_to_ebb(&df, 0, &input_map, &cft, &afters);
         // TODO: Expected output.
     }
 
@@ -259,7 +254,10 @@ mod tests {
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
-        let _observed = cft_to_ebb(&convention, &dataflow, &cft, &convention);
+        let input_map = HashMap::from([
+            (dataflow.inputs()[0], R0.into()),
+        ]);
+        let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
     }
 
@@ -281,7 +279,11 @@ mod tests {
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
-        let _observed = cft_to_ebb(&convention, &dataflow, &cft, &convention);
+        let input_map = HashMap::from([
+            (dataflow.inputs()[0], R0.into()),
+            (dataflow.inputs()[1], R3.into()),
+        ]);
+        let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
     }
 
@@ -312,7 +314,11 @@ mod tests {
         println!("input = {:#?}", input);
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &input, &convention);
-        let output = cft_to_ebb(&convention, &dataflow, &cft, &convention);
+        let input_map = HashMap::from([
+            (dataflow.inputs()[0], Slot(0).into()),
+            (dataflow.inputs()[1], Slot(1).into()),
+        ]);
+        let output = cft_to_ebb(&dataflow, 2, &input_map, &cft, &convention);
         // TODO: Expected output.
         println!("output = {:#?}", output);
     }
