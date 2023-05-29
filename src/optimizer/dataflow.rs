@@ -5,13 +5,12 @@ use super::{Dep, Op, Cost, op_cost};
 
 //-----------------------------------------------------------------------------
 
-array_index! {
-    /// A node in a Dataflow graph. Also represents the value it computes.
-    #[derive(Copy, Clone, Hash, PartialEq, Eq)]
-    pub struct Node(std::num::NonZeroUsize) {
-        debug_name: "Node",
-        UInt: usize,
-    }
+/// A node in a Dataflow graph. Also represents the value it computes.
+#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+pub struct Node(usize);
+
+impl AsUsize for Node {
+    fn as_usize(self) -> usize { self.0 }
 }
 
 //-----------------------------------------------------------------------------
@@ -68,7 +67,7 @@ impl Dataflow {
     /// Construct a `Dataflow` with `num_inputs` values live on entry.
     pub fn new(num_inputs: usize) -> Self {
         let mut ret = Dataflow {
-            inputs: (0..(num_inputs+1)).map(|i| Node::new(i).unwrap()).collect(),
+            inputs: (0..(num_inputs+1)).map(|i| Node(i)).collect(),
             nodes: Vec::new(),
             ins: Vec::new(),
         };
@@ -141,7 +140,7 @@ impl Dataflow {
         }
         let cost = op_cost(op);
         let start_in = self.ins.len();
-        let node = Node::new(self.nodes.len()).unwrap();
+        let node = Node(self.nodes.len());
         self.ins.extend(ins);
         self.nodes.push(Info {op, deps, cost, start_in});
         node
@@ -149,7 +148,7 @@ impl Dataflow {
 
     /// Returns all [`Node`]s in the order they were added.
     pub fn all_nodes(&self) -> impl Iterator<Item=Node> {
-        (0..self.nodes.len()).map(|i| Node::new(i).unwrap())
+        (0..self.nodes.len()).map(|i| Node(i))
     }
 }
 
