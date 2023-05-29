@@ -2,12 +2,12 @@ use std::fmt::{Debug};
 
 use super::{code, graph, target};
 use code::{Register, EBB};
-use graph::{Convention};
+use graph::{Dataflow, CFT, Convention};
 
 //-----------------------------------------------------------------------------
 
 mod simulation;
-use simulation::{simulate};
+pub use simulation::{simulate};
 
 mod fill;
 use fill::{Frontier, Fill, with_fill};
@@ -47,12 +47,13 @@ pub trait LookupLeaf {
 //-----------------------------------------------------------------------------
 
 /// Optimizes an [`EBB`].
-pub fn optimize<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
--> EBB<L::Leaf> {
-    // Generate the [`Dataflow`] graph.
-    let (dataflow, cft) = simulate(before, input, lookup_leaf);
-    // Turn it back into an EBB.
-    walk(before, &dataflow, &cft, lookup_leaf)
+pub fn optimize<L: LookupLeaf>(
+    before: &Convention,
+    dataflow: &Dataflow,
+    cft: &CFT<L::Leaf>,
+    lookup_leaf: &L,
+) -> EBB<L::Leaf> {
+    walk(before, dataflow, cft, lookup_leaf)
 }
 
 //-----------------------------------------------------------------------------
@@ -227,7 +228,8 @@ pub mod tests {
     /// panic with diagnostics if they behave differently.
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
         let expected = emulate(&input_ebb, &convention);
-        let output_ebb = optimize(&convention, &input_ebb, &convention);
+        let (dataflow, cft) = simulate(&convention, &input_ebb, &convention);
+        let output_ebb = optimize(&convention, &dataflow, &cft, &convention);
         let observed = emulate(&output_ebb, &convention);
         if expected != observed {
             println!("input_ebb: {:#x?}", input_ebb);
