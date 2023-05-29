@@ -13,3 +13,6 @@ pub use rotate::{rotate_left, rotate_right};
 
 mod usage;
 pub use usage::{Usage};
+
+mod reverse_map;
+pub use reverse_map::{reverse_map};
