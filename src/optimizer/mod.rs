@@ -1,8 +1,8 @@
 use std::fmt::{Debug};
 
 use super::{code, graph, target};
-use code::{Register, EBB};
-use graph::{Dataflow, CFT, Convention};
+use code::{Register};
+use graph::{Convention};
 
 //-----------------------------------------------------------------------------
 
@@ -22,7 +22,7 @@ mod codegen;
 use codegen::{CodeGen};
 
 mod walker;
-use walker::{walk};
+pub use walker::{cft_to_ebb};
 
 //-----------------------------------------------------------------------------
 
@@ -42,18 +42,6 @@ pub trait LookupLeaf {
     fn after(&self, leaf: &Self::Leaf) -> &Convention;
     /// Return the estimated relative frequency of `leaf`.
     fn weight(&self, leaf: &Self::Leaf) -> usize;
-}
-
-//-----------------------------------------------------------------------------
-
-/// Optimizes an [`EBB`].
-pub fn optimize<L: LookupLeaf>(
-    before: &Convention,
-    dataflow: &Dataflow,
-    cft: &CFT<L::Leaf>,
-    lookup_leaf: &L,
-) -> EBB<L::Leaf> {
-    walk(before, dataflow, cft, lookup_leaf)
 }
 
 //-----------------------------------------------------------------------------
@@ -229,7 +217,7 @@ pub mod tests {
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
         let expected = emulate(&input_ebb, &convention);
         let (dataflow, cft) = simulate(&convention, &input_ebb, &convention);
-        let output_ebb = optimize(&convention, &dataflow, &cft, &convention);
+        let output_ebb = cft_to_ebb(&convention, &dataflow, &cft, &convention);
         let observed = emulate(&output_ebb, &convention);
         if expected != observed {
             println!("input_ebb: {:#x?}", input_ebb);

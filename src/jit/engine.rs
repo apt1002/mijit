@@ -6,7 +6,7 @@ use crate::util::{AsUsize};
 use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
 use super::graph::{Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
-use super::optimizer::{LookupLeaf, simulate, optimize};
+use super::optimizer::{LookupLeaf, simulate, cft_to_ebb};
 use Precision::*;
 
 // CaseId.
@@ -246,7 +246,7 @@ impl<T: Target> Engine<T> {
         let engine_wrapper = EngineWrapper {engine: &*self, to_case, _l: PhantomData};
         // Temporary: generate the [`Dataflow`] graph.
         let (dataflow, cft) = simulate(before, ebb, &engine_wrapper);
-        let ebb = optimize(before, &dataflow, &cft, &engine_wrapper);
+        let ebb = cft_to_ebb(before, &dataflow, &cft, &engine_wrapper);
         self.build_inner(id, &ebb, to_case)
     }
 

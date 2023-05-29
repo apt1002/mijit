@@ -142,7 +142,7 @@ impl<'a, L: LookupLeaf> Walker<'a, L> {
 /// - `dataflow` - the [`Dataflow`] dependencies of `cft`.
 /// - `cft` - the control-flow tree to convert.
 /// - `lookup_leaf` - looks up properties of the leaves of `cft`.
-pub fn walk<L: LookupLeaf>(
+pub fn cft_to_ebb<L: LookupLeaf>(
     before: &Convention,
     dataflow: &Dataflow,
     cft: &CFT<L::Leaf>,
@@ -226,7 +226,7 @@ mod tests {
         cft = CFT::switch(g_2, [cft], CFT::Merge {exit: e_2, leaf: R2}, 0);
         cft = CFT::switch(g_1, [cft], CFT::Merge {exit: e_1, leaf: R1}, 0);
         // Call `build()`.
-        let _observed = walk(&before, &df, &cft, &afters);
+        let _observed = cft_to_ebb(&before, &df, &cft, &afters);
         // TODO: Expected output.
     }
 
@@ -254,7 +254,7 @@ mod tests {
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
-        let _observed = walk(&convention, &dataflow, &cft, &convention);
+        let _observed = cft_to_ebb(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
     }
 
@@ -276,7 +276,7 @@ mod tests {
         // Optimize it.
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
-        let _observed = walk(&convention, &dataflow, &cft, &convention);
+        let _observed = cft_to_ebb(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
     }
 
@@ -307,7 +307,7 @@ mod tests {
         println!("input = {:#?}", input);
         // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
         let (dataflow, cft) = super::super::simulate(&convention, &input, &convention);
-        let output = walk(&convention, &dataflow, &cft, &convention);
+        let output = cft_to_ebb(&convention, &dataflow, &cft, &convention);
         // TODO: Expected output.
         println!("output = {:#?}", output);
     }
