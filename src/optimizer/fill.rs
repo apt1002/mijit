@@ -145,9 +145,9 @@ mod tests {
     fn test() {
         // Construct a `Dataflow` with two exits and a dead `Node`.
         // TODO: Use `Send`.
-        let mut df = Dataflow::new(1);
+        let mut df = Dataflow::new();
         let u = df.undefined();
-        let a = df.inputs()[0];
+        let a = df.add_node(Op::Input, &[]);
         let guard = df.add_node(Op::Guard, &[u, a]);
         let constant = df.add_node(Op::Constant(1), &[]);
         let b = constant;

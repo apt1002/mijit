@@ -204,21 +204,21 @@ mod tests {
         // Make a dataflow graph.
         // x_1, x_2, x_3, x_4 are computed in that order,
         // but tested in reverse order.
-        let mut df = Dataflow::new(4);
+        let mut df = Dataflow::new();
+        let xs: Box<[Node]> = (0..4).map(|_| df.add_node(Op::Input, &[])).collect();
         let input_map: HashMap<Node, Variable> = (0..4).map(|i| {
-            (df.inputs()[i], REGISTERS[i].into())
+            (xs[i], REGISTERS[i].into())
         }).collect();
-        let x_0 = df.inputs()[0];
-        let m_1 = df.add_node(Op::Binary(P64, Mul), &[x_0, x_0]);
+        let m_1 = df.add_node(Op::Binary(P64, Mul), &[xs[0], xs[0]]);
         let m_2 = df.add_node(Op::Binary(P64, Mul), &[m_1, m_1]);
         let m_3 = df.add_node(Op::Binary(P64, Mul), &[m_2, m_2]);
         let m_4 = df.add_node(Op::Binary(P64, Mul), &[m_3, m_3]);
         let g_1 = df.add_node(Op::Guard, &[df.undefined(), m_4]);
-        let e_1 = Exit {sequence: g_1, outputs: Box::new([df.inputs()[1]])};
+        let e_1 = Exit {sequence: g_1, outputs: Box::new([xs[1]])};
         let g_2 = df.add_node(Op::Guard, &[g_1, m_3]);
-        let e_2 = Exit {sequence: g_2, outputs: Box::new([df.inputs()[2]])};
+        let e_2 = Exit {sequence: g_2, outputs: Box::new([xs[2]])};
         let g_3 = df.add_node(Op::Guard, &[g_2, m_2]);
-        let e_3 = Exit {sequence: g_3, outputs: Box::new([df.inputs()[3]])};
+        let e_3 = Exit {sequence: g_3, outputs: Box::new([xs[3]])};
         let e_x = Exit {sequence: g_3, outputs: Box::new([m_1])};
         // Make a CFT.
         let mut cft = CFT::Merge {exit: e_x, leaf: REGISTERS[11]};
@@ -252,9 +252,9 @@ mod tests {
             )
         });
         // Optimize it.
-        let mut dataflow = Dataflow::new(convention.lives.len());
+        let mut dataflow = Dataflow::new();
         let input_map = HashMap::from([
-            (dataflow.inputs()[0], R0.into()),
+            (dataflow.add_node(Op::Input, &[]), R0.into()),
         ]);
         let cft = super::super::simulate(&mut dataflow, 0, reverse_map(&input_map), &ebb, &convention);
         let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
@@ -277,10 +277,10 @@ mod tests {
             b.jump(1)
         });
         // Optimize it.
-        let mut dataflow = Dataflow::new(convention.lives.len());
+        let mut dataflow = Dataflow::new();
         let input_map = HashMap::from([
-            (dataflow.inputs()[0], R0.into()),
-            (dataflow.inputs()[1], R3.into()),
+            (dataflow.add_node(Op::Input, &[]), R0.into()),
+            (dataflow.add_node(Op::Input, &[]), R3.into()),
         ]);
         let cft = super::super::simulate(&mut dataflow, 0, reverse_map(&input_map), &ebb, &convention);
         let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
@@ -312,10 +312,10 @@ mod tests {
         });
         // Optimize it.
         println!("input = {:#?}", input);
-        let mut dataflow = Dataflow::new(convention.lives.len());
+        let mut dataflow = Dataflow::new();
         let input_map = HashMap::from([
-            (dataflow.inputs()[0], Slot(0).into()),
-            (dataflow.inputs()[1], Slot(1).into()),
+            (dataflow.add_node(Op::Input, &[]), Slot(0).into()),
+            (dataflow.add_node(Op::Input, &[]), Slot(1).into()),
         ]);
         let cft = super::super::simulate(&mut dataflow, 2, reverse_map(&input_map), &input, &convention);
         let output = cft_to_ebb(&dataflow, 2, &input_map, &cft, &convention);

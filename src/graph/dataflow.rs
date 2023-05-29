@@ -60,8 +60,8 @@ struct Info {
 /// [`Variable`]: super::code::Variable
 #[derive(Clone)]
 pub struct Dataflow {
-    /// The undefined value, and the live values on entry.
-    inputs: Box<[Node]>,
+    /// The undefined value, also used for null side-effects.
+    undefined: Node,
     /// One per [`Node`].
     nodes: Vec<Info>,
     /// One per input. Connects the input to the [`Node`] that computes it.
@@ -70,28 +70,21 @@ pub struct Dataflow {
 
 impl Dataflow {
     /// Construct a `Dataflow` with `num_inputs` values live on entry.
-    pub fn new(num_inputs: usize) -> Self {
+    pub fn new() -> Self {
         let mut ret = Dataflow {
-            inputs: (0..(num_inputs+1)).map(|i| Node(i)).collect(),
+            undefined: Node(0),
             nodes: Vec::new(),
             ins: Vec::new(),
         };
-        for i in 0..(num_inputs+1) {
-            let node = ret.add_node(Op::Input, &[]);
-            assert_eq!(node, ret.inputs[i]);
-        }
+        let node = ret.add_node(Op::Input, &[]);
+        assert_eq!(node, ret.undefined);
         ret
     }
 
     /// Returns the [`Node`] that represents the undefined value. This is
     /// considered to cost nothing and to be executed first.
     pub fn undefined(&self) -> Node {
-        self.inputs[0]
-    }
-
-    /// Returns the [`Node`]s representing the values live on entry.
-    pub fn inputs(&self) -> &[Node] {
-        &self.inputs[1..]
+        self.undefined
     }
 
     /// Returns the [`Info`] about `node`.

@@ -61,7 +61,7 @@ pub mod tests {
         build,
     };
     use BinaryOp::*;
-    use graph::{Dataflow, Node};
+    use graph::{Op, Dataflow, Node};
     use crate::util::{reverse_map};
 
     /// A subset of `REGISTERS` that differ from `code::builder::TEMP`.
@@ -219,11 +219,10 @@ pub mod tests {
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
         let expected = emulate(&input_ebb, &convention);
         // Temporary: generate the [`Dataflow`] graph.
-        let mut dataflow = Dataflow::new(convention.lives.len());
+        let mut dataflow = Dataflow::new();
         let input_map: HashMap<Node, Variable> =
-            dataflow.inputs().iter()
-            .zip(convention.lives.iter())
-            .map(|(&node, &variable)| (node, variable))
+            convention.lives.iter()
+            .map(|&variable| (dataflow.add_node(Op::Input, &[]), variable))
             .collect();
         let cft = simulate(&mut dataflow, convention.slots_used, reverse_map(&input_map), &input_ebb, &convention);
         // Optimize.

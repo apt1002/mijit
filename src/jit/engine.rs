@@ -5,7 +5,7 @@ use std::marker::{PhantomData};
 
 use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
 use Precision::*;
-use super::graph::{Dataflow, Node, Convention, Propagator};
+use super::graph::{Op, Dataflow, Node, Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
 use super::optimizer::{LookupLeaf, simulate, cft_to_ebb};
 use crate::util::{AsUsize, reverse_map};
@@ -246,11 +246,10 @@ impl<T: Target> Engine<T> {
         let before = self.i.convention(id);
         let engine_wrapper = EngineWrapper {engine: &*self, to_case, _l: PhantomData};
         // Temporary: generate the [`Dataflow`] graph.
-        let mut dataflow = Dataflow::new(before.lives.len());
+        let mut dataflow = Dataflow::new();
         let input_map: HashMap<Node, Variable> =
-            dataflow.inputs().iter()
-            .zip(before.lives.iter())
-            .map(|(&node, &variable)| (node, variable))
+            before.lives.iter()
+            .map(|&variable| (dataflow.add_node(Op::Input, &[]), variable))
             .collect();
         let cft = simulate(&mut dataflow, before.slots_used, reverse_map(&input_map), ebb, &engine_wrapper);
         // Optimize.
