@@ -252,8 +252,8 @@ mod tests {
             )
         });
         // Optimize it.
-        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
-        let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
+        let mut dataflow = Dataflow::new(convention.lives.len());
+        let cft = super::super::simulate(&mut dataflow, &convention, &ebb, &convention);
         let input_map = HashMap::from([
             (dataflow.inputs()[0], R0.into()),
         ]);
@@ -277,8 +277,8 @@ mod tests {
             b.jump(1)
         });
         // Optimize it.
-        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
-        let (dataflow, cft) = super::super::simulate(&convention, &ebb, &convention);
+        let mut dataflow = Dataflow::new(convention.lives.len());
+        let cft = super::super::simulate(&mut dataflow, &convention, &ebb, &convention);
         let input_map = HashMap::from([
             (dataflow.inputs()[0], R0.into()),
             (dataflow.inputs()[1], R3.into()),
@@ -312,8 +312,8 @@ mod tests {
         });
         // Optimize it.
         println!("input = {:#?}", input);
-        // inline let _observed = super::super::optimize(&convention, &ebb, &convention);
-        let (dataflow, cft) = super::super::simulate(&convention, &input, &convention);
+        let mut dataflow = Dataflow::new(convention.lives.len());
+        let cft = super::super::simulate(&mut dataflow, &convention, &input, &convention);
         let input_map = HashMap::from([
             (dataflow.inputs()[0], Slot(0).into()),
             (dataflow.inputs()[1], Slot(1).into()),

@@ -177,12 +177,13 @@ impl Simulation {
     }
 }
 
-/// Construct a [`Dataflow`] and a [`CFT`] that include all the operations in
-/// `input`.
-pub fn simulate<L: LookupLeaf>(before: &Convention, input: &EBB<L::Leaf>, lookup_leaf: &L)
--> (Dataflow, CFT<L::Leaf>) {
-    let mut dataflow = Dataflow::new(before.lives.len());
-    let simulation = Simulation::new(&dataflow, before);
-    let (cft, _) = simulation.walk(&mut dataflow, input, lookup_leaf);
-    (dataflow, cft)
+/// Construct a [`CFT`] that include all the operations in `input`.
+pub fn simulate<L: LookupLeaf>(
+    dataflow: &mut Dataflow,
+    before: &Convention,
+    input: &EBB<L::Leaf>,
+    lookup_leaf: &L,
+) -> CFT<L::Leaf> {
+    let simulation = Simulation::new(dataflow, before);
+    simulation.walk(dataflow, input, lookup_leaf).0
 }

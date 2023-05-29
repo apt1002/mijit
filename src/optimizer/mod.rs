@@ -61,7 +61,7 @@ pub mod tests {
         build,
     };
     use BinaryOp::*;
-    use graph::{Node};
+    use graph::{Dataflow, Node};
 
     /// A subset of `REGISTERS` that differ from `code::builder::TEMP`.
     const REGS: [Register; 4] = [R[1], R[2], R[3], R[4]];
@@ -218,7 +218,8 @@ pub mod tests {
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
         let expected = emulate(&input_ebb, &convention);
         // Temporary: generate the [`Dataflow`] graph.
-        let (dataflow, cft) = simulate(&convention, &input_ebb, &convention);
+        let mut dataflow = Dataflow::new(convention.lives.len());
+        let cft = simulate(&mut dataflow, &convention, &input_ebb, &convention);
         // Work out what is where.
         let input_map: HashMap<Node, Variable> =
             dataflow.inputs().iter()
