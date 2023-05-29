@@ -62,6 +62,7 @@ pub mod tests {
     };
     use BinaryOp::*;
     use graph::{Dataflow, Node};
+    use crate::util::{reverse_map};
 
     /// A subset of `REGISTERS` that differ from `code::builder::TEMP`.
     const REGS: [Register; 4] = [R[1], R[2], R[3], R[4]];
@@ -219,13 +220,12 @@ pub mod tests {
         let expected = emulate(&input_ebb, &convention);
         // Temporary: generate the [`Dataflow`] graph.
         let mut dataflow = Dataflow::new(convention.lives.len());
-        let cft = simulate(&mut dataflow, &convention, &input_ebb, &convention);
-        // Work out what is where.
         let input_map: HashMap<Node, Variable> =
             dataflow.inputs().iter()
             .zip(convention.lives.iter())
             .map(|(&node, &variable)| (node, variable))
             .collect();
+        let cft = simulate(&mut dataflow, convention.slots_used, reverse_map(&input_map), &input_ebb, &convention);
         // Optimize.
         let output_ebb = cft_to_ebb(&dataflow, convention.slots_used, &input_map, &cft, &convention);
         // Execute.

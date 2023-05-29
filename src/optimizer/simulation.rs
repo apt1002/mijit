@@ -1,7 +1,7 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
 use super::code::{Precision, Register, Slot, Variable, Action, Switch, EBB, Ending};
-use super::graph::{Convention, Exit, CFT, Op, Dataflow, Node};
+use super::graph::{Exit, CFT, Op, Dataflow, Node};
 use super::{LookupLeaf};
 
 /// Represents the state of an abstract execution of some code which builds a
@@ -20,21 +20,6 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    /// Constructs an initial [`Simulation`] representing the entry point of
-    /// `dataflow`, which obeys `before`.
-    fn new(dataflow: &Dataflow, before: &Convention) -> Self {
-        assert_eq!(dataflow.inputs().len(), before.lives.len());
-        let bindings = before.lives.iter()
-            .zip(dataflow.inputs())
-            .map(|(&v, &node)| (v, node))
-            .collect();
-        Simulation {
-            slots_used: before.slots_used,
-            bindings: bindings,
-            sequence: dataflow.undefined(),
-        }
-    }
-
     /// Returns a [`Variable`] representing the top of the stack.
     fn top(&self) -> Variable {
         assert!(self.slots_used > 0);
@@ -180,10 +165,11 @@ impl Simulation {
 /// Construct a [`CFT`] that include all the operations in `input`.
 pub fn simulate<L: LookupLeaf>(
     dataflow: &mut Dataflow,
-    before: &Convention,
+    slots_used: usize,
+    bindings: HashMap<Variable, Node>,
     input: &EBB<L::Leaf>,
     lookup_leaf: &L,
 ) -> CFT<L::Leaf> {
-    let simulation = Simulation::new(dataflow, before);
+    let simulation = Simulation {slots_used, bindings, sequence: dataflow.undefined()};
     simulation.walk(dataflow, input, lookup_leaf).0
 }

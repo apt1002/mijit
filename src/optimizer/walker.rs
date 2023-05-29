@@ -177,7 +177,7 @@ mod tests {
     use Precision::*;
     use Width::*;
     use graph::{Convention, Exit};
-    use crate::util::{ArrayMap, AsUsize};
+    use crate::util::{ArrayMap, AsUsize, reverse_map};
 
     const R0: Register = REGISTERS[0];
     const R1: Register = REGISTERS[1];
@@ -253,10 +253,10 @@ mod tests {
         });
         // Optimize it.
         let mut dataflow = Dataflow::new(convention.lives.len());
-        let cft = super::super::simulate(&mut dataflow, &convention, &ebb, &convention);
         let input_map = HashMap::from([
             (dataflow.inputs()[0], R0.into()),
         ]);
+        let cft = super::super::simulate(&mut dataflow, 0, reverse_map(&input_map), &ebb, &convention);
         let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
     }
@@ -278,11 +278,11 @@ mod tests {
         });
         // Optimize it.
         let mut dataflow = Dataflow::new(convention.lives.len());
-        let cft = super::super::simulate(&mut dataflow, &convention, &ebb, &convention);
         let input_map = HashMap::from([
             (dataflow.inputs()[0], R0.into()),
             (dataflow.inputs()[1], R3.into()),
         ]);
+        let cft = super::super::simulate(&mut dataflow, 0, reverse_map(&input_map), &ebb, &convention);
         let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
     }
@@ -313,11 +313,11 @@ mod tests {
         // Optimize it.
         println!("input = {:#?}", input);
         let mut dataflow = Dataflow::new(convention.lives.len());
-        let cft = super::super::simulate(&mut dataflow, &convention, &input, &convention);
         let input_map = HashMap::from([
             (dataflow.inputs()[0], Slot(0).into()),
             (dataflow.inputs()[1], Slot(1).into()),
         ]);
+        let cft = super::super::simulate(&mut dataflow, 2, reverse_map(&input_map), &input, &convention);
         let output = cft_to_ebb(&dataflow, 2, &input_map, &cft, &convention);
         // TODO: Expected output.
         println!("output = {:#?}", output);

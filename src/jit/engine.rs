@@ -3,12 +3,12 @@ use std::fmt::{Debug};
 use std::ops::{Index, IndexMut};
 use std::marker::{PhantomData};
 
-use crate::util::{AsUsize};
 use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
+use Precision::*;
 use super::graph::{Dataflow, Node, Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
 use super::optimizer::{LookupLeaf, simulate, cft_to_ebb};
-use Precision::*;
+use crate::util::{AsUsize, reverse_map};
 
 // CaseId.
 array_index! {
@@ -247,13 +247,12 @@ impl<T: Target> Engine<T> {
         let engine_wrapper = EngineWrapper {engine: &*self, to_case, _l: PhantomData};
         // Temporary: generate the [`Dataflow`] graph.
         let mut dataflow = Dataflow::new(before.lives.len());
-        let cft = simulate(&mut dataflow, before, ebb, &engine_wrapper);
-        // Work out what is where.
         let input_map: HashMap<Node, Variable> =
             dataflow.inputs().iter()
             .zip(before.lives.iter())
             .map(|(&node, &variable)| (node, variable))
             .collect();
+        let cft = simulate(&mut dataflow, before.slots_used, reverse_map(&input_map), ebb, &engine_wrapper);
         // Optimize.
         let ebb = cft_to_ebb(&dataflow, before.slots_used, &input_map, &cft, &engine_wrapper);
         self.build_inner(id, &ebb, to_case)
