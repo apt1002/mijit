@@ -4,7 +4,7 @@ use std::fmt::{Debug};
 use super::{
     code, graph,
     allocate, Instruction,
-    Fill, Frontier, with_fill,
+    Fill, Frontier,
     CodeGen,
     LookupLeaf,
 };
@@ -154,15 +154,20 @@ pub fn cft_to_ebb<L: LookupLeaf>(
         .zip(&*before.lives)
         .map(|(&node, &variable)| (node, variable))
         .collect();
+    // Make a `Fill` and make all the `Op::Input`s boundary `Node`s.
+    let mut marks = HashMap::new();
+    let mut fill = Fill::new(dataflow, &mut marks);
+    fill.mark(dataflow.undefined());
+    for &node in input_map.keys() { fill.mark(node); }
     // Build the new `EBB`.
     let mut walker = Walker::new(lookup_leaf);
-    with_fill(dataflow, |mut fill| walker.walk(
-        &mut fill,
+    walker.walk(
+        &mut fill.nested(),
         cft,
         before.slots_used,
         &|node| *input_map.get(&node).unwrap(),
         &|guard| panic!("Unknown guard {:?}", guard),
-    ))
+    )
 }
 
 //-----------------------------------------------------------------------------

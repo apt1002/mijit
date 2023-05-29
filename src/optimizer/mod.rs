@@ -10,7 +10,7 @@ mod simulation;
 pub use simulation::{simulate};
 
 mod fill;
-use fill::{Frontier, Fill, with_fill};
+use fill::{Frontier, Fill};
 
 mod allocator;
 use allocator::{Instruction, allocate};

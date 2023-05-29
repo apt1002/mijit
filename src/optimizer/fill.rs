@@ -130,21 +130,6 @@ impl<'a> std::fmt::Debug for Fill<'a> {
     }
 }
 
-/// Construct a `marks` array, wrap it in a [`Fill`], and invoke `callback`.
-/// The [`Input`] [`Node`]s will be treated as boundary nodes.
-///
-/// [`Input`]: super::Op::Input
-pub fn with_fill<T>(
-    dataflow: &Dataflow,
-    callback: impl FnOnce(Fill) -> T,
-) -> T {
-    let mut marks = HashMap::new();
-    let mut fill = Fill::new(dataflow, &mut marks);
-    fill.mark(dataflow.undefined());
-    for &node in dataflow.inputs() { fill.mark(node); }
-    callback(fill.nested())
-}
-
 //-----------------------------------------------------------------------------
 
 #[cfg(test)]
