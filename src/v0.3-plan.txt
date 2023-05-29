@@ -4,7 +4,7 @@
 ├── buffer                  Preserve
 ├── code
 │   ├── action.rs
-│   ├── builder.rs          Rewrite             Move to jit
+│   ├── builder.rs          Rewrite             Move to graph
 │   ├── ebb.rs
 │   ├── enums.rs
 │   ├── mod.rs
@@ -28,7 +28,7 @@
 │   ├── allocator           Preserve
 │   ├── codegen.rs          Preserve
 │   ├── fill.rs             Preserve
-│   ├── mod.rs              Rewrite
+│   ├── mod.rs              Preserve
 │   ├── moves.rs            Preserve
 │   ├── simulation.rs       Delete
 │   └── walker.rs           Preserve
@@ -56,8 +56,13 @@ These things won't be done now:
  - Add instrumentation to the code as it is compiled (issue #33).
 
 
+## Incrementally removing `simulate()`
+
+By moving `simulate()` from callees to callers, we're approaching a point where every call to `simulate()` immediately follows a call to `code::build()`. At this point, the pair of calls can be replaced with a single call to `graph::build()` (which doesn't exist yet).
+
+
 ## Break and fix later
 
 These things will have to be deleted and will later need to be rewritten:
 
- - random_ebb and related tests
+ - random_ebb and related tests. The problem is that these tests compare the `EBB` retured by the optimizer to the input `EBB`, which will not exist because it will just be a (Dataflow, CFT) pair. The fix is to make a dumb, reliable algorithm with the same API as the optimizer, and use it to make a second `EBB` that can be used as a point of comparison.
