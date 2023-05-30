@@ -124,7 +124,7 @@ pub enum CFT<L: Clone> {
         /// The control-flow decision.
         switch: Switch<CFT<L>>,
         /// The index of the most probable case, or `usize::MAX`.
-        hot_index: usize,
+        hot_index: usize, // TODO: remove this.
     },
 }
 

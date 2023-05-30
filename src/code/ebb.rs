@@ -25,6 +25,14 @@ impl<C> Switch<C> {
             default_: Box::new(callback(&self.default_)),
         }
     }
+
+    /// Apply `callback` to every `C` and return a fresh `Switch`.
+    pub fn map_once<D>(self, mut callback: impl FnMut(C) -> D) -> Switch<D> {
+        Switch {
+            cases: Vec::from(self.cases).into_iter().map(&mut callback).collect(),
+            default_: Box::new(callback(*self.default_)),
+        }
+    }
 }
 
 /// Represents an [extended basic block], i.e. a tree-like control-flow graph.
