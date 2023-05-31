@@ -145,6 +145,7 @@ impl<'a, L: LookupLeaf> CodeGen<'a, L> {
     pub fn finish(mut self, exit: &Exit, leaf: L::Leaf) -> EBB<L::Leaf> {
         // Work out which live values need to be moved where.
         let after = self.lookup_leaf.after(&leaf);
+        assert_eq!(after.lives.len(), exit.outputs.len());
         let mut dest_to_src: HashMap<Variable, Variable> =
             exit.outputs.iter().zip(&*after.lives)
                 .map(|(&node, &dest)| (dest, self.read(node)))
