@@ -172,12 +172,12 @@ pub fn cft_to_ebb<L: LookupLeaf>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width, build};
+    use code::{Register, REGISTERS, Slot, Precision, BinaryOp, Width};
     use BinaryOp::*;
     use Precision::*;
     use Width::*;
-    use graph::{Convention, Exit};
-    use crate::util::{ArrayMap, AsUsize, reverse_map};
+    use graph::{Convention, Exit, Builder};
+    use crate::util::{ArrayMap, AsUsize};
 
     const R0: Register = REGISTERS[0];
     const R1: Register = REGISTERS[1];
@@ -233,30 +233,32 @@ mod tests {
     /// Regression test from Bee.
     #[test]
     fn bee_1() {
-        let convention = Convention {slots_used: 0, lives: Box::new([R0.into()])};
-        // Make an `EBB`.
-        let ebb = build(|b| {
-            b.index(
-                R0,
-                Box::new([
-                    build(|mut b| {
-                        b.guard(R0, false, build(|b| b.jump(5)));
-                        b.jump(4)
-                    }),
-                    build(|mut b| {
-                        b.guard(R0, true, build(|b| b.jump(3)));
-                        b.jump(2)
-                    }),
-                ]),
-                build(|b| b.jump(1)),
-            )
-        });
-        // Optimize it.
         let mut dataflow = Dataflow::new();
+        let u = dataflow.undefined();
+        let x = dataflow.add_node(Op::Input, &[]);
         let input_map = HashMap::from([
-            (dataflow.add_node(Op::Input, &[]), R0.into()),
+            (x, R0.into()),
         ]);
-        let cft = super::super::simulate(&mut dataflow, 0, reverse_map(&input_map), &ebb, &convention);
+        // Make a `CFT`.
+        let b = Builder::new(&mut dataflow, u);
+        let cft = {
+            b.index(
+                x,
+                [
+                    (|mut b: Builder<_>| {
+                        b.guard(x, false, |b: Builder<_>| b.jump(5, [x]));
+                        b.jump(4, [x])
+                    }).into(),
+                    (|mut b: Builder<_>| {
+                        b.guard(x, true, |b: Builder<_>| b.jump(3, [x]));
+                        b.jump(2, [x])
+                    }).into(),
+                ],
+                |b: Builder<_>| b.jump(1, [x]),
+            )
+        };
+        // Optimize it.
+        let convention = Convention {slots_used: 0, lives: Box::new([R0.into()])};
         let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
     }
@@ -264,25 +266,28 @@ mod tests {
     /// Regression test from Bee.
     #[test]
     fn bee_2() {
+        let mut dataflow = Dataflow::new();
+        let u = dataflow.undefined();
+        let x = dataflow.add_node(Op::Input, &[]);
+        let y = dataflow.add_node(Op::Input, &[]);
+        let input_map = HashMap::from([
+            (x, R0.into()),
+            (y, R3.into()),
+        ]);
+        // Make a `CFT`.
+        let mut b = Builder::new(&mut dataflow, u);
+        let cft = {
+            let y2 = b.binary64(Or, x, x);
+            b.guard(x, false, |b: Builder<_>| b.jump(2, [x, y2]));
+            b.guard(x, false, |b: Builder<_>| b.jump(3, [x, y2]));
+            let y3 = b.binary64(And, x, x);
+            b.jump(1, [x, y3])
+        };
+        // Optimize it.
         let convention = Convention {
             slots_used: 0,
             lives: Box::new([R0.into(), R3.into()]),
         };
-        // Make an `EBB`.
-        let ebb = build(|mut b| {
-            b.binary64(Or, R3, R0, R0);
-            b.guard(R0, false, build(|b| b.jump(2)));
-            b.guard(R0, false, build(|b| b.jump(3)));
-            b.binary64(And, R3, R0, R0);
-            b.jump(1)
-        });
-        // Optimize it.
-        let mut dataflow = Dataflow::new();
-        let input_map = HashMap::from([
-            (dataflow.add_node(Op::Input, &[]), R0.into()),
-            (dataflow.add_node(Op::Input, &[]), R3.into()),
-        ]);
-        let cft = super::super::simulate(&mut dataflow, 0, reverse_map(&input_map), &ebb, &convention);
         let _observed = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
     }
@@ -290,34 +295,36 @@ mod tests {
     /// Test `Send`.
     #[test]
     fn load_to_store() {
+        let mut dataflow = Dataflow::new();
+        let u = dataflow.undefined();
+        let mut x = dataflow.add_node(Op::Input, &[]);
+        let mut y = dataflow.add_node(Op::Input, &[]);
+        let input_map = HashMap::from([
+            (x, Slot(0).into()),
+            (y, Slot(1).into()),
+        ]);
+        // Make an `CFT`.
+        let mut b = Builder::new(&mut dataflow, u);
+        let cft = {
+            let mut p = b.binary64(Mul, x, x);
+            p = b.binary64(Add, y, p);
+            p = b.load((p, 0, Eight));
+            x = b.load((p, 8, Eight));
+            for _ in 0..4 {
+                let q = b.load((p, 16, Eight));
+                x = b.binary64(Mul, x, q);
+            }
+            y = b.send(y, p);
+            let c = b.const_(42);
+            y = b.store(c, (y, 0, Eight));
+            b.jump(0, [x, y])
+        };
+        // Optimize it.
+        println!("cft = {:#?}", cft);
         let convention = Convention {
             slots_used: 2,
             lives: Box::new([Slot(0).into(), Slot(1).into()]),
         };
-        // Make an `EBB`.
-        let input = build(|mut b| {
-            b.binary64(Mul, R0, Slot(0), Slot(0));
-            b.binary64(Add, R0, Slot(1), R0);
-            b.load(R0, (R0, 0, Eight));
-            b.load(R1, (R0, 8, Eight));
-            for _ in 0..4 {
-                b.load(R2, (R0, 16, Eight));
-                b.binary64(Mul, R1, R1, R2);
-            }
-            b.move_(Slot(0), R1);
-            b.send(Slot(1), R0);
-            b.const_(R1, 42);
-            b.store(R1, (Slot(1), 0, Eight));
-            b.jump(0)
-        });
-        // Optimize it.
-        println!("input = {:#?}", input);
-        let mut dataflow = Dataflow::new();
-        let input_map = HashMap::from([
-            (dataflow.add_node(Op::Input, &[]), Slot(0).into()),
-            (dataflow.add_node(Op::Input, &[]), Slot(1).into()),
-        ]);
-        let cft = super::super::simulate(&mut dataflow, 2, reverse_map(&input_map), &input, &convention);
         let output = cft_to_ebb(&dataflow, 2, &input_map, &cft, &convention);
         // TODO: Expected output.
         println!("output = {:#?}", output);
