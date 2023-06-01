@@ -6,8 +6,14 @@ use super::{Dep, Op, Cost, op_cost};
 //-----------------------------------------------------------------------------
 
 /// A node in a Dataflow graph. Also represents the value it computes.
-#[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
+#[derive(Copy, Clone, Hash, PartialEq, Eq)]
 pub struct Node(usize);
+
+impl Debug for Node {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
+        write!(f, "Node({})", self.0)
+    }
+}
 
 impl AsUsize for Node {
     fn as_usize(self) -> usize { self.0 }
@@ -27,8 +33,7 @@ impl<'a> Debug for NodeAdapter<'a> {
             self.node,
             self.dataflow.op(self.node),
             CommaSeparated(|| self.dataflow.ins(self.node)),
-        )?;
-        Ok(())
+        )
     }
 }
 
