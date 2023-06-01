@@ -320,12 +320,49 @@ mod tests {
             b.jump(0, [x, y])
         };
         // Optimize it.
-        println!("cft = {:#?}", cft);
         let convention = Convention {
             slots_used: 2,
             lives: Box::new([Slot(0).into(), Slot(1).into()]),
         };
         let output = cft_to_ebb(&dataflow, 2, &input_map, &cft, &convention);
+        // TODO: Expected output.
+        println!("output = {:#?}", output);
+    }
+
+    /// Promote a `Load` from a cold branch.
+    ///
+    /// `z = load()` should be promoted to the hot branch, even though it is
+    /// explicitly depended on only by the cold `Exit`.
+    // FIXME: Failing test.
+    #[test]
+    #[ignore]
+    fn promote_cold_load() {
+        let mut dataflow = Dataflow::new();
+        let u = dataflow.undefined();
+        let mut p = dataflow.add_node(Op::Input, &[]);
+        let unused = dataflow.add_node(Op::Input, &[]);
+        let input_map = HashMap::from([
+            (p, R0.into()),
+            (unused, R1.into()),
+        ]);
+        // Make an `CFT`.
+        let mut b = Builder::new(&mut dataflow, u);
+        let cft = {
+            let y = b.load((p, 0, Eight));
+            let z = b.load((p, 0, Eight));
+            let c = b.const_(42);
+            p = b.store(c, (p, 0, Eight));
+            b.if_(p,
+                |b: Builder<_>| b.jump(0, [p, y]),
+                |b: Builder<_>| b.jump(0, [p, z]),
+            )
+        };
+        // Optimize it.
+        let convention = Convention {
+            slots_used: 0,
+            lives: Box::new([R0.into(), R1.into()]),
+        };
+        let output = cft_to_ebb(&dataflow, 0, &input_map, &cft, &convention);
         // TODO: Expected output.
         println!("output = {:#?}", output);
     }
