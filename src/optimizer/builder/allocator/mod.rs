@@ -330,6 +330,14 @@ pub fn allocate<'a>(
                 addresses.entry(in_).or_default().sends.push(node);
             }
         });
+        if let Some(f) = get_frontier(node) {
+            for (&in_, &v) in &f.0 {
+                if v.is_address() {
+                    println!("Cold path memory instruction {:?}", in_);
+                    addresses.entry(in_).or_default().mems.push(node);
+                }
+            }
+        }
     }
     // Count extra dependencies due to `Send`s.
     for address in addresses.values() {
