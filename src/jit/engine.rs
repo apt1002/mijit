@@ -182,6 +182,42 @@ impl Internals {
         self[id].set_convention(before);
         self[id].fetch = Some(fetch);
     }
+
+    /// Returns a copy of the hot path starting at `id` up to the next
+    /// [`Switch`]. Returns `None` if the hot path exits Mijit without reaching
+    /// a `Switch`.
+    #[allow(unused)] // TODO.
+    fn hot_path(&self, mut id: CaseId) -> Option<EBB<CaseId>> {
+        let mut actions = Vec::new();
+        loop {
+            if let Some(fetch) = &self[id].fetch {
+                actions.extend(fetch.actions.iter().copied());
+                // Succeed.
+                return Some(EBB {
+                    actions: actions.into(),
+                    ending: Ending::Switch(
+                        fetch.discriminant,
+                        fetch.switch.map(|&jump| EBB {
+                            actions: Box::new([]),
+                            ending: Ending::Leaf(jump),
+                        },
+                    )),
+                });
+            }
+            if let Some(retire) = &self[id].retire {
+                actions.extend(retire.actions.iter().copied());
+                if let Some(jump) = retire.jump {
+                    // Loop.
+                    id = jump;
+                    continue;
+                } else {
+                    // Fail.
+                    return None;
+                }
+            }
+            panic!("Case has neither Fetch nor Retire");
+        }
+    }
 }
 
 impl Index<CaseId> for Internals {
@@ -325,51 +361,6 @@ impl<T: Target> Engine<T> {
         lo.jump(&mut self.i[id].label);
         // Return.
         (label, id)
-    }
-
-    /// Returns a copy of the hot path starting at `id` up to the next
-    /// [`Switch`]. Returns `None` if the hot path exits Mijit without reaching
-    /// a `Switch`.
-    fn hot_path(&self, mut id: CaseId) -> Option<EBB<CaseId>> {
-        let mut actions = Vec::new();
-        loop {
-            if let Some(fetch) = &self.i[id].fetch {
-                actions.extend(fetch.actions.iter().copied());
-                // Succeed.
-                return Some(EBB {
-                    actions: actions.into(),
-                    ending: Ending::Switch(
-                        fetch.discriminant,
-                        fetch.switch.map(|&jump| EBB {
-                            actions: Box::new([]),
-                            ending: Ending::Leaf(jump),
-                        },
-                    )),
-                });
-            }
-            if let Some(retire) = &self.i[id].retire {
-                actions.extend(retire.actions.iter().copied());
-                if let Some(jump) = retire.jump {
-                    // Loop.
-                    id = jump;
-                    continue;
-                } else {
-                    // Fail.
-                    return None;
-                }
-            }
-            panic!("Case has neither Fetch nor Retire");
-        }
-    }
-
-    /// Find the hot path starting at `id`, which must be a [`Retire`].
-    /// Clone it, optimize it, and replace `id` with a [`Fetch`].
-    #[allow(unused)] // TODO.
-    fn specialize(&mut self, id: CaseId) {
-        assert!(self.i[id].fetch.is_none());
-        if let Some(ebb) = self.hot_path(id) {
-            self.build(id, &ebb, &|c| c);
-        }
     }
 
     /// Call the compiled code starting at `label`.
