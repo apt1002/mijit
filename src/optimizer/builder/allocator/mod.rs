@@ -321,10 +321,8 @@ pub fn allocate<'a>(
     let mut addresses = HashMap::<Node, Address>::new();
     for &node in nodes {
         dataflow.each_input(node, |in_, dep| {
-            if !dep.is_cold() {
-                // Ordering dependency.
-                queue.increment(in_);
-            }
+            // Ordering dependency.
+            queue.increment(in_);
             if dep.is_address() {
                 addresses.entry(in_).or_default().mems.push(node);
             }
@@ -363,11 +361,9 @@ pub fn allocate<'a>(
     while let Some(node) = queue.pop() {
         let start = usage.len();
         dataflow.each_input(node, |in_, dep| {
-            if !dep.is_cold() {
-                // Ordering dependency.
-                queue.decrement(in_);
-                usage.push(in_, Input {is_value: dep.is_value(), is_cold: false});
-            }
+            // Ordering dependency.
+            queue.decrement(in_);
+            usage.push(in_, Input {is_value: dep.is_value(), is_cold: false});
             if dep.is_send() {
                 for &mem in &addresses[&in_].mems {
                     if mem != node {

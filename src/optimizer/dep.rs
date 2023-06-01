@@ -32,11 +32,6 @@ impl Value {
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum Effect {
-    /// The `Node` is a guard. It is proxying a dependency is on a cold path.
-    /// The `Node`s can be executed in either order. If necessary, the other
-    /// `Node` can be executed on the cold path.
-    Cold = 0,
-    /// The dependency is entirely on the hot path.
     /// The `Node` must wait for the other `Node` to be executed.
     Hot = 1,
     /// The other `Node` computes a pointer.
@@ -45,10 +40,6 @@ pub enum Effect {
 }
 
 impl Effect {
-    pub fn is_cold(self) -> bool {
-        matches!(self, Effect::Cold)
-    }
-
     pub fn is_send(self) -> bool {
         matches!(self, Effect::Send)
     }
@@ -64,7 +55,6 @@ impl Effect {
 /// ```text
 ///       | Unused  Normal      Address
 /// ------+---------------------------------
-/// Cold  | NONE    COLD_VALUE  COLD_LOAD
 /// Hot   | GUARD   VALUE       LOAD
 /// Send  |         SEND        STORE
 /// ```
@@ -74,9 +64,6 @@ impl Effect {
 pub struct Dep(pub Value, pub Effect);
 
 impl Dep {
-    pub const NONE: Dep = Dep(Value::Unused, Effect::Cold);
-    pub const COLD_VALUE: Dep = Dep(Value::Normal, Effect::Cold);
-    pub const COLD_LOAD: Dep = Dep(Value::Address, Effect::Cold);
     pub const GUARD: Dep = Dep(Value::Unused, Effect::Hot);
     pub const VALUE: Dep = Dep(Value::Normal, Effect::Hot);
     pub const LOAD: Dep = Dep(Value::Address, Effect::Hot);
@@ -86,8 +73,6 @@ impl Dep {
     pub fn is_value(self) -> bool { self.0.is_value() }
 
     pub fn is_address(self) -> bool { self.0.is_address() }
-
-    pub fn is_cold(self) -> bool { self.1.is_cold() }
 
     pub fn is_send(self) -> bool { self.1.is_send() }
 }
