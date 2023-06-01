@@ -114,5 +114,5 @@ pub struct Marshal {
 pub mod tests {
     use super::*;
 
-    pub use ebb::tests::{Emulator, EmulatorResult, random_ebb, random_ebb_convention};
+    pub use ebb::tests::{Emulator, EmulatorResult, emulate, random_ebb, random_ebb_convention};
 }

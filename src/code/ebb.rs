@@ -51,7 +51,7 @@ pub enum Ending<L> {
 #[cfg(test)]
 pub mod tests {
     use std::fmt::{Debug};
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{HashMap};
 
     use rand::prelude::*;
     use rand_pcg::{Pcg64};
@@ -185,30 +185,20 @@ pub mod tests {
         pub leaf: L,
     }
 
-    impl<L: Debug + Clone> EmulatorResult<L> {
-        /// Run `ebb`, passing random values for all `Variable`s live
-        /// according to `convention`, and return the result.
-        pub fn new(ebb: &EBB<L>, convention: &Convention) -> Self {
-            let variables: HashMap<Variable, i64> = convention.lives.iter().enumerate()
-                .map(|(i, &v)| {
-                    (v, (i as i64).wrapping_mul(0x4afe41af6db32983).wrapping_add(0x519e8556c7b69a8d))
-                }).collect();
-            let mut emulator = Emulator::new(variables, vec![]);
-            let leaf = emulator.ebb(ebb);
-            EmulatorResult {emulator, leaf}
-        }
-
-        /// Remove from `self.emulator.variables` all those `Variable`s not
-        /// in `variables`.
-        pub fn keep_only(&mut self, variables: &[Variable]) {
-            let variables: HashSet<_> = variables.iter().cloned().collect();
-            self.emulator.variables = self.emulator.variables.iter().filter_map(|(&v, &x)| {
-                if variables.contains(&v) {
-                    Some((v, x))
-                } else {
-                    None
-                }
+    /// Run `ebb`, passing pseudo-random values for all `Variable`s live
+    /// according to `convention`, keeping only the results live according to
+    /// `convention`, and return the result.
+    pub fn emulate<L: Debug + Clone>(ebb: &EBB<L>, convention: &Convention) -> EmulatorResult<L> {
+        let variables: HashMap<Variable, i64> = convention.lives.iter().enumerate()
+            .map(|(i, &v)| {
+                (v, (i as i64).wrapping_mul(0x4afe41af6db32983).wrapping_add(0x519e8556c7b69a8d))
             }).collect();
-        }
+        let mut emulator = Emulator::new(variables, vec![]);
+        let leaf = emulator.ebb(ebb);
+        // Keep in `emulator.variables` only those in `convention`.
+        emulator.variables = convention.lives.iter().filter_map(
+            |&v| emulator.variables.get(&v).map(|&x| (v, x))
+        ).collect();
+        EmulatorResult {emulator, leaf}
     }
 }

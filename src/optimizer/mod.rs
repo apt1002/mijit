@@ -56,7 +56,7 @@ mod tests {
     use super::*;
     use crate::code::{REGISTERS as R, BinaryOp, builder as cb};
     use BinaryOp::*;
-    use crate::code::tests::{EmulatorResult, random_ebb, random_ebb_convention};
+    use crate::code::tests::{emulate, random_ebb, random_ebb_convention};
 
     // Several tests represent leaves as integers.
     impl LookupLeaf for Convention {
@@ -72,11 +72,9 @@ mod tests {
     /// Optimize `input_ebb`, emulate the original and optimized `EBB`s, and
     /// panic with diagnostics if they behave differently.
     pub fn optimize_and_compare(input_ebb: EBB<usize>, convention: Convention) {
-        let mut expected = EmulatorResult::new(&input_ebb, &convention);
-        expected.keep_only(&convention.lives);
+        let expected = emulate(&input_ebb, &convention);
         let output_ebb = optimize(&convention, &input_ebb, &convention);
-        let mut observed = EmulatorResult::new(&output_ebb, &convention);
-        observed.keep_only(&convention.lives);
+        let observed = emulate(&output_ebb, &convention);
         if expected != observed {
             println!("input_ebb: {:#x?}", input_ebb);
             println!("expected: {:#x?}", expected);
