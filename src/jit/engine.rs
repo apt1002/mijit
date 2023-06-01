@@ -208,6 +208,8 @@ pub struct Engine<T: Target> {
     _target: T,
     /// The code compiled so far.
     lowerer: T::Lowerer,
+    /// The ambient [`Dataflow`] graph that accumulates compiled code.
+    dataflow: Dataflow,
     /// This nested struct can be borrowed independently of `lowerer`.
     i: Internals,
 }
@@ -224,11 +226,12 @@ impl<T: Target> Engine<T> {
     /// Constructs an `Engine`, initially with no entries.
     pub fn new(target: T) -> Self {
         let lowerer = target.lowerer();
+        let dataflow = Dataflow::new();
         let i = Internals {
             convention: Convention::default(),
             cases: Vec::new(),
         };
-        Engine {_target: target, lowerer, i}
+        Engine {_target: target, lowerer, dataflow, i}
     }
 
     /// Define the code for case `id`.
@@ -244,16 +247,27 @@ impl<T: Target> Engine<T> {
         to_case: &impl Fn(L) -> CaseId,
     ) {
         let before = self.i.convention(id);
-        let engine_wrapper = EngineWrapper {engine: &*self, to_case, _l: PhantomData};
-        // Temporary: generate the [`Dataflow`] graph.
-        let mut dataflow = Dataflow::new();
+        let engine_wrapper = EngineWrapper {i: &self.i, to_case, _l: PhantomData};
+        // Temporary: generate the [`CFT`].
         let input_map: HashMap<Node, Variable> =
             before.lives.iter()
-            .map(|&variable| (dataflow.add_node(Op::Input, &[]), variable))
+            .map(|&variable| (self.dataflow.add_node(Op::Input, &[]), variable))
             .collect();
-        let cft = simulate(&mut dataflow, before.slots_used, reverse_map(&input_map), ebb, &engine_wrapper);
+        let cft = simulate(
+            &mut self.dataflow,
+            before.slots_used,
+            reverse_map(&input_map),
+            ebb,
+            &engine_wrapper,
+        );
         // Optimize.
-        let ebb = cft_to_ebb(&dataflow, before.slots_used, &input_map, &cft, &engine_wrapper);
+        let ebb = cft_to_ebb(
+            &self.dataflow,
+            before.slots_used,
+            &input_map,
+            &cft,
+            &engine_wrapper,
+        );
         self.build_inner(id, &ebb, to_case)
     }
 
@@ -373,18 +387,18 @@ impl<T: Target> Engine<T> {
     }
 }
 
-struct EngineWrapper<'a, T: Target, L: Debug + Clone, F: Fn(L) -> CaseId> {
-    engine: &'a Engine<T>,
+struct EngineWrapper<'a, L: Debug + Clone, F: Fn(L) -> CaseId> {
+    i: &'a Internals,
     to_case: &'a F,
     _l: PhantomData<L>,
 }
 
-impl<'a, T: Target, L: Debug + Clone, F: Fn(L) -> CaseId> LookupLeaf for EngineWrapper<'a, T, L, F> {
+impl<'a, L: Debug + Clone, F: Fn(L) -> CaseId> LookupLeaf for EngineWrapper<'a, L, F> {
     type Leaf = L;
 
     /// Return the convention in effect at `leaf`.
     fn after(&self, leaf: &L) -> &Convention {
-        self.engine.i.convention((self.to_case)(leaf.clone()))
+        self.i.convention((self.to_case)(leaf.clone()))
     }
 
     /// Return the estimated relative frequency of `leaf`.
