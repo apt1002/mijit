@@ -190,7 +190,7 @@ impl<B: Buffer> Assembler<B> {
         opcode |= rt as u32;
         opcode |= (rt2 as u32) << 10;
         self.write_instruction(opcode);
-    }    
+    }
 
     /// Writes a PC-relative load of a constant.
     fn write_pc_relative(&mut self, rd: Register, imm: u64) {
@@ -776,7 +776,7 @@ pub mod tests {
             "csel xzr, x0, x1, cc", "csel x0, x1, xzr, cc", "csel x1, xzr, x0, cc",
             "csel xzr, x0, x1, mi", "csel x0, x1, xzr, mi", "csel x1, xzr, x0, mi",
             "csel xzr, x0, x1, pl", "csel x0, x1, xzr, pl", "csel x1, xzr, x0, pl",
-            "csel xzr, x0, x1, vs", "csel x0, x1, xzr, vs", "csel x1, xzr, x0, vs", 
+            "csel xzr, x0, x1, vs", "csel x0, x1, xzr, vs", "csel x1, xzr, x0, vs",
             "csel xzr, x0, x1, vc", "csel x0, x1, xzr, vc", "csel x1, xzr, x0, vc",
             "csel xzr, x0, x1, hi", "csel x0, x1, xzr, hi", "csel x1, xzr, x0, hi",
             "csel xzr, x0, x1, ls", "csel x0, x1, xzr, ls", "csel x1, xzr, x0, ls",

@@ -44,7 +44,7 @@ impl<'a> Fill<'a> {
             dataflow: self.dataflow,
             marks: self.marks,
             marker: self.marker + 1,
-            nodes: Vec::new(),  
+            nodes: Vec::new(),
             frontier: Frontier::default(),
         }
     }

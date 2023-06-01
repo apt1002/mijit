@@ -142,7 +142,7 @@ mod tests {
                 &mut [Word {mp: memory.as_mut_ptr() as *mut ()}],
                 Word {u: expected(x, &mut memory)},
             );
-        }        
+        }
     }
 
     /// Test that the results of arithmetic operations do not depend on which

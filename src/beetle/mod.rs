@@ -1,6 +1,6 @@
 //! A partial implementation of the [Beetle] virtual machine in Mijit.
 //! This serves as an illustrative example as an integration test.
-//! 
+//!
 //! [Beetle]: https://github.com/rrthomas/beetle
 
 use memoffset::{offset_of};
@@ -122,7 +122,7 @@ impl<T: Target> Beetle<T> {
             pop(&mut b, BA, BEP);
             b.jump(root)
         }));
-        
+
         // Not implemented.
         let not_implemented2 = jit.new_entry(&marshal, NOT_IMPLEMENTED);
         let not_implemented = jit.new_entry(&marshal, UNDEFINED);

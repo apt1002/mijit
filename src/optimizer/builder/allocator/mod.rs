@@ -150,7 +150,7 @@ impl<'a> Allocator<'a> {
     /// Computes the [`Time`] at which `node`'s result appears.
     fn node_time(&self, node: Node, add_latency: bool) -> Time {
         if let Some(&time) = self.node_times.get(&node) {
-            if add_latency { 
+            if add_latency {
                 time + (self.dataflow.cost(node).latency as usize)
             } else {
                 time

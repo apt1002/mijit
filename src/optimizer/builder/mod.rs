@@ -305,7 +305,6 @@ mod tests {
             b.binary64(Add, R0, Slot(1), R0);
             b.load(R0, (R0, 0, Eight));
             b.load(R1, (R0, 8, Eight));
-            // 
             for _ in 0..4 {
                 b.load(R2, (R0, 16, Eight));
                 b.binary64(Mul, R1, R1, R2);

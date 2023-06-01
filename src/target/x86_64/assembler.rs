@@ -938,7 +938,7 @@ pub mod tests {
             "mov r9d,[r12+12345678h]",
             "mov [r8+12345678h],r9",
             "mov [r12+12345678h],r9",
-            
+
             "movzx r9,byte [r8+12345678h]",
             "movzx r9,byte [r12+12345678h]",
             "mov [r8+12345678h],r9b",
