@@ -1,7 +1,9 @@
-use crate::util::{AsUsize};
-use super::{code, Engine, CaseId};
-use super::target::{Label, Word, Target};
+use super::{code, graph, Engine, CaseId};
 use code::{Marshal, EBB};
+use graph::{Op};
+use super::target::{Label, Word, Target};
+use super::optimizer::{simulate, LookupLeaf};
+use crate::util::{AsUsize, reverse_map};
 
 // EntryId.
 array_index! {
@@ -63,8 +65,23 @@ impl<T: Target> Jit<T> {
     ///  - ebb - the extended basic block defining the desired behaviour.
     pub fn define(&mut self, entry: EntryId, ebb: EBB<EntryId>) {
         assert!(!get!(self, entry).is_defined);
+        // Temporary: generate the `CFT` from the `EBB`.
         let ebb = ebb.map_once(&mut |id| get!(self, id).case);
-        self.engine.build(get!(self, entry).case, &ebb);
+        let (dataflow, lookup_leaf) = self.engine.dataflow_mut();
+        let before = lookup_leaf.convention(&get!(self, entry).case);
+        let slots_used = before.slots_used;
+        let input_map = before.lives.iter()
+            .map(|&variable| (dataflow.add_node(Op::Input, &[]), variable))
+            .collect();
+        let cft = simulate(
+            dataflow,
+            slots_used,
+            reverse_map(&input_map),
+            &ebb,
+            lookup_leaf,
+        );
+        // Build it.
+        self.engine.build(get!(self, entry).case, slots_used, &input_map, &cft);
         get!(self, entry).is_defined = true;
     }
 

@@ -4,10 +4,10 @@ use std::ops::{Index, IndexMut};
 
 use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
 use Precision::*;
-use super::graph::{Op, Dataflow, Node, Convention, Propagator};
+use super::graph::{Dataflow, Node, CFT, Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
-use super::optimizer::{LookupLeaf, simulate, cft_to_ebb};
-use crate::util::{AsUsize, reverse_map};
+use super::optimizer::{LookupLeaf, cft_to_ebb};
+use crate::util::{AsUsize};
 
 // CaseId.
 array_index! {
@@ -92,9 +92,9 @@ impl Internals {
     /// Constructs a new [`Case`], initially with an undefined `label` and with
     /// neither a [`Retire`] nor a [`Fetch`]. Call at least one of
     /// `add_retire()` and `add_fetch()` before using the new `Case`.
-    ///  - fetch_parent - the `Case` whose `Fetch` will eventually jump to the
+    /// - fetch_parent - the `Case` whose `Fetch` will eventually jump to the
     ///    new `Case`.
-    ///  - convention - the [`Convention`] in effect on entry to the new `Case`.
+    /// - convention - the [`Convention`] in effect on entry to the new `Case`.
     fn new_case(&mut self, fetch_parent: impl Into<Option<CaseId>>) -> CaseId {
         let id = CaseId::new(self.cases.len()).unwrap();
         self.cases.push(Case {
@@ -283,34 +283,29 @@ impl<T: Target> Engine<T> {
         Engine {_target: target, lowerer, dataflow, i}
     }
 
+    /// Simultaneously borrow the [`Dataflow`] and a [`LookupLeaf`].
+    pub fn dataflow_mut(&mut self) -> (&mut Dataflow, &impl LookupLeaf<Leaf=CaseId>) {
+        (&mut self.dataflow, &self.i)
+    }
+
     /// Define the code for case `id`.
     ///
-    ///  - id - the case to modify.
-    ///  - ebb - the extended basic block defining the desired behaviour.
+    /// - id - the case to modify.
+    /// - slots_used - the number of [`Slot`]s that exist on entry to `cft`.
+    /// - input_map - the [`Variable`] allocation on entry to `cft`.
+    /// - cft - the control-flow tree defining the desired behaviour.
     pub fn build(
         &mut self,
         id: CaseId,
-        ebb: &EBB<CaseId>,
+        slots_used: usize,
+        input_map: &HashMap<Node, Variable>,
+        cft: &CFT<CaseId>,
     ) {
-        let before = self.i.convention(id);
-        // Temporary: generate the [`CFT`].
-        let input_map: HashMap<Node, Variable> =
-            before.lives.iter()
-            .map(|&variable| (self.dataflow.add_node(Op::Input, &[]), variable))
-            .collect();
-        let cft = simulate(
-            &mut self.dataflow,
-            before.slots_used,
-            reverse_map(&input_map),
-            ebb,
-            &self.i,
-        );
-        // Optimize.
         let ebb = cft_to_ebb(
             &self.dataflow,
-            before.slots_used,
-            &input_map,
-            &cft,
+            slots_used,
+            input_map,
+            cft,
             &self.i,
         );
         self.build_inner(id, &ebb)
@@ -343,9 +338,9 @@ impl<T: Target> Engine<T> {
     /// entry will immediately return `exit_value`. To change this behaviour,
     /// use [`Self::build()`].
     ///
-    ///  - marshal.prologue - executed on every entry to the compiled code.
-    ///  - marshal.epilogue - executed on every exit from the compiled code.
-    ///  - exit_value - returned to the caller on exit. Must be non-negative.
+    /// - marshal.prologue - executed on every entry to the compiled code.
+    /// - marshal.epilogue - executed on every exit from the compiled code.
+    /// - exit_value - returned to the caller on exit. Must be non-negative.
     ///
     /// Returns:
     ///  - label - the external entry point, which can be passed to `run()`.
