@@ -1,9 +1,7 @@
 use std::cmp::{PartialEq};
 use std::collections::{HashMap};
 use std::fmt::{Debug, Formatter};
-use std::hash::{Hash, Hasher};
-
-use super::{First, Map};
+use std::hash::{Hash};
 
 array_index! {
     /// An index into a `Usage`.
@@ -31,11 +29,6 @@ impl<T: Clone + Hash + Eq, U> Usage<T, U> {
     pub fn len(&self) -> usize { self.ts.len() }
 
     pub fn is_empty(&self) -> bool { self.ts.is_empty() }
-
-    /// Yields borrows of the `T`s on this stack.
-    pub fn iter(&self) -> <&Self as IntoIterator>::IntoIter {
-        self.into_iter()
-    }
 
     /// Returns `len()` wrapped as a `Use`.
     fn top(&self) -> Use {
@@ -77,46 +70,6 @@ impl<T: Clone + Hash + Eq, U> Default for Usage<T, U> {
 
 impl<T: Debug + Clone + Hash + Eq, U: Debug> Debug for Usage<T, U> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_list().entries(self.iter()).finish()
-    }
-}
-
-impl<T: Clone + Hash + Eq, U> IntoIterator for Usage<T, U> {
-    type Item = (T, U);
-    type IntoIter = Map<std::vec::IntoIter<((T, U), Option<Use>)>, First>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Map(self.ts.into_iter(), First)
-    }
-}
-
-impl<'a, T: Clone + Hash + Eq, U> IntoIterator for &'a Usage<T, U> {
-    type Item = &'a (T, U);
-    type IntoIter = Map<std::slice::Iter<'a, ((T, U), Option<Use>)>, First>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        Map(self.ts.iter(), First)
-    }
-}
-
-impl<T: Clone + Hash + Eq, U: Hash + Eq> Hash for Usage<T, U> {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        state.write_usize(self.len());
-        for (t, u) in self { (t, u).hash(state); }
-    }
-}
-
-impl<T: Clone + Hash + Eq, U: PartialEq> PartialEq for Usage<T, U> {
-    fn eq(&self, other: &Self) -> bool {
-        self.iter().zip(other.iter()).all(|(x, y)| x == y)
-    }
-}
-
-impl<T: Clone + Hash + Eq, U, V, W> PartialEq<V> for Usage<T, U> where
-    V: std::ops::Deref<Target=[W]>,
-    (T, U): PartialEq<W>,
-{
-    fn eq(&self, other: &V) -> bool {
-        self.iter().zip(other.iter()).all(|(x, y)| x == y)
+        f.debug_list().entries(self.ts.iter().map(|&(ref tu, _)| tu)).finish()
     }
 }
