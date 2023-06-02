@@ -133,7 +133,7 @@ impl Simulation {
         }
         match ebb.ending {
             Ending::Leaf(ref leaf) => {
-                let after = lookup_leaf.after(leaf);
+                let after = lookup_leaf.convention(leaf);
                 assert_eq!(self.slots_used, after.slots_used);
                 let exit = Exit {
                     sequence: self.sequence,

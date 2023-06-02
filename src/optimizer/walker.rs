@@ -194,7 +194,7 @@ mod tests {
         ).collect();
         impl LookupLeaf for ArrayMap<Register, Convention> {
             type Leaf = Register;
-            fn after(&self, leaf: &Register) -> &Convention {
+            fn convention(&self, leaf: &Register) -> &Convention {
                 &self[*leaf]
             }
             fn weight(&self, leaf: &Register) -> usize {

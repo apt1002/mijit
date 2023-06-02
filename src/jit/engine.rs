@@ -237,7 +237,7 @@ impl<'a> LookupLeaf for Internals {
     type Leaf = CaseId;
 
     /// Return the convention in effect at `leaf`.
-    fn after(&self, leaf: &CaseId) -> &Convention {
+    fn convention(&self, leaf: &CaseId) -> &Convention {
         self.convention(*leaf)
     }
 

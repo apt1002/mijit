@@ -39,7 +39,7 @@ pub trait LookupLeaf {
     // A control-flow merge point.
     type Leaf: Debug + Clone;
     /// Return the convention in effect at `leaf`.
-    fn after(&self, leaf: &Self::Leaf) -> &Convention;
+    fn convention(&self, leaf: &Self::Leaf) -> &Convention;
     /// Return the estimated relative frequency of `leaf`.
     fn weight(&self, leaf: &Self::Leaf) -> usize;
 }
@@ -206,7 +206,7 @@ pub mod tests {
     // Several tests represent leaves as integers.
     impl LookupLeaf for Convention {
         type Leaf = usize;
-        fn after(&self, _leaf: &usize) -> &Convention {
+        fn convention(&self, _leaf: &usize) -> &Convention {
             self
         }
         fn weight(&self, leaf: &usize) -> usize {
