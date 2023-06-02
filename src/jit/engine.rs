@@ -1,7 +1,6 @@
 use std::collections::{HashMap};
 use std::fmt::{Debug};
 use std::ops::{Index, IndexMut};
-use std::marker::{PhantomData};
 
 use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
 use Precision::*;
@@ -234,6 +233,20 @@ impl IndexMut<CaseId> for Internals {
     }
 }
 
+impl<'a> LookupLeaf for Internals {
+    type Leaf = CaseId;
+
+    /// Return the convention in effect at `leaf`.
+    fn after(&self, leaf: &CaseId) -> &Convention {
+        self.convention(*leaf)
+    }
+
+    /// Return the estimated relative frequency of `leaf`.
+    fn weight(&self, _leaf: &CaseId) -> usize {
+        1  // FIXME
+    }
+}
+
 //-----------------------------------------------------------------------------
 
 /// The state of the JIT compilation engine. This includes the memory allocated
@@ -274,16 +287,12 @@ impl<T: Target> Engine<T> {
     ///
     ///  - id - the case to modify.
     ///  - ebb - the extended basic block defining the desired behaviour.
-    ///  - to_case - called for every leaf of the EBB to determine where to
-    ///    jump to.
-    pub fn build<L: Debug + Clone>(
+    pub fn build(
         &mut self,
         id: CaseId,
-        ebb: &EBB<L>,
-        to_case: &impl Fn(L) -> CaseId,
+        ebb: &EBB<CaseId>,
     ) {
         let before = self.i.convention(id);
-        let engine_wrapper = EngineWrapper {i: &self.i, to_case, _l: PhantomData};
         // Temporary: generate the [`CFT`].
         let input_map: HashMap<Node, Variable> =
             before.lives.iter()
@@ -294,7 +303,7 @@ impl<T: Target> Engine<T> {
             before.slots_used,
             reverse_map(&input_map),
             ebb,
-            &engine_wrapper,
+            &self.i,
         );
         // Optimize.
         let ebb = cft_to_ebb(
@@ -302,28 +311,26 @@ impl<T: Target> Engine<T> {
             before.slots_used,
             &input_map,
             &cft,
-            &engine_wrapper,
+            &self.i,
         );
-        self.build_inner(id, &ebb, to_case)
+        self.build_inner(id, &ebb)
     }
 
-    fn build_inner<L: Clone>(
+    fn build_inner(
         &mut self,
         id: CaseId,
-        ebb: &EBB<L>,
-        to_case: &impl Fn(L) -> CaseId,
+        ebb: &EBB<CaseId>,
     ) {
         let ebb_actions = ebb.actions.iter().copied().collect();
         match ebb.ending {
-            Ending::Leaf(ref leaf) => {
-                let jump = to_case(leaf.clone());
+            Ending::Leaf(jump) => {
                 let retire = Retire {actions: ebb_actions, jump: Some(jump)};
                 self.i.add_retire(&mut self.lowerer, id, retire);
             },
             Ending::Switch(discriminant, ref switch) => {
                 let switch = switch.map(|child_ebb| {
                     let child = self.i.new_case(Some(id));
-                    self.build_inner(child, child_ebb, to_case);
+                    self.build_inner(child, child_ebb);
                     child
                 });
                 let fetch = Fetch {actions: ebb_actions, discriminant, switch};
@@ -375,25 +382,5 @@ impl<T: Target> Engine<T> {
             // Here is a good place to set a debugger breakpoint.
             f(global)
         })
-    }
-}
-
-struct EngineWrapper<'a, L: Debug + Clone, F: Fn(L) -> CaseId> {
-    i: &'a Internals,
-    to_case: &'a F,
-    _l: PhantomData<L>,
-}
-
-impl<'a, L: Debug + Clone, F: Fn(L) -> CaseId> LookupLeaf for EngineWrapper<'a, L, F> {
-    type Leaf = L;
-
-    /// Return the convention in effect at `leaf`.
-    fn after(&self, leaf: &L) -> &Convention {
-        self.i.convention((self.to_case)(leaf.clone()))
-    }
-
-    /// Return the estimated relative frequency of `leaf`.
-    fn weight(&self, _leaf: &L) -> usize {
-        1  // FIXME
     }
 }

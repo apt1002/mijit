@@ -118,7 +118,7 @@ impl<T: Target> Beetle<T> {
 
         // Immediate branch.
         let branchi = jit.new_entry(&marshal, UNDEFINED);
-        jit.define(branchi, &build(|mut b| {
+        jit.define(branchi, build(|mut b| {
             b.const_binary32(Mul, R1, BA, CELL);
             b.binary32(Add, BEP, BEP, R1);
             pop(&mut b, BA, BEP);
@@ -128,7 +128,7 @@ impl<T: Target> Beetle<T> {
         // Not implemented.
         let not_implemented2 = jit.new_entry(&marshal, NOT_IMPLEMENTED);
         let not_implemented = jit.new_entry(&marshal, UNDEFINED);
-        jit.define(not_implemented, &build(|mut b| {
+        jit.define(not_implemented, build(|mut b| {
             b.const_binary32(Lsl, BA, BA, 8);
             b.binary32(Or, BA, BA, BI);
             b.jump(not_implemented2)
@@ -485,7 +485,7 @@ impl<T: Target> Beetle<T> {
         });
 
         // Main dispatch loop.
-        jit.define(root, &build(|mut b| {
+        jit.define(root, build(|mut b| {
             b.const_binary32(And, BI, BA, 0xFF);
             b.const_binary32(Asr, BA, BA, 8);
             b.index(BI, actions, build(|b| b.jump(not_implemented)))

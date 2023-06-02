@@ -54,13 +54,13 @@ impl<T: Target> Factorial<T> {
         let start = jit.new_entry(&marshal, START);
         let loop_ = jit.new_entry(&marshal, LOOP);
         let halt = jit.new_entry(&marshal, HALT);
-        jit.define(start, &EBB {
+        jit.define(start, EBB {
             actions: Box::new([
                 Constant(P32, RESULT, 1),
             ]),
             ending: Ending::Leaf(loop_),
         });
-        jit.define(loop_, &EBB {
+        jit.define(loop_, EBB {
             actions: Box::new([]),
             ending: Ending::Switch(N.into(), Switch::if_(
                 EBB {

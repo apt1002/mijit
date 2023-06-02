@@ -53,3 +53,24 @@ pub enum Ending<L> {
     /// Control-flow diverges.
     Switch(Variable, Switch<EBB<L>>),
 }
+
+impl<L> EBB<L> {
+    pub fn map_once<M>(self, callback: &mut impl FnMut(L) -> M) -> EBB<M> {
+        EBB {
+            actions: self.actions,
+            ending: self.ending.map_once(callback),
+        }
+    }
+}
+
+impl<L> Ending<L> {
+    pub fn map_once<M>(self, callback: &mut impl FnMut(L) -> M) -> Ending<M> {
+        use Ending::*;
+        match self {
+            Leaf(leaf) =>
+                Leaf(callback(leaf)),
+            Switch(discriminant, switch) =>
+                Switch(discriminant, switch.map_once(|ebb| ebb.map_once(callback))),
+        }
+    }
+}

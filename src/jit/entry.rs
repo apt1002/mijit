@@ -61,9 +61,10 @@ impl<T: Target> Jit<T> {
     ///
     ///  - entry - the entry point to modify.
     ///  - ebb - the extended basic block defining the desired behaviour.
-    pub fn define(&mut self, entry: EntryId, ebb: &EBB<EntryId>) {
+    pub fn define(&mut self, entry: EntryId, ebb: EBB<EntryId>) {
         assert!(!get!(self, entry).is_defined);
-        self.engine.build(get!(self, entry).case, ebb, &|e| get!(self, e).case);
+        let ebb = ebb.map_once(&mut |id| get!(self, id).case);
+        self.engine.build(get!(self, entry).case, &ebb);
         get!(self, entry).is_defined = true;
     }
 
