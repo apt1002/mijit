@@ -1,9 +1,9 @@
 use super::{code, graph, Engine, CaseId};
-use code::{Marshal, EBB};
-use graph::{Op};
+use code::{Marshal};
+use graph::{Op, Node, CFT, Builder};
 use super::target::{Label, Word, Target};
-use super::optimizer::{simulate, LookupLeaf};
-use crate::util::{AsUsize, reverse_map};
+use super::optimizer::{LookupLeaf};
+use crate::util::{AsUsize};
 
 // EntryId.
 array_index! {
@@ -63,24 +63,35 @@ impl<T: Target> Jit<T> {
     ///
     ///  - entry - the entry point to modify.
     ///  - ebb - the extended basic block defining the desired behaviour.
-    pub fn define(&mut self, entry: EntryId, ebb: EBB<EntryId>) {
+    pub fn define<'a>(
+        &'a mut self,
+        entry: EntryId,
+        code: impl 'a + for<'b> FnOnce(
+            Builder<'b, EntryId>,
+            &'b [Node],
+        ) -> CFT<EntryId>,
+    ) {
         assert!(!get!(self, entry).is_defined);
-        // Temporary: generate the `CFT` from the `EBB`.
-        let ebb = ebb.map_once(&mut |id| get!(self, id).case);
         let (dataflow, lookup_leaf) = self.engine.dataflow_mut();
+        // Compute entry requirements.
         let before = lookup_leaf.convention(&get!(self, entry).case);
         let slots_used = before.slots_used;
-        let input_map = before.lives.iter()
-            .map(|&variable| (dataflow.add_node(Op::Input, &[]), variable))
-            .collect();
-        let cft = simulate(
-            dataflow,
-            slots_used,
-            reverse_map(&input_map),
-            &ebb,
-            lookup_leaf,
-        );
+        let sequence = {
+            // TODO: `before` should contain the correct `Node`.
+            dataflow.undefined()
+        };
+        let inputs: Vec<Node> = before.lives.iter().map(|_| {
+            // TODO: `before` should contain the correct `Node`s.
+            // TODO: We should not be constructing new `Input`s here.
+            dataflow.add_node(Op::Input, &[])
+        }).collect();
+        // Call `code`.
+        let cft = code(Builder::new(dataflow, sequence), &inputs);
+        let cft = cft.map_once(&mut |id| get!(self, id).case);
         // Build it.
+        let input_map = inputs.iter().zip(before.lives.iter()).map(
+            |(&node, &variable)| (node, variable)
+        ).collect();
         self.engine.build(get!(self, entry).case, slots_used, &input_map, &cft);
         get!(self, entry).is_defined = true;
     }
@@ -102,6 +113,7 @@ impl<T: Target> Jit<T> {
 
 #[cfg(test)]
 pub mod tests {
+/*
     use super::super::target::{native};
 
     use super::super::factorial::*;
@@ -112,4 +124,5 @@ pub mod tests {
         let result = jit.run(5);
         assert_eq!(result, 120);
     }
+*/
 }

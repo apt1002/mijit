@@ -163,6 +163,20 @@ impl<L: Clone> CFT<L> {
             }
         }
     }
+
+    /// Apply `callback` to every `L` and return a fresh `CFT`.
+    pub fn map_once<M: Clone>(self, callback: &mut impl FnMut(L) -> M) -> CFT<M> {
+        match self {
+            CFT::Merge {exit, leaf} => {
+                let leaf = callback(leaf);
+                CFT::Merge {exit, leaf}
+            },
+            CFT::Switch {guard, switch, hot_index} => {
+                let switch = switch.map_once(|child| child.map_once(callback));
+                CFT::Switch {guard, switch, hot_index}
+            },
+        }
+    }
 }
 
 //-----------------------------------------------------------------------------
