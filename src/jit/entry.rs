@@ -3,7 +3,7 @@ use code::{Marshal, EBB};
 use graph::{Op};
 use super::target::{Label, Word, Target};
 use super::optimizer::{simulate, LookupLeaf};
-use crate::util::{AsUsize, reverse_map};
+use crate::util::{AsUsize, reverse_map, push_and_return_index};
 
 // EntryId.
 array_index! {
@@ -54,9 +54,9 @@ impl<T: Target> Jit<T> {
     // TODO: Document `marshal` and `exit_value`.
     pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> EntryId {
         let (label, case) = self.engine.new_entry(marshal, exit_value);
-        let id = EntryId::new(self.entries.len()).unwrap();
-        self.entries.push(Entry {label, case, is_defined: false});
-        id
+        EntryId::new(
+            push_and_return_index(&mut self.entries, Entry {label, case, is_defined: false})
+        ).unwrap()
     }
 
     /// Replace the code at `entry`. Each `EntryId` may only be defined once.

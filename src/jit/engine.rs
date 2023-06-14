@@ -7,7 +7,7 @@ use Precision::*;
 use super::graph::{Dataflow, Node, CFT, Convention, Propagator};
 use super::target::{Label, Word, Lower, Execute, Target, RESULT};
 use super::optimizer::{LookupLeaf, cft_to_ebb};
-use crate::util::{AsUsize};
+use crate::util::{AsUsize, push_and_return_index};
 
 // CaseId.
 array_index! {
@@ -96,15 +96,18 @@ impl Internals {
     ///    new `Case`.
     /// - convention - the [`Convention`] in effect on entry to the new `Case`.
     fn new_case(&mut self, fetch_parent: impl Into<Option<CaseId>>) -> CaseId {
-        let id = CaseId::new(self.cases.len()).unwrap();
-        self.cases.push(Case {
-            fetch_parent: fetch_parent.into(),
-            before: None,
-            label: Label::new(None),
-            retire: None,
-            fetch: None,
-        });
-        id
+        CaseId::new(
+            push_and_return_index(
+                &mut self.cases,
+                Case {
+                    fetch_parent: fetch_parent.into(),
+                    before: None,
+                    label: Label::new(None),
+                    retire: None,
+                    fetch: None,
+                },
+            )
+        ).unwrap()
     }
 
     /// Find the [`Convention`] for a [`CaseId`] allowing for `None`.
