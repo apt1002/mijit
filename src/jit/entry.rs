@@ -1,6 +1,6 @@
 use super::{code, graph, Engine, CaseId};
-use code::{Marshal, EBB};
-use graph::{Op};
+use code::{Register, EBB};
+use graph::{Op, Node, CFT, Builder};
 use super::target::{Label, Word, Target};
 use super::optimizer::{simulate, LookupLeaf};
 use crate::util::{AsUsize, reverse_map, push_and_return_index};
@@ -45,15 +45,27 @@ impl<T: Target> Jit<T> {
         }
     }
 
-    /// Constructs a new entry/exit point. Initially, the code at the entry
-    /// point will immediately exit, returning `exit_value`. Use `define()` to
-    /// change its behaviour.
+    /// Constructs a new entry/exit point. This is also a point where an
+    /// interrupt can occur.
     ///
-    ///  - exit_value - `run()` will return this value to its caller if
-    ///    execution ends at this entry/exit point. Must be non-negative.
-    // TODO: Document `marshal` and `exit_value`.
-    pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> EntryId {
-        let (label, case) = self.engine.new_entry(marshal, exit_value);
+    /// Initially, the code at the entry point will immediately exit, returning
+    /// `exit_value`. Use `define()` to change its behaviour. The code passed to
+    /// `define()` will be used when an interrupt has not occurred.
+    ///
+    /// - lives - the `Variable`s that are live at this point. A register
+    ///   allocation hint.
+    /// - prologue - code to restore state when resuming from an interrupt.
+    /// - epilogue - code to save state before an interrupt.
+    /// - exit_value - `run()` will return this value to its caller if
+    ///   execution ends at this entry/exit point. Must be non-negative.
+    pub fn new_entry<const N: usize>(
+        &mut self,
+        lives: &[Register; N], // TODO: Allow any `Variable`.
+        prologue: impl FnOnce(Builder<()>, Node) -> CFT<()>,
+        epilogue: impl FnOnce(Builder<()>, &[Node; N]) -> CFT<()>,
+        exit_value: i64
+    ) -> EntryId {
+        let (label, case) = self.engine.new_entry(lives, prologue, epilogue, exit_value);
         EntryId::new(
             push_and_return_index(&mut self.entries, Entry {label, case, is_defined: false})
         ).unwrap()

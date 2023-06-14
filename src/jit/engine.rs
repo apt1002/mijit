@@ -2,10 +2,9 @@ use std::collections::{HashMap};
 use std::fmt::{Debug};
 use std::ops::{Index, IndexMut};
 
-use super::code::{Precision, Variable, Switch, Action, Marshal, EBB, Ending};
-use Precision::*;
-use super::graph::{Dataflow, Node, CFT, Convention, Propagator};
-use super::target::{Label, Word, Lower, Execute, Target, RESULT};
+use super::code::{Register, Variable, GLOBAL, Switch, Action, EBB, Ending};
+use super::graph::{Op, Dataflow, Node, CFT, Convention, Propagator, Builder};
+use super::target::{Label, Word, Lower, Execute, Target};
 use super::optimizer::{LookupLeaf, cft_to_ebb};
 use crate::util::{AsUsize, push_and_return_index};
 
@@ -348,24 +347,53 @@ impl<T: Target> Engine<T> {
     /// Returns:
     ///  - label - the external entry point, which can be passed to `run()`.
     ///  - id - the `CaseId` corresponding to the entry.
-    pub fn new_entry(&mut self, marshal: &Marshal, exit_value: i64) -> (Label, CaseId) {
+    pub fn new_entry<const N: usize>(
+        &mut self,
+        lives: &[Register; N],
+        prologue: impl FnOnce(Builder<()>, Node) -> CFT<()>,
+        epilogue: impl FnOnce(Builder<()>, &[Node; N]) -> CFT<()>,
+        exit_value: i64
+    ) -> (Label, CaseId) {
         assert!(exit_value >= 0);
-        let id = self.i.new_case(None);
+        let lives: Box<[Variable]> = lives.iter().map(|&r| r.into()).collect();
+        let before = Convention {lives, slots_used: 0};        
+        let private_id = self.i.new_case(None);
+        let public_id = self.i.new_case(private_id);
+
         // Compile the epilogue.
-        let mut actions = Vec::new();
-        actions.extend(marshal.epilogue.iter().copied());
-        actions.push(Action::Constant(P64, RESULT, exit_value));
-        self.i.add_retire(&mut self.lowerer, id, Retire {actions: actions.into(), jump: None});
+        // FIXME: Missing `Action` to put `exit_value` in `RESULT`.
+        // FIXME: Missing call to `lo.epilogue()`.
+        let sequence = self.dataflow.undefined();
+        let inputs: [Node; N] = std::array::from_fn(|_| {
+            self.dataflow.add_node(Op::Input, &[])
+        });
+        let cft = epilogue(Builder::new(&mut self.dataflow, sequence), &inputs);
+        let cft = cft.map_once(&mut |()| private_id);
+        let input_map = inputs.iter().zip(before.lives.iter()).map(
+            |(&node, &variable)| (node, variable)
+        ).collect();
+        self.build(public_id, before.slots_used, &input_map, &cft);
+        self.i[public_id].set_convention(before);
+
         // Compile the prologue.
+        let input_global = self.dataflow.add_node(Op::Input, &[]);
+        let cft = prologue(Builder::new(&mut self.dataflow, sequence), input_global);
+        let cft = cft.map_once(&mut |()| public_id);
+        let input_map = HashMap::from([(input_global, Variable::from(GLOBAL))]);
+        self.build(private_id, self.i.convention.slots_used, &input_map, &cft);
+        let convention = self.i.convention.clone();
+        self.i[private_id].set_convention(convention);
+        
+        // Compile the prologue.
+        // FIXME! Currently compiles dead code.
         let lo = &mut self.lowerer;
         *lo.slots_used_mut() = 0;
         let label = lo.here();
         lo.prologue();
-        lo.actions(&marshal.prologue);
-        assert_eq!(*lo.slots_used_mut(), self.i[id].convention().slots_used);
-        lo.jump(&mut self.i[id].label);
+        lo.jump(&mut self.i[private_id].label);
+
         // Return.
-        (label, id)
+        (label, public_id)
     }
 
     /// Call the compiled code starting at `label`.
