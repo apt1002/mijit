@@ -1,6 +1,7 @@
 # Contents
 
-- What is a JIT compiler for?
+- Introduction
+  - What is a JIT compiler for?
   - How does a JIT compiler work?
   - A JIT compiler is really an interpreter
 - Specialisation
@@ -8,12 +9,17 @@
   - Fetching and retiring
   - Information theory
   - Instruction traces
-- Mathematical structure of specialisation
+- Conclusion
 
 
-# What is a JIT compiler for?
+# Introduction
 
-A Just-In-Time (JIT) compiler is a way of executing programs that simultaneously achieves three important goals:
+Let's suppose we want to write a Just-In-Time (JIT) compiler. I will briefly explain why this is an interesting thing to do; you may disagree, but it is a premise of this document. I will explain what a JIT compiler is, and how it is supposed to work. Merely by taking those as truths, and arguing by rejecting inferior designs and avoiding complications, we can deduce many features and properties that a good JIT compiler must exhibit. Encouragingly, many of these features and properties have analogues in hardware CPUs, which have similar goals and constraints. The arguments provide useful terminology and concepts and constrain a JIT compiler's design.
+
+
+## What is a JIT compiler for?
+
+A JIT compiler is a way of executing programs that simultaneously achieves three important goals:
 
 1. We want code to be easy to write and to maintain for a long time.
 2. We want it to run efficiently, to save time, energy and money.
@@ -63,7 +69,9 @@ Neglecting the possibility of code that is common to more than one phase, the be
 
 A better way to say this is that over time the interpreter becomes specialised for the program it is running. Each piece of compiled code is a specialisation for a particular task, which makes the interpreter more efficient if it ever has to perform that task. If the interpreter does not have to perform the task, the specialisation is useless.
 
-This is another essential feature of a JIT compiler. Fundamentally, the efficiency gain of a JIT compiler over an interpreter is achieved by specialising the interpreter. The theoretical limit of specialisation is an interpreter that says "Is the user program the expected one? If so, run the compiled version of the program, otherwise run the interpreter".
+This is another essential feature of a JIT compiler. Fundamentally, the efficiency gain of a JIT compiler over an interpreter is achieved by specialising the interpreter.
+
+It is difficult to prove a limit on the effectiveness of specialisation. A theoretical example of what a JIT compiler can produce is an interpreter that says "Is the user program the expected one? If so, run the compiled version of the program, otherwise run the interpreter". Thus, it is not unreasonable to believe that, in theory, the steady-state performance of a JIT-compiled program can exceed that of an ahead-of-time compiled program.
 
 
 ## Limits on specialisation
@@ -78,7 +86,7 @@ The main benefit of compiling dedicated code for a specialisation is that it pro
 
 Is there any other way to remember that a specialisation is active? I think the answer is no. We can rule out any mechanism that is as inefficient as an interpreter; we already have one of those. That includes any mechanism that tests a state variable at run time; we might as well interpret an instruction opcode instead (or test some other aspect of the virtual machine code). To put it another way, if specialisations share code then we lose the benefits of specialisation.
 
-So the total amount of storage available for remembering which specialisation is active is limited to about 20 bits, being the parts of the program counter that the JIT compiler can choose freely without straying outside the compiled code and without the basic blocks overlapping. Furthermore, some of that tiny budget is needed just to implement the virtual machine specification correctly; the interpreter itself has a control-flow graph. This budget is extremely constraining, and I can't see a way around it.
+So the total amount of storage available for remembering which specialisation is active is limited to about 20 bits, being the parts of the program counter that the JIT compiler can choose freely without straying outside the compiled code and without the basic blocks overlapping. This budget is extremely constraining, and I can't see a way around it.
 
 
 ## Fetching and retiring
@@ -104,7 +112,7 @@ A traditional interpreter is pessimal according to this metric; after executing 
 
 Specialisation may be understood as delaying the retirement of information, so as to predict (and therefore reduce the information content of) subsequent fetches. From the information theory viewpoint, this task is equivalent to compressing the instruction stream.
 
-We remark in passing that delaying retirements and avancing fetches makes a JIT compiler a software analogue of the reorder buffer in a CPU. In both cases, the technique is used to reveal opportunities for optmisation.
+We remark in passing that delaying retirements and avancing fetches makes a JIT compiler a software analogue of the reorder buffer in a CPU. In both cases, the technique is used to reveal opportunities for optimisation.
 
 
 ## Instruction traces
@@ -115,23 +123,19 @@ Fortunately, instruction traces are remarkably compressible. Off-the-shelf tools
 
 Of course, the `zstd` compression algorithm has much more than the 20 bits of state available to the compiled code of a JIT compiler. How well can we compress instruction traces using a Markov machine with up to 2²⁰ states? Actually, pretty well. We are allowed to choose the Markov machine to suit the particular user program; that's basically the JIT compiler's main job. A machine with that many states contains a lot of information: enough to hold large portions of the user program, plus profile-based decisions. It is not fair to compare the performance of such a Markov machine to that of `zstd`, because the latter is a completely general algorithm with no prior information. Nonetheless, if we do so, we get similar compression ratios: within an order of magnitude.
 
-In summary, there is *plenty* of opportunity for a JIT compiler to improve on an interpreter, according to this analysis. Of course, many existing JIT compilers do indeed work well; we did not need to prove that. The main value of the information-theoretic analysis is that is can be used to refute ideas that have no hope of working well, and to guide the choice of specialisations.
+In summary, there is *plenty* of opportunity for a JIT compiler to improve on an interpreter, according to this analysis. Of course, many existing JIT compilers do indeed work well; we did not need to prove that. The main value of the information-theoretic analysis is that it can be used to refute ideas that have no hope of working well, and to guide the choice of specialisations.
 
 
-# Mathematical structure of specialisations
+# Conclusion
 
-Everything above applies to all JIT compilers. However, to make progress I have to add some additional assumptions which, though reasonable, are not forced:
+We have presented an argument with the following structure:
 
-Assumption 1: No critical edges. In a control-flow graph, "a critical edge is an edge which is neither the only edge leaving its source block, nor the only edge entering its destination block" (https://en.wikipedia.org/wiki/Control-flow_graph#Special_edges). The control flow graph that is relevent here is that of the specialised interpreter, and the blocks are specialisations. Let's follow common practice and forbid critical edges. This is equivalent to saying that every control-flow edge is either a fetch or a retire, but not both.
-
-Assumption 2: Two parent rule. In principle, one can imagine a specialisation that can only be entered by retiring, or that can only be exited by fetching. Let's forbid such specialisations, and insist that every specialisation can be entered from a lesser specialisation, and can exit to a lesser specialisation. We call these lesser specialsations its "fetch parent" and "retire parent" respectively.
-
-[TODO: Allow specialisations that can only be exited by fetching. These arise when the optimiser reorders fetches. Weakening assumption 2 in this way ("Fetch parent rule") doesn't change very much.]
-
-Clearly there must be a base case: an exceptional "least" specialisation, which uniquely has no parents. This node of the control flow graph models the entire virtual machine state as data, i.e. execution leaves the JIT compiler entirely. The least specialisation is a convenient state in which to start and stop the virtual machine, to perform I/O, to run the compiler or garbage collector, and to catch exceptions.
-
-Assumption 2 implies that every specialisation is reachable from the least specialisation using only fetches, and assumption 1 implies that this path to each specialisation is unique. In other words, the specialisations form a tree, which I call the "fetch tree", with the least specialisation at the root. Analogously, the specialisations form a "retire tree", also with the least specialisation at the root. Thus, we have a beautiful double tree structure.
-
-The double tree structure provides an organising principle for specialisations. It is a useful restriction on the control-flow graph of the interpreter. It gives us a concrete representation of the graph, vocabulary for describing the relationships between specialisations, and the mutation operations that the compiler needs in order to create new specialisations.
-
-The diagram "specialisation.svg" shows the relationships of a single specialisation to its control-flow neighbours, and defines some terminology.
+- From the definition of a JIT compiler, its external behaviour is indistinguishable from an interpreter.
+- The benefits of a JIT compiler over an interpreter arise from specialising the interpreter for the program it is running.
+- The only sensible way this can work is by compiling new code at run-time and patching it into the running interpreter.
+- Transitions between specialisations are costly, because they prevent optimisations.
+- Avoiding transitions between specialisations is equivalent to compressing the instruction trace.
+- The compression algorithm must be a Markov model with one state per specialisation.
+- Practical limits on the amount of code we can compile limits the number of specialisations.
+- This gives a theoretical but very generous limit on the perfomance of a JIT compiler.
+- Information-theoretically suboptimal designs tighten this limit, and cannot possibly perform as well.
